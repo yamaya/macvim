@@ -7,7 +7,7 @@ extern int CGContextGetFontSmoothingStyle(CGContextRef);
 #define fontSmoothingStyleLight (2 << 3)
 
 #if MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_7
-static void
+inline void
 CTFontDrawGlyphs(CTFontRef fontRef, const CGGlyph glyphs[], const CGPoint positions[], UniCharCount count, CGContextRef context)
 {
     CGFontRef cgFontRef = CTFontCopyGraphicsFont(fontRef, NULL);
