@@ -28,10 +28,10 @@
 #import "Miscellaneous.h"
 #import "MMAppController.h"
 #import "MMCoreTextView.h"
+#import "MMCoreTextView+Compatibility.h"
 #import "MMTextViewHelper.h"
 #import "MMVimController.h"
 #import "MMWindowController.h"
-
 
 // TODO: What does DRAW_TRANSP flag do?  If the background isn't drawn when
 // this flag is set, then sometimes the character after the cursor becomes
@@ -44,74 +44,36 @@
 #define DRAW_CURSOR               0x20
 #define DRAW_WIDE                 0x40    /* draw wide text */
 
-#if MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_8
-#define kCTFontOrientationDefault kCTFontDefaultOrientation
-#endif // MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_8
-
-extern void CGContextSetFontSmoothingStyle(CGContextRef, int);
-extern int CGContextGetFontSmoothingStyle(CGContextRef);
-#define fontSmoothingStyleLight (2 << 3)
-
-#if MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_7
-    static void
-CTFontDrawGlyphs(CTFontRef fontRef, const CGGlyph glyphs[],
-                 const CGPoint positions[], UniCharCount count,
-                 CGContextRef context)
-{
-    CGFontRef cgFontRef = CTFontCopyGraphicsFont(fontRef, NULL);
-    CGContextSetFont(context, cgFontRef);
-    CGContextShowGlyphsAtPositions(context, glyphs, positions, count);
-    CGFontRelease(cgFontRef);
-}
-#endif // MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_7
-
-@interface MMCoreTextView (Private)
-- (MMWindowController *)windowController;
-- (MMVimController *)vimController;
-@end
-
-
 @interface MMCoreTextView (Drawing)
 - (NSPoint)pointForRow:(int)row column:(int)column;
-- (NSRect)rectFromRow:(int)row1 column:(int)col1
-                toRow:(int)row2 column:(int)col2;
+- (NSRect)rectFromRow:(int)row1 column:(int)col1 toRow:(int)row2 column:(int)col2;
 - (NSSize)textAreaSize;
 - (void)batchDrawData:(NSData *)data;
-- (void)drawString:(const UniChar *)chars length:(UniCharCount)length
-             atRow:(int)row column:(int)col cells:(int)cells
-         withFlags:(int)flags foregroundColor:(int)fg
-   backgroundColor:(int)bg specialColor:(int)sp;
-- (void)deleteLinesFromRow:(int)row lineCount:(int)count
-              scrollBottom:(int)bottom left:(int)left right:(int)right
-                     color:(int)color;
-- (void)insertLinesAtRow:(int)row lineCount:(int)count
-            scrollBottom:(int)bottom left:(int)left right:(int)right
-                   color:(int)color;
-- (void)clearBlockFromRow:(int)row1 column:(int)col1 toRow:(int)row2
-                   column:(int)col2 color:(int)color;
+- (void)drawString:(const UniChar *)chars length:(UniCharCount)length atRow:(int)row column:(int)col cells:(int)cells withFlags:(int)flags foregroundColor:(int)fg backgroundColor:(int)bg specialColor:(int)sp;
+- (void)deleteLinesFromRow:(int)row lineCount:(int)count scrollBottom:(int)bottom left:(int)left right:(int)right color:(int)color;
+- (void)insertLinesAtRow:(int)row lineCount:(int)count scrollBottom:(int)bottom left:(int)left right:(int)right color:(int)color;
+- (void)clearBlockFromRow:(int)row1 column:(int)col1 toRow:(int)row2 column:(int)col2 color:(int)color;
 - (void)clearAll;
-- (void)drawInsertionPointAtRow:(int)row column:(int)col shape:(int)shape
-                       fraction:(int)percent color:(int)color;
-- (void)drawInvertedRectAtRow:(int)row column:(int)col numRows:(int)nrows
-                   numColumns:(int)ncols;
+- (void)drawInsertionPointAtRow:(int)row column:(int)col shape:(int)shape fraction:(int)percent color:(int)color;
+- (void)drawInvertedRectAtRow:(int)row column:(int)col numRows:(int)nrows numColumns:(int)ncols;
+#define MM_DEBUG_DRAWING 0
+#if !MM_DEBUG_DRAWING
+#undef ASLogNotice
+#define ASLogNotice(format, ...)
+#endif
 @end
 
 
-
-    static float
+static float
 defaultLineHeightForFont(NSFont *font)
 {
     // HACK: -[NSFont defaultLineHeightForFont] is deprecated but since the
     // CoreText renderer does not use NSLayoutManager we create one
     // temporarily.
-    NSLayoutManager *lm = [[NSLayoutManager alloc] init];
-    float height = [lm defaultLineHeightForFont:font];
-    [lm release];
-
-    return height;
+    return [NSLayoutManager.new defaultLineHeightForFont:font];
 }
 
-    static double
+static double
 defaultAdvanceForFont(NSFont *font)
 {
     // NOTE: Previously we used CTFontGetAdvancesForGlyphs() to get the advance
@@ -119,116 +81,91 @@ defaultAdvanceForFont(NSFont *font)
     // the font spacing look too tight.
     // Instead use the same method to query the width of 'm' as MMTextStorage
     // uses to make things consistent across renderers.
-
-    NSDictionary *a = [NSDictionary dictionaryWithObject:font
-                                                  forKey:NSFontAttributeName];
-    return [@"m" sizeWithAttributes:a].width;
+    return [@"m" sizeWithAttributes:@{NSFontAttributeName: font}].width;
 }
 
-@implementation MMCoreTextView
+@implementation MMCoreTextView {
+    float               _fontDescent;
+    NSMutableArray      *_drawData;
+    MMTextViewHelper    *_helper;
+    unsigned            _maxlen;
+    CGGlyph             *_glyphs;
+    CGPoint             *_positions;
+    NSMutableArray      *_fontCache;
+    CGLayerRef          _CGLayer;
+    CGContextRef        _CGLayerContext;
+    NSLock              *_CGLayerLock;
+}
 
-- (id)initWithFrame:(NSRect)frame
+@synthesize maxRows = _maxRows, maxColumns = _maxColumns,
+    defaultForegroundColor = _defaultForegroundColor, defaultBackgroundColor = _defaultBackgroundColor,
+    font = _font, fontWide = _fontWide,
+    linespace = _linespace, textContainerInset = _textContainerInset,
+    antialias = _antialias, ligatures = _ligatures, thinStrokes = _thinStrokes,
+    CGLayerEnabled = _CGLayerEnabled;
+
+- (instancetype)initWithFrame:(NSRect)frame
 {
-    if (!(self = [super initWithFrame:frame]))
-        return nil;
+    if ((self = [super initWithFrame:frame]) == nil) return nil;
 
-    cgLayerEnabled = [[NSUserDefaults standardUserDefaults]
-            boolForKey:MMUseCGLayerAlwaysKey];
-    cgLayerLock = [NSLock new];
+    _CGLayerEnabled = [NSUserDefaults.standardUserDefaults boolForKey:MMUseCGLayerAlwaysKey];
+    _CGLayerLock = NSLock.new;
 
     // NOTE!  It does not matter which font is set here, Vim will set its
     // own font on startup anyway.  Just set some bogus values.
-    font = [[NSFont userFixedPitchFontOfSize:0] retain];
-    cellSize.width = cellSize.height = 1;
+    _font = [NSFont userFixedPitchFontOfSize:0];
+    _cellSize = (CGSize){1, 1};
 
     // NOTE: If the default changes to 'NO' then the intialization of
     // p_antialias in option.c must change as well.
-    antialias = YES;
+    _antialias = YES;
 
-    drawData = [[NSMutableArray alloc] init];
-    fontCache = [[NSMutableArray alloc] init];
+    _drawData = NSMutableArray.new;
+    _fontCache = NSMutableArray.new;
 
-    helper = [[MMTextViewHelper alloc] init];
-    [helper setTextView:self];
+    _helper = MMTextViewHelper.new;
+    _helper.textView = self;
 
-    [self registerForDraggedTypes:[NSArray arrayWithObjects:
-            NSFilenamesPboardType, NSStringPboardType, nil]];
+    [self registerForDraggedTypes:@[NSFilenamesPboardType, NSStringPboardType]];
 
-    ligatures = NO;
     return self;
 }
 
 - (void)dealloc
 {
-    [font release];  font = nil;
-    [fontWide release];  fontWide = nil;
-    [defaultBackgroundColor release];  defaultBackgroundColor = nil;
-    [defaultForegroundColor release];  defaultForegroundColor = nil;
-    [drawData release];  drawData = nil;
-    [fontCache release];  fontCache = nil;
+    _helper.textView = nil;
 
-    [helper setTextView:nil];
-    [helper release];  helper = nil;
-
-    if (glyphs) { free(glyphs); glyphs = NULL; }
-    if (positions) { free(positions); positions = NULL; }
-
-    [super dealloc];
+    if (_glyphs) {
+        free(_glyphs);
+        _glyphs = NULL;
+    }
+    if (_positions) {
+        free(_positions);
+        _positions = NULL;
+    }
 }
 
-- (int)maxRows
+- (void)getMaxRows:(int *)rows columns:(int *)cols
 {
-    return maxRows;
-}
-
-- (int)maxColumns
-{
-    return maxColumns;
-}
-
-- (void)getMaxRows:(int*)rows columns:(int*)cols
-{
-    if (rows) *rows = maxRows;
-    if (cols) *cols = maxColumns;
+    if (rows) *rows = _maxRows;
+    if (cols) *cols = _maxColumns;
 }
 
 - (void)setMaxRows:(int)rows columns:(int)cols
 {
     // NOTE: Just remember the new values, the actual resizing is done lazily.
-    maxRows = rows;
-    maxColumns = cols;
+    _maxRows = rows;
+    _maxColumns = cols;
 }
 
-- (void)setDefaultColorsBackground:(NSColor *)bgColor
-                        foreground:(NSColor *)fgColor
+- (void)setDefaultColorsBackground:(NSColor *)bg foreground:(NSColor *)fg
 {
-    if (defaultBackgroundColor != bgColor) {
-        [defaultBackgroundColor release];
-        defaultBackgroundColor = bgColor ? [bgColor retain] : nil;
-    }
+    if (_defaultBackgroundColor != bg) _defaultBackgroundColor = bg;
 
     // NOTE: The default foreground color isn't actually used for anything, but
     // other class instances might want to be able to access it so it is stored
     // here.
-    if (defaultForegroundColor != fgColor) {
-        [defaultForegroundColor release];
-        defaultForegroundColor = fgColor ? [fgColor retain] : nil;
-    }
-}
-
-- (NSColor *)defaultBackgroundColor
-{
-    return defaultBackgroundColor;
-}
-
-- (NSColor *)defaultForegroundColor
-{
-    return defaultForegroundColor;
-}
-
-- (void)setTextContainerInset:(NSSize)size
-{
-    insetSize = size;
+    if (_defaultForegroundColor != fg) _defaultForegroundColor = fg;
 }
 
 - (NSRect)rectForRowsInRange:(NSRange)range
@@ -239,20 +176,19 @@ defaultAdvanceForFont(NSFont *font)
     // include the top inset as well.  (This method is only used to place the
     // scrollbars inside MMVimView.)
 
-    NSRect rect = { {0, 0}, {0, 0} };
-    unsigned start = range.location > maxRows ? maxRows : range.location;
+    NSRect rect = NSZeroRect;
+    unsigned start = range.location > _maxRows ? _maxRows : range.location;
     unsigned length = range.length;
 
-    if (start + length > maxRows)
-        length = maxRows - start;
+    if (start + length > _maxRows) length = _maxRows - start;
 
     if (start > 0) {
-        rect.origin.y = cellSize.height * start + insetSize.height;
-        rect.size.height = cellSize.height * length;
+        rect.origin.y = _cellSize.height * start + _textContainerInset.height;
+        rect.size.height = _cellSize.height * length;
     } else {
         // Include top inset
         rect.origin.y = 0;
-        rect.size.height = cellSize.height * length + insetSize.height;
+        rect.size.height = _cellSize.height * length + _textContainerInset.height;
     }
 
     return rect;
@@ -265,20 +201,19 @@ defaultAdvanceForFont(NSFont *font)
     // NOTE: The first column must include the left inset.  (This method is
     // only used to place the scrollbars inside MMVimView.)
 
-    NSRect rect = { {0, 0}, {0, 0} };
-    unsigned start = range.location > maxColumns ? maxColumns : range.location;
+    NSRect rect = NSZeroRect;
+    unsigned start = range.location > _maxColumns ? _maxColumns : range.location;
     unsigned length = range.length;
 
-    if (start+length > maxColumns)
-        length = maxColumns - start;
+    if (start + length > _maxColumns) length = _maxColumns - start;
 
     if (start > 0) {
-        rect.origin.x = cellSize.width * start + insetSize.width;
-        rect.size.width = cellSize.width * length;
+        rect.origin.x = _cellSize.width * start + _textContainerInset.width;
+        rect.size.width = _cellSize.width * length;
     } else {
         // Include left inset
         rect.origin.x = 0;
-        rect.size.width = cellSize.width * length + insetSize.width;
+        rect.size.width = _cellSize.width * length + _textContainerInset.width;
     }
 
     return rect;
@@ -287,97 +222,65 @@ defaultAdvanceForFont(NSFont *font)
 
 - (void)setFont:(NSFont *)newFont
 {
-    if (!(newFont && font != newFont))
-        return;
+    if (!(newFont && _font != newFont)) return;
 
-    double em = round(defaultAdvanceForFont(newFont));
-    double pt = round([newFont pointSize]);
+    const double em = roundf(defaultAdvanceForFont(newFont));
+    const double pt = roundf(newFont.pointSize);
 
-    NSDictionary *attr = [NSDictionary dictionaryWithObjectsAndKeys:
-        [newFont displayName], (NSString*)kCTFontNameAttribute,
-        [NSNumber numberWithFloat:pt], (NSString*)kCTFontSizeAttribute, nil];
-    CTFontDescriptorRef desc = CTFontDescriptorCreateWithAttributes(
-            (CFDictionaryRef)attr);
+    CTFontDescriptorRef desc = CTFontDescriptorCreateWithAttributes((CFDictionaryRef)@{
+        (NSString *)kCTFontNameAttribute: newFont.displayName,
+        (NSString *)kCTFontSizeAttribute: @(pt),
+    });
     CTFontRef fontRef = CTFontCreateWithFontDescriptor(desc, pt, NULL);
     CFRelease(desc);
 
-    [font release];
-    font = (NSFont*)fontRef;
-
-    float cellWidthMultiplier = [[NSUserDefaults standardUserDefaults]
-            floatForKey:MMCellWidthMultiplierKey];
+    _font = (__bridge_transfer NSFont*)fontRef;
 
     // NOTE! Even though NSFontFixedAdvanceAttribute is a float, it will
     // only render at integer sizes.  Hence, we restrict the cell width to
     // an integer here, otherwise the window width and the actual text
     // width will not match.
-    cellSize.width = ceil(em * cellWidthMultiplier);
-    cellSize.height = linespace + defaultLineHeightForFont(font);
+    _cellSize.width = ceil(em * [NSUserDefaults.standardUserDefaults floatForKey:MMCellWidthMultiplierKey]);
+    _cellSize.height = _linespace + defaultLineHeightForFont(_font);
 
-    fontDescent = ceil(CTFontGetDescent(fontRef));
+    _fontDescent = ceil(CTFontGetDescent(fontRef));
 
-    [fontCache removeAllObjects];
+    [_fontCache removeAllObjects];
 }
 
-- (void)setWideFont:(NSFont *)newFont
+- (void)setFontWide:(NSFont *)newFont
 {
     if (!newFont) {
         // Use the normal font as the wide font (note that the normal font may
         // very well include wide characters.)
-        if (font) [self setWideFont:font];
-    } else if (newFont != fontWide) {
+        if (_font) [self setFontWide:_font];
+    } else if (newFont != _fontWide) {
         // NOTE: No need to set point size etc. since this is taken from the
         // regular font when drawing.
-        [fontWide release];
+        _fontWide = nil;
 
         // Use 'Apple Color Emoji' font for rendering emoji
-        CGFloat size = [font pointSize];
-        NSFontDescriptor *emojiDesc = [NSFontDescriptor
-            fontDescriptorWithName:@"Apple Color Emoji" size:size];
-        NSFontDescriptor *newFontDesc = [newFont fontDescriptor];
-        NSDictionary *attrs = [NSDictionary
-            dictionaryWithObject:[NSArray arrayWithObject:newFontDesc]
-                          forKey:NSFontCascadeListAttribute];
-        NSFontDescriptor *desc =
-            [emojiDesc fontDescriptorByAddingAttributes:attrs];
-        fontWide = [[NSFont fontWithDescriptor:desc size:size] retain];
+        NSFontDescriptor *emojiDesc = [NSFontDescriptor fontDescriptorWithName:@"Apple Color Emoji" size:_font.pointSize];
+        NSFontDescriptor *desc = [emojiDesc fontDescriptorByAddingAttributes:@{NSFontCascadeListAttribute: @[newFont.fontDescriptor]}];
+        _fontWide = [NSFont fontWithDescriptor:desc size:_font.pointSize];
     }
-}
-
-- (NSFont *)font
-{
-    return font;
-}
-
-- (NSFont *)fontWide
-{
-    return fontWide;
-}
-
-- (NSSize)cellSize
-{
-    return cellSize;
 }
 
 - (void)setLinespace:(float)newLinespace
 {
-    linespace = newLinespace;
+    _linespace = newLinespace;
 
     // NOTE: The linespace is added to the cell height in order for a multiline
     // selection not to have white (background color) gaps between lines.  Also
     // this simplifies the code a lot because there is no need to check the
     // linespace when calculating the size of the text view etc.  When the
     // linespace is non-zero the baseline will be adjusted as well; check
-    // MMTypesetter.
-    cellSize.height = linespace + defaultLineHeightForFont(font);
+    // MMTypesetter. _cellSize.height = _linespace + defaultLineHeightForFont(_font);
 }
-
-
-
 
 - (void)deleteSign:(NSString *)signName
 {
-    [helper deleteImage:signName];
+    [_helper deleteImage:signName];
 }
 
 - (void)setShouldDrawInsertionPoint:(BOOL)on
@@ -386,42 +289,27 @@ defaultAdvanceForFont(NSFont *font)
 
 - (void)setPreEditRow:(int)row column:(int)col
 {
-    [helper setPreEditRow:row column:col];
+    [_helper setPreEditRow:row column:col];
 }
 
 - (void)setMouseShape:(int)shape
 {
-    [helper setMouseShape:shape];
-}
-
-- (void)setAntialias:(BOOL)state
-{
-    antialias = state;
-}
-
-- (void)setLigatures:(BOOL)state
-{
-    ligatures = state;
-}
-
-- (void)setThinStrokes:(BOOL)state
-{
-    thinStrokes = state;
+    [_helper setMouseShape:shape];
 }
 
 - (void)setImControl:(BOOL)enable
 {
-    [helper setImControl:enable];
+    [_helper setImControl:enable];
 }
 
 - (void)activateIm:(BOOL)enable
 {
-    [helper activateIm:enable];
+    [_helper activateIm:enable];
 }
 
 - (void)checkImState
 {
-    [helper checkImState];
+    [_helper checkImState];
 }
 
 - (BOOL)_wantsKeyDownForEvent:(id)event
@@ -437,107 +325,107 @@ defaultAdvanceForFont(NSFont *font)
 
 - (void)keyDown:(NSEvent *)event
 {
-    [helper keyDown:event];
+    [_helper keyDown:event];
 }
 
 - (void)insertText:(id)string
 {
-    [helper insertText:string];
+    [_helper insertText:string];
 }
 
 - (void)doCommandBySelector:(SEL)selector
 {
-    [helper doCommandBySelector:selector];
+    [_helper doCommandBySelector:selector];
 }
 
 - (BOOL)hasMarkedText
 {
-    return [helper hasMarkedText];
+    return [_helper hasMarkedText];
 }
 
 - (NSRange)markedRange
 {
-    return [helper markedRange];
+    return [_helper markedRange];
 }
 
 - (NSDictionary *)markedTextAttributes
 {
-    return [helper markedTextAttributes];
+    return [_helper markedTextAttributes];
 }
 
 - (void)setMarkedTextAttributes:(NSDictionary *)attr
 {
-    [helper setMarkedTextAttributes:attr];
+    [_helper setMarkedTextAttributes:attr];
 }
 
 - (void)setMarkedText:(id)text selectedRange:(NSRange)range
 {
-    [helper setMarkedText:text selectedRange:range];
+    [_helper setMarkedText:text selectedRange:range];
 }
 
 - (void)unmarkText
 {
-    [helper unmarkText];
+    [_helper unmarkText];
 }
 
 - (void)scrollWheel:(NSEvent *)event
 {
-    [helper scrollWheel:event];
+    [_helper scrollWheel:event];
 }
 
 - (void)mouseDown:(NSEvent *)event
 {
-    [helper mouseDown:event];
+    [_helper mouseDown:event];
 }
 
 - (void)rightMouseDown:(NSEvent *)event
 {
-    [helper mouseDown:event];
+    [_helper mouseDown:event];
 }
 
 - (void)otherMouseDown:(NSEvent *)event
 {
-    [helper mouseDown:event];
+    [_helper mouseDown:event];
 }
 
 - (void)mouseUp:(NSEvent *)event
 {
-    [helper mouseUp:event];
+    [_helper mouseUp:event];
 }
 
 - (void)rightMouseUp:(NSEvent *)event
 {
-    [helper mouseUp:event];
+    [_helper mouseUp:event];
 }
 
 - (void)otherMouseUp:(NSEvent *)event
 {
-    [helper mouseUp:event];
+    [_helper mouseUp:event];
 }
 
 - (void)mouseDragged:(NSEvent *)event
 {
-    [helper mouseDragged:event];
+    [_helper mouseDragged:event];
 }
 
 - (void)rightMouseDragged:(NSEvent *)event
 {
-    [helper mouseDragged:event];
+    [_helper mouseDragged:event];
 }
 
 - (void)otherMouseDragged:(NSEvent *)event
 {
-    [helper mouseDragged:event];
+    [_helper mouseDragged:event];
 }
 
 - (void)mouseMoved:(NSEvent *)event
 {
-    [helper mouseMoved:event];
+    [_helper mouseMoved:event];
 }
 
 - (void)swipeWithEvent:(NSEvent *)event
 {
-    [helper swipeWithEvent:event];
+    [_helper swipeWithEvent:event];
 }
 
 - (NSMenu*)menuForEvent:(NSEvent *)event
@@ -550,20 +438,18 @@ defaultAdvanceForFont(NSFont *font)
 
 - (BOOL)performDragOperation:(id <NSDraggingInfo>)sender
 {
-    return [helper performDragOperation:sender];
+    return [_helper performDragOperation:sender];
 }
 
 - (NSDragOperation)draggingEntered:(id <NSDraggingInfo>)sender
 {
-    return [helper draggingEntered:sender];
+    return [_helper draggingEntered:sender];
 }
 
 - (NSDragOperation)draggingUpdated:(id <NSDraggingInfo>)sender
 {
-    return [helper draggingUpdated:sender];
+    return [_helper draggingUpdated:sender];
 }
-
-
 
 - (BOOL)mouseDownCanMoveWindow
 {
@@ -587,119 +473,100 @@ defaultAdvanceForFont(NSFont *font)
 
 - (void)drawRect:(NSRect)rect
 {
-    NSGraphicsContext *context = [NSGraphicsContext currentContext];
-    [context setShouldAntialias:antialias];
+    NSGraphicsContext.currentContext.shouldAntialias = _antialias;
 
-    if (cgLayerEnabled && drawData.count == 0) {
+    if (_CGLayerEnabled && _drawData.count == 0) {
         // during a live resize, we will have around a stale layer until the
         // refresh messages travel back from the vim process. We push the old
         // layer in at an offset to get rid of jitter due to lines changing
         // position.
-        [cgLayerLock lock];
-        CGLayerRef l = [self getCGLayer];
-        CGSize cgLayerSize = CGLayerGetSize(l);
-        CGSize frameSize = [self frame].size;
-        NSRect drawRect = NSMakeRect(
-                0,
-                frameSize.height - cgLayerSize.height,
-                cgLayerSize.width,
-                cgLayerSize.height);
+        [_CGLayerLock lock];
+        CGLayerRef layerRef = [self getCGLayer];
+        const CGSize layerSize = CGLayerGetSize(layerRef);
+        const NSRect drawRect = NSMakeRect(0, self.frame.size.height - layerSize.height, layerSize.width, layerSize.height);
 
-        CGContextRef cgContext = [context graphicsPort];
+        CGContextRef contextRef = NSGraphicsContext.currentContext.graphicsPort;
 
-        const NSRect *rects;
-        long count;
+        const NSRect *rects = nil;
+        long count = 0;
         [self getRectsBeingDrawn:&rects count:&count];
 
-        int i;
-        for (i = 0; i < count; i++) {
-           CGContextSaveGState(cgContext);
-           CGContextClipToRect(cgContext, rects[i]);
-           CGContextSetBlendMode(cgContext, kCGBlendModeCopy);
-           CGContextDrawLayerInRect(cgContext, drawRect, l);
-           CGContextRestoreGState(cgContext);
+        for (long i = 0; i < count; i++) {
+            CGContextSaveGState(contextRef);
+            CGContextClipToRect(contextRef, rects[i]);
+            CGContextSetBlendMode(contextRef, kCGBlendModeCopy);
+            CGContextDrawLayerInRect(contextRef, drawRect, layerRef);
+            CGContextRestoreGState(contextRef);
         }
-        [cgLayerLock unlock];
+        [_CGLayerLock unlock];
     } else {
-       id data;
-       NSEnumerator *e = [drawData objectEnumerator];
-       while ((data = [e nextObject]))
-          [self batchDrawData:data];
-
-       [drawData removeAllObjects];
+        for (NSData *data in _drawData.objectEnumerator) [self batchDrawData:data];
+        [_drawData removeAllObjects];
     }
 }
 
 - (void)performBatchDrawWithData:(NSData *)data
 {
-    if (cgLayerEnabled && drawData.count == 0 && [self getCGContext]) {
-        [cgLayerLock lock];
+    if (_CGLayerEnabled && _drawData.count == 0 && [self getCGContext]) {
+        [_CGLayerLock lock];
         [self batchDrawData:data];
-        [cgLayerLock unlock];
+        [_CGLayerLock unlock];
     } else {
-        [drawData addObject:data];
+        [_drawData addObject:data];
         [self setNeedsDisplay:YES];
 
         // NOTE: During resizing, Cocoa only sends draw messages before Vim's rows
         // and columns are changed (due to ipc delays). Force a redraw here.
-        if ([self inLiveResize])
-           [self display];
+        if (self.inLiveResize) [self display];
     }
 }
 
 - (void)setCGLayerEnabled:(BOOL)enabled
 {
-    cgLayerEnabled = enabled;
+    _CGLayerEnabled = enabled;
 
-    if (!cgLayerEnabled)
+    if (!_CGLayerEnabled)
         [self releaseCGLayer];
 }
 
 - (void)releaseCGLayer
 {
-    if (cgLayer)  {
-        CGLayerRelease(cgLayer);
-        cgLayer = nil;
-        cgLayerContext = nil;
+    if (_CGLayer)  {
+        CGLayerRelease(_CGLayer);
+        _CGLayer = NULL;
+        _CGLayerContext = NULL;
     }
 }
 
 - (CGLayerRef)getCGLayer
 {
-    NSParameterAssert(cgLayerEnabled);
-    if (!cgLayer && [self lockFocusIfCanDraw]) {
-        NSGraphicsContext *context = [NSGraphicsContext currentContext];
-        NSRect frame = [self frame];
-        cgLayer = CGLayerCreateWithContext(
-            [context graphicsPort], frame.size, NULL);
+    NSParameterAssert(_CGLayerEnabled);
+    if (!_CGLayer && [self lockFocusIfCanDraw]) {
+        _CGLayer = CGLayerCreateWithContext(NSGraphicsContext.currentContext.graphicsPort, self.frame.size, NULL);
         [self unlockFocus];
     }
-    return cgLayer;
+    return _CGLayer;
 }
 
 - (CGContextRef)getCGContext
 {
-    if (cgLayerEnabled) {
-        if (!cgLayerContext)
-            cgLayerContext = CGLayerGetContext([self getCGLayer]);
-        return cgLayerContext;
+    if (_CGLayerEnabled) {
+        if (!_CGLayerContext) _CGLayerContext = CGLayerGetContext([self getCGLayer]);
+        return _CGLayerContext;
     } else {
-        return [[NSGraphicsContext currentContext] graphicsPort];
+        return NSGraphicsContext.currentContext.graphicsPort;
     }
 }
 
 - (void)setNeedsDisplayCGLayerInRect:(CGRect)rect
 {
-    if (cgLayerEnabled)
-       [self setNeedsDisplayInRect:rect];
+    if (_CGLayerEnabled) [self setNeedsDisplayInRect:rect];
 }
 
 - (void)setNeedsDisplayCGLayer:(BOOL)flag
 {
-    if (cgLayerEnabled)
-       [self setNeedsDisplay:flag];
+    if (_CGLayerEnabled) [self setNeedsDisplay:flag];
 }
-
 
 - (NSSize)constrainRows:(int *)rows columns:(int *)cols toSize:(NSSize)size
 {
@@ -709,33 +576,30 @@ defaultAdvanceForFont(NSFont *font)
 
     // Constrain the desired size to the given size.  Values for the minimum
     // rows and columns are taken from Vim.
-    NSSize desiredSize = [self desiredSize];
-    int desiredRows = maxRows;
-    int desiredCols = maxColumns;
-    NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
-    int right = [ud integerForKey:MMTextInsetRightKey];
-    int bot = [ud integerForKey:MMTextInsetBottomKey];
+    NSSize desiredSize = self.desiredSize;
+    NSInteger desiredRows = _maxRows;
+    NSInteger desiredCols = _maxColumns;
 
     if (size.height != desiredSize.height) {
-        float fh = cellSize.height;
-        float ih = insetSize.height + bot;
-        if (fh < 1.0f) fh = 1.0f;
+        const NSInteger inset = [NSUserDefaults.standardUserDefaults integerForKey:MMTextInsetBottomKey];
+        const CGFloat fh = MAX(_cellSize.height, 1);
+        const CGFloat ih = _textContainerInset.height + inset;
 
-        desiredRows = floor((size.height - ih)/fh);
-        desiredSize.height = fh*desiredRows + ih;
+        desiredRows = floor((size.height - ih) / fh);
+        desiredSize.height = fh * desiredRows + ih;
     }
 
     if (size.width != desiredSize.width) {
-        float fw = cellSize.width;
-        float iw = insetSize.width + right;
-        if (fw < 1.0f) fw = 1.0f;
+        const NSInteger inset = [NSUserDefaults.standardUserDefaults integerForKey:MMTextInsetRightKey];
+        const CGFloat fw = MAX(_cellSize.width, 1);
+        const CGFloat iw = _textContainerInset.width + inset;
 
-        desiredCols = floor((size.width - iw)/fw);
-        desiredSize.width = fw*desiredCols + iw;
+        desiredCols = floor((size.width - iw) / fw);
+        desiredSize.width = fw * desiredCols + iw;
     }
 
-    if (rows) *rows = desiredRows;
-    if (cols) *cols = desiredCols;
+    if (rows) *rows = (int)desiredRows;
+    if (cols) *cols = (int)desiredCols;
 
     return desiredSize;
 }
@@ -744,47 +608,45 @@ defaultAdvanceForFont(NSFont *font)
 {
     // Compute the size the text view should be for the entire text area and
     // inset area to be visible with the present number of rows and columns.
-    NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
-    int right = [ud integerForKey:MMTextInsetRightKey];
-    int bot = [ud integerForKey:MMTextInsetBottomKey];
+    const NSInteger right = [NSUserDefaults.standardUserDefaults integerForKey:MMTextInsetRightKey];
+    const NSInteger bottom = [NSUserDefaults.standardUserDefaults integerForKey:MMTextInsetBottomKey];
 
-    return NSMakeSize(maxColumns * cellSize.width + insetSize.width + right,
-                      maxRows * cellSize.height + insetSize.height + bot);
+    return NSMakeSize(_maxColumns * _cellSize.width + _textContainerInset.width + right,
+                      _maxRows * _cellSize.height + _textContainerInset.height + bottom);
 }
 
 - (NSSize)minSize
 {
     // Compute the smallest size the text view is allowed to be.
-    NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
-    int right = [ud integerForKey:MMTextInsetRightKey];
-    int bot = [ud integerForKey:MMTextInsetBottomKey];
+    const NSInteger right = [NSUserDefaults.standardUserDefaults integerForKey:MMTextInsetRightKey];
+    const NSInteger bottom = [NSUserDefaults.standardUserDefaults integerForKey:MMTextInsetBottomKey];
 
-    return NSMakeSize(MMMinColumns * cellSize.width + insetSize.width + right,
-                      MMMinRows * cellSize.height + insetSize.height + bot);
+    return NSMakeSize(MMMinColumns * _cellSize.width + _textContainerInset.width + right,
+                      MMMinRows * _cellSize.height + _textContainerInset.height + bottom);
 }
 
 - (void)changeFont:(id)sender
 {
-    NSFont *newFont = [sender convertFont:font];
+    NSFont *newFont = [sender convertFont:_font];
 
     if (newFont) {
-        NSString *name = [newFont displayName];
-        unsigned len = [name lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
-        if (len > 0) {
-            NSMutableData *data = [NSMutableData data];
-            float pointSize = [newFont pointSize];
+        unsigned length = [newFont.displayName lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+        if (length != 0) {
+            NSMutableData *data = NSMutableData.new;
 
-            [data appendBytes:&pointSize length:sizeof(float)];
+            // pointSize
+            const float pointSize = newFont.pointSize;
+            [data appendBytes:&pointSize length:sizeof(pointSize)];
 
-            ++len;  // include NUL byte
-            [data appendBytes:&len length:sizeof(unsigned)];
-            [data appendBytes:[name UTF8String] length:len];
+            // displayName
+            ++length;  // include NUL byte
+            [data appendBytes:&length length:sizeof(length)];
+            [data appendBytes:newFont.displayName.UTF8String length:length];
 
-            [[self vimController] sendMessage:SetFontMsgID data:data];
+            [self.vimController sendMessage:SetFontMsgID data:data];
         }
     }
 }
-
 
 //
 // NOTE: The menu items cut/copy/paste/undo/redo/select all/... must be bound
@@ -793,68 +655,59 @@ defaultAdvanceForFont(NSFont *font)
 //
 - (IBAction)cut:(id)sender
 {
-    [[self windowController] vimMenuItemAction:sender];
+    [self.windowController vimMenuItemAction:sender];
 }
 
 - (IBAction)copy:(id)sender
 {
-    [[self windowController] vimMenuItemAction:sender];
+    [self.windowController vimMenuItemAction:sender];
 }
 
 - (IBAction)paste:(id)sender
 {
-    [[self windowController] vimMenuItemAction:sender];
+    [self.windowController vimMenuItemAction:sender];
 }
 
 - (IBAction)undo:(id)sender
 {
-    [[self windowController] vimMenuItemAction:sender];
+    [self.windowController vimMenuItemAction:sender];
 }
 
 - (IBAction)redo:(id)sender
 {
-    [[self windowController] vimMenuItemAction:sender];
+    [self.windowController vimMenuItemAction:sender];
 }
 
 - (IBAction)selectAll:(id)sender
 {
-    [[self windowController] vimMenuItemAction:sender];
+    [self.windowController vimMenuItemAction:sender];
 }
 
 - (BOOL)convertPoint:(NSPoint)point toRow:(int *)row column:(int *)column
 {
-    point.y = [self bounds].size.height - point.y;
+    point.y = self.bounds.size.height - point.y;
 
-    NSPoint origin = { insetSize.width, insetSize.height };
+    const NSPoint origin = {_textContainerInset.width, _textContainerInset.height};
 
-    if (!(cellSize.width > 0 && cellSize.height > 0))
-        return NO;
+    if (!(_cellSize.width > 0 && _cellSize.height > 0)) return NO;
 
-    if (row) *row = floor((point.y-origin.y-1) / cellSize.height);
-    if (column) *column = floor((point.x-origin.x-1) / cellSize.width);
-
-    //ASLogDebug(@"point=%@ row=%d col=%d",
-    //      NSStringFromPoint(point), *row, *column);
+    if (row) *row = floor((point.y - origin.y - 1) / _cellSize.height);
+    if (column) *column = floor((point.x - origin.x - 1) / _cellSize.width);
 
     return YES;
 }
 
-- (NSRect)rectForRow:(int)row column:(int)col numRows:(int)nr
-          numColumns:(int)nc
+- (NSRect)rectForRow:(int)row column:(int)col numRows:(int)nr numColumns:(int)nc
 {
     // Return the rect for the block which covers the specified rows and
     // columns.  The lower-left corner is the origin of this rect.
     // NOTE: The coordinate system is _NOT_ flipped!
-    NSRect rect;
-    NSRect frame = [self bounds];
-
-    rect.origin.x = col*cellSize.width + insetSize.width;
-    rect.origin.y = frame.size.height - (row+nr)*cellSize.height -
-                    insetSize.height;
-    rect.size.width = nc*cellSize.width;
-    rect.size.height = nr*cellSize.height;
-
-    return rect;
+    return (NSRect){
+        .origin.x = col * _cellSize.width + _textContainerInset.width,
+        .origin.y = self.bounds.size.height - (row + nr)*_cellSize.height - _textContainerInset.height,
+        .size.width = nc * _cellSize.width,
+        .size.height = nr * _cellSize.height,
+    };
 }
 
 - (NSArray *)validAttributesForMarkedText
@@ -879,86 +732,77 @@ defaultAdvanceForFont(NSFont *font)
 
 - (NSRange)selectedRange
 {
-    return [helper imRange];
+    return _helper.imRange;
 }
 
 - (NSRect)firstRectForCharacterRange:(NSRange)range
 {
-    return [helper firstRectForCharacterRange:range];
+    return [_helper firstRectForCharacterRange:range];
 }
-
-@end // MMCoreTextView
-
-
-
-
-@implementation MMCoreTextView (Private)
 
 - (MMWindowController *)windowController
 {
-    id windowController = [[self window] windowController];
-    if ([windowController isKindOfClass:[MMWindowController class]])
+    id windowController = self.window.windowController;
+    if ([windowController isKindOfClass:MMWindowController.class])
         return (MMWindowController*)windowController;
     return nil;
 }
 
 - (MMVimController *)vimController
 {
-    return [[self windowController] vimController];
+    return self.windowController.vimController;
 }
 
-@end // MMCoreTextView (Private)
+- (void)setWideFont:(NSFont *)font
+{
+    self.fontWide = font;
+}
 
+@end
 
-
-
+/**
+ */
 @implementation MMCoreTextView (Drawing)
 
 - (NSPoint)pointForRow:(int)row column:(int)col
 {
-    NSRect frame = [self bounds];
-    return NSMakePoint(
-            col*cellSize.width + insetSize.width,
-            frame.size.height - (row+1)*cellSize.height - insetSize.height);
+    return (NSPoint){
+        .x = col * _cellSize.width + _textContainerInset.width,
+        .y = self.bounds.size.height - (row + 1) * _cellSize.height - _textContainerInset.height
+    };
 }
 
-- (NSRect)rectFromRow:(int)row1 column:(int)col1
-                toRow:(int)row2 column:(int)col2
+- (NSRect)rectFromRow:(int)row1 column:(int)col1 toRow:(int)row2 column:(int)col2
 {
-    NSRect frame = [self bounds];
-    return NSMakeRect(
-            insetSize.width + col1*cellSize.width,
-            frame.size.height - insetSize.height - (row2+1)*cellSize.height,
-            (col2 + 1 - col1) * cellSize.width,
-            (row2 + 1 - row1) * cellSize.height);
+    return (NSRect){
+        .origin.x = _textContainerInset.width + col1 * _cellSize.width,
+        .origin.y = self.bounds.size.height - _textContainerInset.height - (row2 + 1) * _cellSize.height,
+        .size.width = (col2 + 1 - col1) * _cellSize.width,
+        .size.height = (row2 + 1 - row1) * _cellSize.height
+    };
 }
 
 - (NSSize)textAreaSize
 {
     // Calculate the (desired) size of the text area, i.e. the text view area
     // minus the inset area.
-    return NSMakeSize(maxColumns * cellSize.width, maxRows * cellSize.height);
+    return (NSSize){_maxColumns * _cellSize.width, _maxRows * _cellSize.height};
 }
-
-#define MM_DEBUG_DRAWING 0
 
 - (void)batchDrawData:(NSData *)data
 {
-    const void *bytes = [data bytes];
-    const void *end = bytes + [data length];
+    const void *bytes = data.bytes;
+    const void *end = bytes + data.length;
 
-#if MM_DEBUG_DRAWING
     ASLogNotice(@"====> BEGIN");
-#endif
     // TODO: Sanity check input
 
     while (bytes < end) {
-        int type = *((int*)bytes);  bytes += sizeof(int);
+        int type = *((int*)bytes);
+        bytes += sizeof(int);
 
         if (ClearAllDrawType == type) {
-#if MM_DEBUG_DRAWING
             ASLogNotice(@"   Clear all");
-#endif
             [self clearAll];
         } else if (ClearBlockDrawType == type) {
             unsigned color = *((unsigned*)bytes);  bytes += sizeof(unsigned);
@@ -967,13 +811,9 @@ defaultAdvanceForFont(NSFont *font)
             int row2 = *((int*)bytes);  bytes += sizeof(int);
             int col2 = *((int*)bytes);  bytes += sizeof(int);
 
-#if MM_DEBUG_DRAWING
-            ASLogNotice(@"   Clear block (%d,%d) -> (%d,%d)", row1, col1,
-                    row2,col2);
-#endif
-            [self clearBlockFromRow:row1 column:col1
-                    toRow:row2 column:col2
-                    color:color];
+            ASLogNotice(@"   Clear block (%d,%d) -> (%d,%d)", row1, col1, row2,col2);
+
+            [self clearBlockFromRow:row1 column:col1 toRow:row2 column:col2 color:color];
         } else if (DeleteLinesDrawType == type) {
             unsigned color = *((unsigned*)bytes);  bytes += sizeof(unsigned);
             int row = *((int*)bytes);  bytes += sizeof(int);
@@ -982,16 +822,12 @@ defaultAdvanceForFont(NSFont *font)
             int left = *((int*)bytes);  bytes += sizeof(int);
             int right = *((int*)bytes);  bytes += sizeof(int);
 
-#if MM_DEBUG_DRAWING
             ASLogNotice(@"   Delete %d line(s) from %d", count, row);
-#endif
-            [self deleteLinesFromRow:row lineCount:count
-                    scrollBottom:bot left:left right:right
-                           color:color];
+
+            [self deleteLinesFromRow:row lineCount:count scrollBottom:bot left:left right:right color:color];
         } else if (DrawSignDrawType == type) {
             int strSize = *((int*)bytes);  bytes += sizeof(int);
-            NSString *imgName =
-                [NSString stringWithUTF8String:(const char*)bytes];
+            NSString *name = [NSString stringWithUTF8String:(const char*)bytes];
             bytes += strSize;
 
             int col = *((int*)bytes);  bytes += sizeof(int);
@@ -999,68 +835,51 @@ defaultAdvanceForFont(NSFont *font)
             int width = *((int*)bytes);  bytes += sizeof(int);
             int height = *((int*)bytes);  bytes += sizeof(int);
 
-            NSImage *signImg = [helper signImageForName:imgName];
-            NSRect r = [self rectForRow:row
-                                 column:col
-                                numRows:height
-                             numColumns:width];
-            if (cgLayerEnabled) {
+            NSImage *image = [_helper signImageForName:name];
+            const NSRect rect = [self rectForRow:row column:col numRows:height numColumns:width];
+            if (_CGLayerEnabled) {
                 CGContextRef context = [self getCGContext];
-                CGImageRef cgImage = [signImg CGImageForProposedRect:&r
-                                                             context:nil
-                                                               hints:nil];
-                CGContextDrawImage(context, r, cgImage);
+                CGImageRef imageRef = [image CGImageForProposedRect:&rect context:nil hints:nil];
+                CGContextDrawImage(context, rect, imageRef);
             } else {
-                [signImg drawInRect:r
-                           fromRect:NSZeroRect
-                          operation:NSCompositingOperationSourceOver
-                           fraction:1.0];
+                [image drawInRect:rect fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1];
             }
-            [self setNeedsDisplayCGLayerInRect:r];
+            [self setNeedsDisplayCGLayerInRect:rect];
         } else if (DrawStringDrawType == type) {
-            int bg = *((int*)bytes);  bytes += sizeof(int);
-            int fg = *((int*)bytes);  bytes += sizeof(int);
-            int sp = *((int*)bytes);  bytes += sizeof(int);
-            int row = *((int*)bytes);  bytes += sizeof(int);
-            int col = *((int*)bytes);  bytes += sizeof(int);
-            int cells = *((int*)bytes);  bytes += sizeof(int);
-            int flags = *((int*)bytes);  bytes += sizeof(int);
-            int len = *((int*)bytes);  bytes += sizeof(int);
-            UInt8 *s = (UInt8 *)bytes;  bytes += len;
+            const int bg = *((int *)bytes);  bytes += sizeof(int);
+            const int fg = *((int *)bytes);  bytes += sizeof(int);
+            const int sp = *((int *)bytes);  bytes += sizeof(int);
+            const int row = *((int *)bytes);  bytes += sizeof(int);
+            const int col = *((int *)bytes);  bytes += sizeof(int);
+            const int cells = *((int *)bytes);  bytes += sizeof(int);
+            const int flags = *((int *)bytes);  bytes += sizeof(int);
+            const int length = *((int *)bytes);  bytes += sizeof(int);
+            const UInt8 *buffer = (UInt8 *)bytes;  bytes += length;
 
-#if MM_DEBUG_DRAWING
-            ASLogNotice(@"   Draw string len=%d row=%d col=%d flags=%#x",
-                    len, row, col, flags);
-#endif
+            ASLogNotice(@"   Draw string length=%d row=%d col=%d flags=%#x", length, row, col, flags);
 
             // Convert UTF-8 chars to UTF-16
-            CFStringRef sref = CFStringCreateWithBytesNoCopy(NULL, s, len,
-                                kCFStringEncodingUTF8, false, kCFAllocatorNull);
-            if (sref == NULL) {
+            CFStringRef stringRef = CFStringCreateWithBytesNoCopy(NULL, buffer, length, kCFStringEncodingUTF8, false, kCFAllocatorNull);
+            if (!stringRef) {
                 ASLogWarn(@"Conversion error: some text may not be rendered");
                 continue;
             }
-            CFIndex unilength = CFStringGetLength(sref);
-            const UniChar *unichars = CFStringGetCharactersPtr(sref);
+            CFIndex unilength = CFStringGetLength(stringRef);
+            const UniChar *unichars = CFStringGetCharactersPtr(stringRef);
             UniChar *buffer = NULL;
-            if (unichars == NULL) {
+            if (!unichars) {
                 buffer = malloc(unilength * sizeof(UniChar));
-                CFStringGetCharacters(sref, CFRangeMake(0, unilength), buffer);
+                CFStringGetCharacters(stringRef, (CFRange){0, unilength}, buffer);
                 unichars = buffer;
             }
 
-            [self drawString:unichars length:unilength
-                       atRow:row column:col cells:cells
-                              withFlags:flags
-                        foregroundColor:fg
-                        backgroundColor:bg
-                           specialColor:sp];
+            [self drawString:unichars length:unilength atRow:row column:col cells:cells withFlags:flags foregroundColor:fg backgroundColor:bg specialColor:sp];
 
             if (buffer) {
                 free(buffer);
                 buffer = NULL;
             }
-            CFRelease(sref);
+            CFRelease(stringRef);
         } else if (InsertLinesDrawType == type) {
             unsigned color = *((unsigned*)bytes);  bytes += sizeof(unsigned);
             int row = *((int*)bytes);  bytes += sizeof(int);
@@ -1069,12 +888,9 @@ defaultAdvanceForFont(NSFont *font)
             int left = *((int*)bytes);  bytes += sizeof(int);
             int right = *((int*)bytes);  bytes += sizeof(int);
 
-#if MM_DEBUG_DRAWING
             ASLogNotice(@"   Insert %d line(s) at row %d", count, row);
-#endif
-            [self insertLinesAtRow:row lineCount:count
-                             scrollBottom:bot left:left right:right
-                                    color:color];
+
+            [self insertLinesAtRow:row lineCount:count scrollBottom:bot left:left right:right color:color];
         } else if (DrawCursorDrawType == type) {
             unsigned color = *((unsigned*)bytes);  bytes += sizeof(unsigned);
             int row = *((int*)bytes);  bytes += sizeof(int);
@@ -1082,12 +898,9 @@ defaultAdvanceForFont(NSFont *font)
             int shape = *((int*)bytes);  bytes += sizeof(int);
             int percent = *((int*)bytes);  bytes += sizeof(int);
 
-#if MM_DEBUG_DRAWING
             ASLogNotice(@"   Draw cursor at (%d,%d)", row, col);
-#endif
-            [self drawInsertionPointAtRow:row column:col shape:shape
-                                     fraction:percent
-                                        color:color];
+
+            [self drawInsertionPointAtRow:row column:col shape:shape fraction:percent color:color];
         } else if (DrawInvertedRectDrawType == type) {
             int row = *((int*)bytes);  bytes += sizeof(int);
             int col = *((int*)bytes);  bytes += sizeof(int);
@@ -1095,114 +908,85 @@ defaultAdvanceForFont(NSFont *font)
             int nc = *((int*)bytes);  bytes += sizeof(int);
             /*int invert = *((int*)bytes);*/  bytes += sizeof(int);
 
-#if MM_DEBUG_DRAWING
-            ASLogNotice(@"   Draw inverted rect: row=%d col=%d nrows=%d "
-                   "ncols=%d", row, col, nr, nc);
-#endif
-            [self drawInvertedRectAtRow:row column:col numRows:nr
-                             numColumns:nc];
+            ASLogNotice(@"   Draw inverted rect: row=%d col=%d nrows=%d " "ncols=%d", row, col, nr, nc);
+
+            [self drawInvertedRectAtRow:row column:col numRows:nr numColumns:nc];
         } else if (SetCursorPosDrawType == type) {
             // TODO: This is used for Voice Over support in MMTextView,
             // MMCoreTextView currently does not support Voice Over.
-#if MM_DEBUG_DRAWING
             int row = *((int*)bytes);  bytes += sizeof(int);
             int col = *((int*)bytes);  bytes += sizeof(int);
             ASLogNotice(@"   Set cursor row=%d col=%d", row, col);
-#else
-            /*cursorRow = *((int*)bytes);*/  bytes += sizeof(int);
-            /*cursorCol = *((int*)bytes);*/  bytes += sizeof(int);
-#endif
         } else {
             ASLogWarn(@"Unknown draw type (type=%d)", type);
         }
     }
 
-#if MM_DEBUG_DRAWING
     ASLogNotice(@"<==== END");
-#endif
 }
 
-    static CTFontRef
-lookupFont(NSMutableArray *fontCache, const unichar *chars, UniCharCount count,
-           CTFontRef currFontRef)
+static CTFontRef
+lookupFont(NSMutableArray *fontCache, const unichar *chars, UniCharCount charCount, CTFontRef currFontRef)
 {
-    CGGlyph glyphs[count];
+    CGGlyph glyphs[charCount];
 
     // See if font in cache can draw at least one character
-    NSUInteger i;
-    for (i = 0; i < [fontCache count]; ++i) {
-        NSFont *font = [fontCache objectAtIndex:i];
-
-        if (CTFontGetGlyphsForCharacters((CTFontRef)font, chars, glyphs, count))
-            return (CTFontRef)[font retain];
+    for (NSFont *font in fontCache) {
+        if (CTFontGetGlyphsForCharacters((CTFontRef)font, chars, glyphs, charCount)) {
+            return (__bridge_retained CTFontRef)font;
+        }
     }
 
     // Ask Core Text for a font (can be *very* slow, which is why we cache
     // fonts in the first place)
-    CFRange r = { 0, count };
-    CFStringRef strRef = CFStringCreateWithCharacters(NULL, chars, count);
-    CTFontRef newFontRef = CTFontCreateForString(currFontRef, strRef, r);
+    CFStringRef strRef = CFStringCreateWithCharacters(NULL, chars, charCount);
+    CTFontRef newFontRef = CTFontCreateForString(currFontRef, strRef, (CFRange){0, charCount});
     CFRelease(strRef);
 
     // Verify the font can actually convert all the glyphs.
-    if (!CTFontGetGlyphsForCharacters(newFontRef, chars, glyphs, count))
-        return nil;
+    if (!CTFontGetGlyphsForCharacters(newFontRef, chars, glyphs, charCount)) return nil;
 
-    if (newFontRef)
-        [fontCache addObject:(NSFont *)newFontRef];
+    if (newFontRef) [fontCache addObject:(__bridge NSFont *)newFontRef];
 
     return newFontRef;
 }
 
-    static CFAttributedStringRef
-attributedStringForString(NSString *string, const CTFontRef font,
-                          BOOL useLigatures)
+static CFAttributedStringRef
+attributedStringForString(NSString *string, const CTFontRef font, BOOL useLigatures)
 {
-    NSDictionary *attrs = [NSDictionary dictionaryWithObjectsAndKeys:
-                            (id)font, kCTFontAttributeName,
-                            // 2 - full ligatures including rare
-                            // 1 - basic ligatures
-                            // 0 - no ligatures
-                            [NSNumber numberWithInteger:(useLigatures ? 1 : 0)],
-                            kCTLigatureAttributeName,
-                            nil
-    ];
-
-    return CFAttributedStringCreate(NULL, (CFStringRef)string,
-                                    (CFDictionaryRef)attrs);
+    return CFAttributedStringCreate(NULL, (CFStringRef)string, (CFDictionaryRef)@{
+        (NSString *)kCTFontAttributeName: (__bridge NSFont*)font,
+        (NSString *)kCTLigatureAttributeName: @(useLigatures),
+    });
 }
 
-    static UniCharCount
-fetchGlyphsAndAdvances(const CTLineRef line, CGGlyph *glyphs, CGSize *advances,
-                       UniCharCount length)
+static UniCharCount
+fetchGlyphsAndAdvances(const CTLineRef line, CGGlyph *glyphs, CGSize *advances, UniCharCount length)
 {
-    NSArray *glyphRuns = (NSArray*)CTLineGetGlyphRuns(line);
+    NSArray *glyphRuns = (NSArray *)CTLineGetGlyphRuns(line);
 
     // get a hold on the actual character widths and glyphs in line
     UniCharCount offset = 0;
     for (id item in glyphRuns) {
-        CTRunRef run  = (CTRunRef)item;
+        CTRunRef run  = (__bridge CTRunRef)item;
         CFIndex count = CTRunGetGlyphCount(run);
 
-        if (count > 0 && count - offset > length)
-            count = length - offset;
+        if (count > 0 && count - offset > length) count = length - offset;
 
-        CFRange range = CFRangeMake(0, count);
+        const CFRange range = {0, count};
 
-        if (glyphs != NULL)
-            CTRunGetGlyphs(run, range, &glyphs[offset]);
-        if (advances != NULL)
-            CTRunGetAdvances(run, range, &advances[offset]);
+        if (glyphs) CTRunGetGlyphs(run, range, &glyphs[offset]);
+        if (advances) CTRunGetAdvances(run, range, &advances[offset]);
 
         offset += count;
-        if (offset >= length)
-            break;
+
+        if (offset >= length) break;
     }
 
     return offset;
 }
 
-    static UniCharCount
+static UniCharCount
 gatherGlyphs(CGGlyph glyphs[], UniCharCount count)
 {
     // Gather scattered glyphs that was happended by Surrogate pair chars
@@ -1218,9 +1002,8 @@ gatherGlyphs(CGGlyph glyphs[], UniCharCount count)
     return glyphCount;
 }
 
-    static UniCharCount
-ligatureGlyphsForChars(const unichar *chars, CGGlyph *glyphs,
-                       CGPoint *positions, UniCharCount length, CTFontRef font)
+static UniCharCount
+ligatureGlyphsForChars(const unichar *chars, CGGlyph *glyphs, CGPoint *positions, UniCharCount length, CTFontRef font)
 {
     // CoreText has no simple wait of retrieving a ligature for a set of
     // UniChars. The way proposed on the CoreText ML is to convert the text to
@@ -1295,16 +1078,13 @@ ligatureGlyphsForChars(const unichar *chars, CGGlyph *glyphs,
     return offset;
 }
 
-    static void
-recurseDraw(const unichar *chars, CGGlyph *glyphs, CGPoint *positions,
-            UniCharCount length, CGContextRef context, CTFontRef fontRef,
-            NSMutableArray *fontCache, BOOL useLigatures)
+static void
+recurseDraw(const unichar *chars, CGGlyph *glyphs, CGPoint *positions, UniCharCount length, CGContextRef context, CTFontRef fontRef, NSMutableArray *fontCache, BOOL useLigatures)
 {
     if (CTFontGetGlyphsForCharacters(fontRef, chars, glyphs, length)) {
         // All chars were mapped to glyphs, so draw all at once and return.
         if (useLigatures) {
-            length = ligatureGlyphsForChars(chars, glyphs, positions, length,
-                                            fontRef);
+            length = ligatureGlyphsForChars(chars, glyphs, positions, length, fontRef);
         } else {
             // only fixup surrogate pairs if we're not using ligatures
             length = gatherGlyphs(glyphs, length);
@@ -1360,8 +1140,7 @@ recurseDraw(const unichar *chars, CGGlyph *glyphs, CGPoint *positions,
             UniCharCount attemptedCount = count;
             CTFontRef fallback = nil;
             while (fallback == nil && attemptedCount > 0) {
-                fallback = lookupFont(fontCache, chars, attemptedCount,
-                                      fontRef);
+                fallback = lookupFont(fontCache, chars, attemptedCount, fontRef);
                 if (!fallback)
                     attemptedCount /= 2;
             }
@@ -1369,8 +1148,7 @@ recurseDraw(const unichar *chars, CGGlyph *glyphs, CGPoint *positions,
             if (!fallback)
                 return;
 
-            recurseDraw(chars, glyphs, positions, attemptedCount, context,
-                        fallback, fontCache, useLigatures);
+            recurseDraw(chars, glyphs, positions, attemptedCount, context, fallback, fontCache, useLigatures);
 
             // If only a portion of the invalid range was rendered above,
             // the remaining range needs to be attempted by subsequent
@@ -1394,124 +1172,101 @@ recurseDraw(const unichar *chars, CGGlyph *glyphs, CGPoint *positions,
     }
 }
 
-- (void)drawString:(const UniChar *)chars length:(UniCharCount)length
-             atRow:(int)row column:(int)col cells:(int)cells
-         withFlags:(int)flags foregroundColor:(int)fg
-   backgroundColor:(int)bg specialColor:(int)sp
+- (void)drawString:(const UniChar *)chars length:(UniCharCount)length atRow:(int)row column:(int)col cells:(int)cells withFlags:(int)flags foregroundColor:(int)fg backgroundColor:(int)bg specialColor:(int)sp
 {
-    CGContextRef context = [self getCGContext];
-    NSRect frame = [self bounds];
-    float x = col*cellSize.width + insetSize.width;
-    float y = frame.size.height - insetSize.height - (1+row)*cellSize.height;
-    float w = cellSize.width;
+    CGContextRef context = self.getCGContext;
+    const CGFloat x = col * _cellSize.width + _textContainerInset.width;
+    const CGFloat y = self.bounds.size.height - _textContainerInset.height - (1 + row) * _cellSize.height;
 
-    if (flags & DRAW_WIDE) {
-        // NOTE: It is assumed that either all characters in 'chars' are wide
-        // or all are normal width.
-        w *= 2;
-    }
+    // NOTE: It is assumed that either all characters in 'chars' are wide or
+    // all are normal width.
+    const CGFloat w = _cellSize.width * (flags & DRAW_WIDE ? 2 : 1);
 
     CGContextSaveGState(context);
 
     int originalFontSmoothingStyle = 0;
-    if (thinStrokes) {
+    if (_thinStrokes) {
         CGContextSetShouldSmoothFonts(context, YES);
         originalFontSmoothingStyle = CGContextGetFontSmoothingStyle(context);
         CGContextSetFontSmoothingStyle(context, fontSmoothingStyleLight);
     }
 
     // NOTE!  'cells' is zero if we're drawing a composing character
-    CGFloat clipWidth = cells > 0 ? cells*cellSize.width : w;
-    CGRect clipRect = { {x, y}, {clipWidth, cellSize.height} };
+    const CGRect clipRect = {{x, y}, {cells > 0 ? cells*_cellSize.width : w, _cellSize.height}};
     CGContextClipToRect(context, clipRect);
 
     if (!(flags & DRAW_TRANSP)) {
         // Draw the background of the text.  Note that if we ignore the
         // DRAW_TRANSP flag and always draw the background, then the insert
         // mode cursor is drawn over.
-        CGRect rect = { {x, y}, {cells*cellSize.width, cellSize.height} };
-        CGContextSetRGBFillColor(context, RED(bg), GREEN(bg), BLUE(bg),
-                                 ALPHA(bg));
+        CGContextSetRGBFillColor(context, RED(bg), GREEN(bg), BLUE(bg), ALPHA(bg));
 
         // Antialiasing may cause bleeding effects which are highly undesirable
         // when clearing the background (this code is also called to draw the
         // cursor sometimes) so disable it temporarily.
         CGContextSetShouldAntialias(context, NO);
         CGContextSetBlendMode(context, kCGBlendModeCopy);
-        CGContextFillRect(context, rect);
-        CGContextSetShouldAntialias(context, antialias);
+        CGContextFillRect(context, (CGRect){{x, y}, {cells * _cellSize.width, _cellSize.height}});
+        CGContextSetShouldAntialias(context, _antialias);
         CGContextSetBlendMode(context, kCGBlendModeNormal);
     }
 
     if (flags & DRAW_UNDERL) {
         // Draw underline
-        CGRect rect = { {x, y+0.4*fontDescent}, {cells*cellSize.width, 1} };
-        CGContextSetRGBFillColor(context, RED(sp), GREEN(sp), BLUE(sp),
-                                 ALPHA(sp));
-        CGContextFillRect(context, rect);
+        CGContextSetRGBFillColor(context, RED(sp), GREEN(sp), BLUE(sp), ALPHA(sp));
+        CGContextFillRect(context, (CGRect){{x, y + 0.4 * _fontDescent}, {cells * _cellSize.width, 1}});
     } else if (flags & DRAW_UNDERC) {
         // Draw curly underline
-        int k;
-        float x0 = x, y0 = y+1, w = cellSize.width, h = 0.5*fontDescent;
+        CGFloat x0 = x, y0 = y + 1, w = _cellSize.width, h = 0.5 * _fontDescent;
 
         CGContextMoveToPoint(context, x0, y0);
-        for (k = 0; k < cells; ++k) {
-            CGContextAddCurveToPoint(context, x0+0.25*w, y0, x0+0.25*w, y0+h,
-                                     x0+0.5*w, y0+h);
-            CGContextAddCurveToPoint(context, x0+0.75*w, y0+h, x0+0.75*w, y0,
-                                     x0+w, y0);
+        for (int k = 0; k < cells; ++k) {
+            CGContextAddCurveToPoint(context, x0 + 0.25 * w, y0, x0 + 0.25 * w, y0 + h, x0 + 0.5 * w, y0 + h);
+            CGContextAddCurveToPoint(context, x0 + 0.75 * w, y0 + h, x0 + 0.75 * w, y0, x0+w, y0);
             x0 += w;
         }
 
-        CGContextSetRGBStrokeColor(context, RED(sp), GREEN(sp), BLUE(sp),
-                                 ALPHA(sp));
+        CGContextSetRGBStrokeColor(context, RED(sp), GREEN(sp), BLUE(sp), ALPHA(sp));
         CGContextStrokePath(context);
     }
 
-    if (length > maxlen) {
-        if (glyphs) free(glyphs);
-        if (positions) free(positions);
-        glyphs = (CGGlyph*)malloc(length*sizeof(CGGlyph));
-        positions = (CGPoint*)calloc(length, sizeof(CGPoint));
-        maxlen = length;
+    if (length > _maxlen) {
+        if (_glyphs) free(_glyphs);
+        if (_positions) free(_positions);
+        _glyphs = (CGGlyph *)malloc(length * sizeof(CGGlyph));
+        _positions = (CGPoint *)calloc(length, sizeof(CGPoint));
+        _maxlen = length;
     }
 
     CGContextSetTextMatrix(context, CGAffineTransformIdentity);
     CGContextSetTextDrawingMode(context, kCGTextFill);
     CGContextSetRGBFillColor(context, RED(fg), GREEN(fg), BLUE(fg), ALPHA(fg));
-    CGContextSetFontSize(context, [font pointSize]);
+    CGContextSetFontSize(context, _font.pointSize);
 
     // Calculate position of each glyph relative to (x,y).
-    NSUInteger i;
-    float xrel = 0;
-    for (i = 0; i < length; ++i) {
-        positions[i].x = xrel;
+    CGFloat xrel = 0;
+    for (UniCharCount i = 0; i < length; ++i) {
+        _positions[i].x = xrel;
         xrel += w;
     }
 
-    CTFontRef fontRef = (CTFontRef)(flags & DRAW_WIDE ? [fontWide retain]
-                                                      : [font retain]);
+    CTFontRef fontRef = (__bridge_retained CTFontRef)(flags & DRAW_WIDE ? _fontWide : _font);
     unsigned traits = 0;
-    if (flags & DRAW_ITALIC)
-        traits |= kCTFontItalicTrait;
-    if (flags & DRAW_BOLD)
-        traits |= kCTFontBoldTrait;
-
+    if (flags & DRAW_ITALIC) traits |= kCTFontItalicTrait;
+    if (flags & DRAW_BOLD) traits |= kCTFontBoldTrait;
     if (traits) {
-        CTFontRef fr = CTFontCreateCopyWithSymbolicTraits(fontRef, 0.0, NULL,
-                traits, traits);
+        CTFontRef fr = CTFontCreateCopyWithSymbolicTraits(fontRef, 0, NULL, traits, traits);
         if (fr) {
             CFRelease(fontRef);
             fontRef = fr;
         }
     }
 
-    CGContextSetTextPosition(context, x, y+fontDescent);
-    recurseDraw(chars, glyphs, positions, length, context, fontRef, fontCache, ligatures);
+    CGContextSetTextPosition(context, x, y + _fontDescent);
+    recurseDraw(chars, _glyphs, _positions, length, context, fontRef, _fontCache, _ligatures);
 
     CFRelease(fontRef);
-    if (thinStrokes)
-        CGContextSetFontSmoothingStyle(context, originalFontSmoothingStyle);
+    if (_thinStrokes) CGContextSetFontSmoothingStyle(context, originalFontSmoothingStyle);
     CGContextRestoreGState(context);
 
     [self setNeedsDisplayCGLayerInRect:clipRect];
@@ -1519,9 +1274,9 @@ recurseDraw(const unichar *chars, CGGlyph *glyphs, CGPoint *positions,
 
 - (void)scrollRect:(NSRect)rect lineCount:(int)count
 {
-    if (cgLayerEnabled) {
+    if (_CGLayerEnabled) {
         CGContextRef context = [self getCGContext];
-        int yOffset = count * cellSize.height;
+        int yOffset = count * _cellSize.height;
         NSRect clipRect = rect;
         clipRect.origin.y -= yOffset;
 
@@ -1529,63 +1284,39 @@ recurseDraw(const unichar *chars, CGGlyph *glyphs, CGPoint *positions,
         CGContextSaveGState(context);
         CGContextClipToRect(context, clipRect);
         CGContextSetBlendMode(context, kCGBlendModeCopy);
-        CGContextDrawLayerAtPoint(
-                context, CGPointMake(0, -yOffset), [self getCGLayer]);
+        CGContextDrawLayerAtPoint(context, (CGPoint){0, -yOffset}, [self getCGLayer]);
         CGContextRestoreGState(context);
         [self setNeedsDisplayCGLayerInRect:clipRect];
     } else {
-        NSSize delta={0, -count * cellSize.height};
-        [self scrollRect:rect by:delta];
+        [self scrollRect:rect by:(NSSize){0, -count * _cellSize.height}];
     }
 }
 
-- (void)deleteLinesFromRow:(int)row lineCount:(int)count
-              scrollBottom:(int)bottom left:(int)left right:(int)right
-                     color:(int)color
+- (void)deleteLinesFromRow:(int)row lineCount:(int)count scrollBottom:(int)bottom left:(int)left right:(int)right color:(int)color
 {
-    NSRect rect = [self rectFromRow:row + count
-                             column:left
-                              toRow:bottom
-                             column:right];
+    NSRect rect = [self rectFromRow:row + count column:left toRow:bottom column:right];
 
     // move rect up for count lines
     [self scrollRect:rect lineCount:-count];
-    [self clearBlockFromRow:bottom - count + 1
-                     column:left
-                      toRow:bottom
-                     column:right
-                      color:color];
+    [self clearBlockFromRow:bottom - count + 1 column:left toRow:bottom column:right color:color];
 }
 
-- (void)insertLinesAtRow:(int)row lineCount:(int)count
-            scrollBottom:(int)bottom left:(int)left right:(int)right
-                   color:(int)color
+- (void)insertLinesAtRow:(int)row lineCount:(int)count scrollBottom:(int)bottom left:(int)left right:(int)right color:(int)color
 {
-    NSRect rect = [self rectFromRow:row
-                             column:left
-                              toRow:bottom - count
-                             column:right];
+    NSRect rect = [self rectFromRow:row column:left toRow:bottom - count column:right];
 
     // move rect down for count lines
     [self scrollRect:rect lineCount:count];
-    [self clearBlockFromRow:row
-                     column:left
-                      toRow:row + count - 1
-                     column:right
-                      color:color];
+    [self clearBlockFromRow:row column:left toRow:row + count - 1 column:right color:color];
 }
 
-- (void)clearBlockFromRow:(int)row1 column:(int)col1 toRow:(int)row2
-                   column:(int)col2 color:(int)color
+- (void)clearBlockFromRow:(int)row1 column:(int)col1 toRow:(int)row2 column:(int)col2 color:(int)color
 {
     CGContextRef context = [self getCGContext];
-    NSRect rect = [self rectFromRow:row1 column:col1 toRow:row2 column:col2];
-
-    CGContextSetRGBFillColor(context, RED(color), GREEN(color), BLUE(color),
-                             ALPHA(color));
-
+    const NSRect rect = [self rectFromRow:row1 column:col1 toRow:row2 column:col2];
+    CGContextSetRGBFillColor(context, RED(color), GREEN(color), BLUE(color), ALPHA(color));
     CGContextSetBlendMode(context, kCGBlendModeCopy);
-    CGContextFillRect(context, *(CGRect*)&rect);
+    CGContextFillRect(context, NSRectToCGRect(rect));
     CGContextSetBlendMode(context, kCGBlendModeNormal);
     [self setNeedsDisplayCGLayerInRect:rect];
 }
@@ -1594,22 +1325,20 @@ recurseDraw(const unichar *chars, CGGlyph *glyphs, CGPoint *positions,
 {
     [self releaseCGLayer];
     CGContextRef context = [self getCGContext];
-    NSRect rect = [self bounds];
-    float r = [defaultBackgroundColor redComponent];
-    float g = [defaultBackgroundColor greenComponent];
-    float b = [defaultBackgroundColor blueComponent];
-    float a = [defaultBackgroundColor alphaComponent];
+    float r = _defaultBackgroundColor.redComponent;
+    float g = _defaultBackgroundColor.greenComponent;
+    float b = _defaultBackgroundColor.blueComponent;
+    float a = _defaultBackgroundColor.alphaComponent;
 
     CGContextSetBlendMode(context, kCGBlendModeCopy);
     CGContextSetRGBFillColor(context, r, g, b, a);
-    CGContextFillRect(context, *(CGRect*)&rect);
+    CGContextFillRect(context, NSRectToCGRect(self.bounds));
     CGContextSetBlendMode(context, kCGBlendModeNormal);
 
     [self setNeedsDisplayCGLayer:YES];
 }
 
-- (void)drawInsertionPointAtRow:(int)row column:(int)col shape:(int)shape
-                       fraction:(int)percent color:(int)color
+- (void)drawInsertionPointAtRow:(int)row column:(int)col shape:(int)shape fraction:(int)percent color:(int)color
 {
     CGContextRef context = [self getCGContext];
     NSRect rect = [self rectForRow:row column:col numRows:1 numColumns:1];
@@ -1617,13 +1346,11 @@ recurseDraw(const unichar *chars, CGGlyph *glyphs, CGPoint *positions,
     CGContextSaveGState(context);
 
     if (MMInsertionPointHorizontal == shape) {
-        int frac = (cellSize.height * percent + 99)/100;
-        rect.size.height = frac;
+        rect.size.height = (_cellSize.height * percent + 99) / 100;
     } else if (MMInsertionPointVertical == shape) {
-        int frac = (cellSize.width * percent + 99)/100;
-        rect.size.width = frac;
+        rect.size.width = (_cellSize.width * percent + 99) / 100;
     } else if (MMInsertionPointVerticalRight == shape) {
-        int frac = (cellSize.width * percent + 99)/100;
+        const int frac = (_cellSize.width * percent + 99) / 100;
         rect.origin.x += rect.size.width - frac;
         rect.size.width = frac;
     }
@@ -1644,34 +1371,30 @@ recurseDraw(const unichar *chars, CGGlyph *glyphs, CGPoint *positions,
         rect.origin.x += 0.5;
         rect.origin.y += 0.5;
 
-        CGContextSetRGBStrokeColor(context, RED(color), GREEN(color),
-                                   BLUE(color), ALPHA(color));
-        CGContextStrokeRect(context, *(CGRect*)&rect);
+        CGContextSetRGBStrokeColor(context, RED(color), GREEN(color), BLUE(color), ALPHA(color));
+        CGContextStrokeRect(context, NSRectToCGRect(rect));
     } else {
-        CGContextSetRGBFillColor(context, RED(color), GREEN(color), BLUE(color),
-                                 ALPHA(color));
-        CGContextFillRect(context, *(CGRect*)&rect);
+        CGContextSetRGBFillColor(context, RED(color), GREEN(color), BLUE(color), ALPHA(color));
+        CGContextFillRect(context, NSRectToCGRect(rect));
     }
 
     [self setNeedsDisplayCGLayerInRect:rect];
     CGContextRestoreGState(context);
 }
 
-- (void)drawInvertedRectAtRow:(int)row column:(int)col numRows:(int)nrows
-                   numColumns:(int)ncols
+- (void)drawInvertedRectAtRow:(int)row column:(int)col numRows:(int)nrows numColumns:(int)ncols
 {
     // TODO: THIS CODE HAS NOT BEEN TESTED!
-    CGContextRef cgctx = [self getCGContext];
-    CGContextSaveGState(cgctx);
-    CGContextSetBlendMode(cgctx, kCGBlendModeDifference);
-    CGContextSetRGBFillColor(cgctx, 1.0, 1.0, 1.0, 1.0);
+    CGContextRef contextRef = [self getCGContext];
+    CGContextSaveGState(contextRef);
+    CGContextSetBlendMode(contextRef, kCGBlendModeDifference);
+    CGContextSetRGBFillColor(contextRef, 1, 1, 1, 1);
 
-    NSRect rect = [self rectForRow:row column:col numRows:nrows
-                        numColumns:ncols];
-    CGContextFillRect(cgctx, *(CGRect*)&rect);
+    const NSRect rect = [self rectForRow:row column:col numRows:nrows numColumns:ncols];
+    CGContextFillRect(contextRef, NSRectToCGRect(rect));
 
     [self setNeedsDisplayCGLayerInRect:rect];
-    CGContextRestoreGState(cgctx);
+    CGContextRestoreGState(contextRef);
 }
 
 @end // MMCoreTextView (Drawing)

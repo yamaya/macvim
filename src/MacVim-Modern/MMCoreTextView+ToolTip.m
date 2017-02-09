@@ -74,44 +74,32 @@ static const NSTrackingRectTag kTrackingRectTag = 0xBADFACE;
 
 // Override of a public NSView method, replacing the inherited functionality.
 // See above for rationale.
-- (NSTrackingRectTag)addTrackingRect:(NSRect)rect
-                               owner:(id)owner
-                            userData:(void *)data
-                        assumeInside:(BOOL)assumeInside
+- (NSTrackingRectTag)addTrackingRect:(NSRect)rect owner:(id)owner userData:(void *)data assumeInside:(BOOL)assumeInside
 {
-    //DCHECK(trackingRectOwner_ == nil);
-    trackingRectOwner_ = owner;
-    trackingRectUserData_ = data;
+    //DCHECK(_trackingRectOwner == nil);
+    _trackingRectOwner = owner;
+    _trackingRectUserData = data;
     return kTrackingRectTag;
 }
 
 // Override of (apparently) a private NSView method(!) See above for rationale.
-- (NSTrackingRectTag)_addTrackingRect:(NSRect)rect
-                                owner:(id)owner
-                             userData:(void *)data
-                         assumeInside:(BOOL)assumeInside
-                       useTrackingNum:(int)tag
+- (NSTrackingRectTag)_addTrackingRect:(NSRect)rect owner:(id)owner userData:(void *)data assumeInside:(BOOL)assumeInside useTrackingNum:(int)tag
 {
     //DCHECK(tag == 0 || tag == kTrackingRectTag);
-    //DCHECK(trackingRectOwner_ == nil);
-    trackingRectOwner_ = owner;
-    trackingRectUserData_ = data;
+    //DCHECK(_trackingRectOwner == nil);
+    _trackingRectOwner = owner;
+    _trackingRectUserData = data;
     return kTrackingRectTag;
 }
 
 // Override of (apparently) a private NSView method(!) See above for rationale.
-- (void)_addTrackingRects:(NSRect *)rects
-                    owner:(id)owner
-             userDataList:(void **)userDataList
-         assumeInsideList:(BOOL *)assumeInsideList
-             trackingNums:(NSTrackingRectTag *)trackingNums
-                    count:(int)count
+- (void)_addTrackingRects:(NSRect *)rects owner:(id)owner userDataList:(void **)userDataList assumeInsideList:(BOOL *)assumeInsideList trackingNums:(NSTrackingRectTag *)trackingNums count:(int)count
 {
     //DCHECK(count == 1);
     //DCHECK(trackingNums[0] == 0 || trackingNums[0] == kTrackingRectTag);
-    //DCHECK(trackingRectOwner_ == nil);
-    trackingRectOwner_ = owner;
-    trackingRectUserData_ = userDataList[0];
+    //DCHECK(_trackingRectOwner == nil);
+    _trackingRectOwner = owner;
+    _trackingRectUserData = userDataList[0];
     trackingNums[0] = kTrackingRectTag;
 }
 
@@ -123,13 +111,13 @@ static const NSTrackingRectTag kTrackingRectTag = 0xBADFACE;
         return;
 
     if (tag == kTrackingRectTag) {
-        trackingRectOwner_ = nil;
+        _trackingRectOwner = nil;
         return;
     }
 
-    if (tag == lastToolTipTag_) {
+    if (tag == _lastToolTipTag) {
         [super removeTrackingRect:tag];
-        lastToolTipTag_ = 0;
+        _lastToolTipTag = 0;
         return;
     }
 
@@ -141,13 +129,12 @@ static const NSTrackingRectTag kTrackingRectTag = 0xBADFACE;
 // Override of (apparently) a private NSView method(!)
 - (void)_removeTrackingRects:(NSTrackingRectTag *)tags count:(int)count
 {
-    int i;
-    for (i = 0; i < count; ++i) {
-        int tag = tags[i];
+    for (int i = 0; i < count; ++i) {
+        const int tag = tags[i];
         if (tag == 0)
             continue;
         //DCHECK(tag == kTrackingRectTag);
-        trackingRectOwner_ = nil;
+        _trackingRectOwner = nil;
     }
 }
 
@@ -155,34 +142,32 @@ static const NSTrackingRectTag kTrackingRectTag = 0xBADFACE;
 - (void)_sendToolTipMouseExited
 {
     // Nothing matters except window, trackingNumber, and userData.
-    int windowNumber = [[self window] windowNumber];
     NSEvent *fakeEvent = [NSEvent enterExitEventWithType:NSEventTypeMouseExited
-                                                location:NSMakePoint(0, 0)
+                                                location:NSZeroPoint
                                            modifierFlags:0
                                                timestamp:0
-                                            windowNumber:windowNumber
+                                            windowNumber:self.window.windowNumber
                                                  context:NULL
                                              eventNumber:0
                                           trackingNumber:kTrackingRectTag
-                                                userData:trackingRectUserData_];
-    [trackingRectOwner_ mouseExited:fakeEvent];
+                                                userData:_trackingRectUserData];
+    [_trackingRectOwner mouseExited:fakeEvent];
 }
 
 // Sends a fake NSEventTypeMouseEntered event to the view for its current tracking rect.
 - (void)_sendToolTipMouseEntered
 {
     // Nothing matters except window, trackingNumber, and userData.
-    int windowNumber = [[self window] windowNumber];
     NSEvent *fakeEvent = [NSEvent enterExitEventWithType:NSEventTypeMouseEntered
-                                                location:NSMakePoint(0, 0)
+                                                location:NSZeroPoint
                                            modifierFlags:0
                                                timestamp:0
-                                            windowNumber:windowNumber
+                                            windowNumber:self.window.windowNumber
                                                  context:NULL
                                              eventNumber:0
                                           trackingNumber:kTrackingRectTag
-                                                userData:trackingRectUserData_];
-    [trackingRectOwner_ mouseEntered:fakeEvent];
+                                                userData:_trackingRectUserData];
+    [_trackingRectOwner mouseEntered:fakeEvent];
 }
 
 // Sets the view's current tooltip, to be displayed at the current mouse
@@ -192,40 +177,33 @@ static const NSTrackingRectTag kTrackingRectTag = 0xBADFACE;
 {
     // If the mouse is outside the view, then clear the tooltip (otherwise the
     // tooltip may appear outside the view which looks weird!).
-    NSPoint pt = [[self window] mouseLocationOutsideOfEventStream];
-    if (!NSMouseInRect([self convertPoint:pt fromView:nil], [self frame], NO))
+    const NSPoint pt = [self.window mouseLocationOutsideOfEventStream];
+    if (!NSMouseInRect([self convertPoint:pt fromView:nil], self.frame, NO))
         string = nil;
 
-    NSString *toolTip = [string length] == 0 ? nil : string;
-    NSString *oldToolTip = toolTip_;
-    if ((toolTip == nil || oldToolTip == nil) ? toolTip == oldToolTip
-            : [toolTip isEqualToString:oldToolTip]) {
+    NSString *toolTip = string.length == 0 ? nil : string;
+    NSString *oldToolTip = _toolTip;
+    if ((!toolTip || !oldToolTip) ? toolTip == oldToolTip : [toolTip isEqualToString:oldToolTip]) {
         return;
     }
     if (oldToolTip) {
         [self _sendToolTipMouseExited];
-        [oldToolTip release];
     }
-    toolTip_ = [toolTip copy];
+    _toolTip = toolTip.copy;
     if (toolTip) {
         // See radar 3500217 for why we remove all tooltips
         // rather than just the single one we created.
         [self removeAllToolTips];
-        NSRect wideOpenRect = NSMakeRect(-100000, -100000, 200000, 200000);
-        lastToolTipTag_ = [self addToolTipRect:wideOpenRect
-                                         owner:self
-                                      userData:NULL];
+        const NSRect wideOpenRect = NSMakeRect(-100000, -100000, 200000, 200000);
+        _lastToolTipTag = [self addToolTipRect:wideOpenRect owner:self userData:nil];
         [self _sendToolTipMouseEntered];
     }
 }
 
 // NSView calls this to get the text when displaying the tooltip.
-- (NSString *)view:(NSView *)view
-  stringForToolTip:(NSToolTipTag)tag
-             point:(NSPoint)point
-          userData:(void *)data
+- (NSString *)view:(NSView *)view stringForToolTip:(NSToolTipTag)tag point:(NSPoint)point userData:(void *)data
 {
-    return [[toolTip_ copy] autorelease];
+    return _toolTip.copy;
 }
 
 @end

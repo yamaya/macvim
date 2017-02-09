@@ -1365,8 +1365,8 @@ APPDIR = $(VIMNAME).app
 CARBONGUI_TESTARG = VIMPROG=../$(APPDIR)/Contents/MacOS/$(VIMTARGET)
 
 # MACVIM GUI
-MACVIMGUI_SRC	= gui.c gui_beval.c MacVim/gui_macvim.m MacVim/MMBackend.m \
-		  MacVim/MacVim.m
+MACVIMGUI_SRC	= gui.c gui_beval.c MacVim-Modern/gui_macvim.m MacVim-Modern/MMBackend.m \
+		  MacVim-Modern/MacVim.m
 MACVIMGUI_OBJ	= objects/gui.o objects/gui_beval.o objects/pty.o \
 		  objects/gui_macvim.o objects/MMBackend.o objects/MacVim.o
 MACVIMGUI_DEFS	= -DFEAT_GUI_MACVIM -Wall -Wno-unknown-pragmas -pipe
@@ -2939,11 +2939,11 @@ objects/.dirstamp:
 # time.
 $(ALL_OBJ): objects/.dirstamp
 
-objects/MMBackend.o: MacVim/MMBackend.m
-	$(CCC) -fobjc-exceptions -o $@ MacVim/MMBackend.m
+objects/MMBackend.o: MacVim-Modern/MMBackend.m
+	$(CCC) -fobjc-exceptions -o $@ MacVim-Modern/MMBackend.m
 
-objects/MacVim.o: MacVim/MacVim.m
-	$(CCC) -o $@ MacVim/MacVim.m
+objects/MacVim.o: MacVim-Modern/MacVim.m
+	$(CCC) -o $@ MacVim-Modern/MacVim.m
 
 objects/arabic.o: arabic.c
 	$(CCC) -o $@ arabic.c
@@ -3059,8 +3059,8 @@ objects/gui_photon.o: gui_photon.c
 objects/gui_mac.o: gui_mac.c
 	$(CCC) -o $@ gui_mac.c
 
-objects/gui_macvim.o: MacVim/gui_macvim.m
-	$(CCC) -fobjc-exceptions -o $@ MacVim/gui_macvim.m
+objects/gui_macvim.o: MacVim-Modern/gui_macvim.m
+	$(CCC) -fobjc-exceptions -o $@ MacVim-Modern/gui_macvim.m
 
 objects/hangulin.o: hangulin.c
 	$(CCC) -o $@ hangulin.c
@@ -3338,21 +3338,21 @@ $(APPDIR)/Contents:
 ### MacVim GUI
 .PHONY: macvim macvim-dmg macvimclean
 
-RELEASEDIR = MacVim/build/Release
-DMGDIR = MacVim/build/dmg
-DMGFILE = MacVim.dmg
+RELEASEDIR = MacVim-Modern/build/Release
+DMGDIR = MacVim-Modern/build/dmg
+DMGFILE = MacVim-Modern.dmg
 
 macvim: $(VIMTARGET)
-	xcodebuild -project MacVim/MacVim.xcodeproj $(XCODEFLAGS)
+	xcodebuild -project MacVim-Modern/MacVim.xcodeproj $(XCODEFLAGS)
 
 macvim-dmg: macvim
 	mkdir -p $(DMGDIR)
-	cp MacVim/mvim $(DMGDIR)/
+	cp MacVim-Modern/mvim $(DMGDIR)/
 	cp -r $(RELEASEDIR)/MacVim.app $(DMGDIR)/
 	rm -rf $(RELEASEDIR)/$(DMGFILE)
 	create-dmg/create-dmg \
 		--volname "MacVim" \
-		--volicon MacVim/icons/MacVim.icns \
+		--volicon MacVim-Modern/icons/MacVim.icns \
 		--background create-dmg/background.png \
 		--window-size 650 470 \
 		--icon-size 80 \
@@ -3362,8 +3362,8 @@ macvim-dmg: macvim
 		$(RELEASEDIR)/$(DMGFILE) $(DMGDIR)
 
 macvimclean:
-	if test -d MacVim; then \
-		rm -rf MacVim/build MacVim/qlstephen/build xxd/xxd.dSYM; \
+	if test -d MacVim-Modern; then \
+		rm -rf MacVim-Modern/build MacVim-Modern/qlstephen/build xxd/xxd.dSYM; \
 	fi
 
 
