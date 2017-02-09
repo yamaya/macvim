@@ -20,7 +20,7 @@
 		1D1474BC0C567A910038FA2B /* MMWindowController.m in Sources */ = {isa = PBXBuildFile; fileRef = 1D1474BA0C567A910038FA2B /* MMWindowController.m */; };
 		1D22374B0E45DF4800E6FFFF /* Advanced.png in Resources */ = {isa = PBXBuildFile; fileRef = 1D22374A0E45DF4800E6FFFF /* Advanced.png */; };
 		1D384A0E100D671700D3C22F /* KeyBinding.plist in Resources */ = {isa = PBXBuildFile; fileRef = 1D384A0D100D671700D3C22F /* KeyBinding.plist */; };
-		1D44972211FCA9B400B0630F /* MMCoreTextView+ToolTip.m in Sources */ = {isa = PBXBuildFile; fileRef = 1D44972111FCA9B400B0630F /* MMCoreTextView+ToolTip.m */; };
+		1D44972211FCA9B400B0630F /* MMCoreTextView+ToolTip.m in Sources */ = {isa = PBXBuildFile; fileRef = 1D44972111FCA9B400B0630F /* MMCoreTextView+ToolTip.m */; settings = {COMPILER_FLAGS = "-fobjc-arc"; }; };
 		1D493D580C5247BF00AB718C /* Vim in Copy Executables */ = {isa = PBXBuildFile; fileRef = 1D493D570C5247BF00AB718C /* Vim */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		1D493DBA0C52534300AB718C /* PSMTabBarControl.framework in Copy Frameworks */ = {isa = PBXBuildFile; fileRef = 1D493DB90C52533B00AB718C /* PSMTabBarControl.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		1D60088B0E96A0B2003763F0 /* MMFindReplaceController.m in Sources */ = {isa = PBXBuildFile; fileRef = 1D60088A0E96A0B2003763F0 /* MMFindReplaceController.m */; };
@@ -59,16 +59,16 @@
 		1DE3F8E70D50F80500052B9E /* Preferences.nib in Resources */ = {isa = PBXBuildFile; fileRef = 1DE3F8E50D50F80500052B9E /* Preferences.nib */; };
 		1DE3F8EB0D50F84600052B9E /* MMPreferenceController.m in Sources */ = {isa = PBXBuildFile; fileRef = 1DE3F8E90D50F84600052B9E /* MMPreferenceController.m */; };
 		1DE608B40C587FDA0055263D /* runtime in Copy Vim Runtime Files */ = {isa = PBXBuildFile; fileRef = 1DE602470C587FD10055263D /* runtime */; };
-		1DE63FFB0E71820F00959BDB /* MMCoreTextView.m in Sources */ = {isa = PBXBuildFile; fileRef = 1DE63FFA0E71820F00959BDB /* MMCoreTextView.m */; };
+		1DE63FFB0E71820F00959BDB /* MMCoreTextView.m in Sources */ = {isa = PBXBuildFile; fileRef = 1DE63FFA0E71820F00959BDB /* MMCoreTextView.m */; settings = {COMPILER_FLAGS = "-fobjc-arc"; }; };
 		1DE8CC620C5E2AAD003F56E3 /* Actions.plist in Resources */ = {isa = PBXBuildFile; fileRef = 1DE8CC610C5E2AAD003F56E3 /* Actions.plist */; };
 		1DE9B9500D341AB8008FEDD4 /* MMWindow.m in Sources */ = {isa = PBXBuildFile; fileRef = 1DE9B94E0D341AB8008FEDD4 /* MMWindow.m */; };
 		1DED78600C6DE43D0079945F /* vimrc in Copy Vim Runtime Files */ = {isa = PBXBuildFile; fileRef = 1DED785F0C6DE43D0079945F /* vimrc */; };
 		1DFE25A50C527BC4003000F7 /* PSMTabBarControl.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1D493DB90C52533B00AB718C /* PSMTabBarControl.framework */; };
+		52818B031C1C08CE00F59085 /* QLStephen.qlgenerator in Copy QuickLookPlugin */ = {isa = PBXBuildFile; fileRef = 52818AFF1C1C075300F59085 /* QLStephen.qlgenerator */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		528DA66A1426D4F9003380F1 /* macvim-askpass in Copy Scripts */ = {isa = PBXBuildFile; fileRef = 528DA6691426D4EB003380F1 /* macvim-askpass */; };
 		52A364731C4A5789005757EC /* Sparkle.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 52A364721C4A5789005757EC /* Sparkle.framework */; };
 		52A364761C4A57C1005757EC /* Sparkle.framework in Copy Frameworks */ = {isa = PBXBuildFile; fileRef = 52A364721C4A5789005757EC /* Sparkle.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		52B7ED9B1C4A4D6900AFFF15 /* dsa_pub.pem in Resources */ = {isa = PBXBuildFile; fileRef = 52B7ED9A1C4A4D6900AFFF15 /* dsa_pub.pem */; };
-		52818B031C1C08CE00F59085 /* QLStephen.qlgenerator in Copy QuickLookPlugin */ = {isa = PBXBuildFile; fileRef = 52818AFF1C1C075300F59085 /* QLStephen.qlgenerator */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		528DA66A1426D4F9003380F1 /* macvim-askpass in Copy Scripts */ = {isa = PBXBuildFile; fileRef = 528DA6691426D4EB003380F1 /* macvim-askpass */; };
 		8D11072A0486CEB800E47090 /* MainMenu.nib in Resources */ = {isa = PBXBuildFile; fileRef = 29B97318FDCFA39411CA2CEA /* MainMenu.nib */; };
 		8D11072B0486CEB800E47090 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 089C165CFE840E0CC02AAC07 /* InfoPlist.strings */; };
 		8D11072D0486CEB800E47090 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = 29B97316FDCFA39411CA2CEA /* main.m */; settings = {ATTRIBUTES = (); }; };
@@ -467,14 +467,6 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		528DA6681426D477003380F1 /* Scripts */ = {
-			isa = PBXGroup;
-			children = (
-				528DA6691426D4EB003380F1 /* macvim-askpass */,
-			);
-			name = Scripts;
-			sourceTree = "<group>";
-		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -510,7 +502,7 @@
 		29B97313FDCFA39411CA2CEA /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
-				LastUpgradeCheck = 0710;
+				LastUpgradeCheck = 0820;
 			};
 			buildConfigurationList = C01FCF4E08A954540054247B /* Build configuration list for PBXProject "MacVim" */;
 			compatibilityVersion = "Xcode 3.2";
@@ -722,7 +714,7 @@
 				INFOPLIST_FILE = Info.plist;
 				INSTALL_PATH = "$(HOME)/Applications";
 				LD_RUNPATH_SEARCH_PATHS = "@loader_path/../Frameworks";
-				MACOSX_DEPLOYMENT_TARGET = "";
+				MACOSX_DEPLOYMENT_TARGET = 10.11;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = org.vim.MacVim;
 				PRODUCT_NAME = MacVim;
@@ -754,7 +746,7 @@
 				INFOPLIST_FILE = Info.plist;
 				INSTALL_PATH = "$(HOME)/Applications";
 				LD_RUNPATH_SEARCH_PATHS = "@loader_path/../Frameworks";
-				MACOSX_DEPLOYMENT_TARGET = "";
+				MACOSX_DEPLOYMENT_TARGET = 10.11;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = org.vim.MacVim;
 				PRODUCT_NAME = MacVim;
@@ -767,6 +759,7 @@
 		C01FCF4F08A954540054247B /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
 				ENABLE_TESTABILITY = YES;
 				GCC_VERSION = 4.2;
 				GCC_WARN_ABOUT_RETURN_TYPE = YES;
@@ -780,6 +773,7 @@
 		C01FCF5008A954540054247B /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
 				GCC_VERSION = 4.2;
 				GCC_WARN_ABOUT_RETURN_TYPE = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;

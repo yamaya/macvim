@@ -12,111 +12,70 @@
 
 @class MMTextViewHelper;
 
-
 @interface MMCoreTextView : NSView <NSTextInput> {
-    // From MMTextStorage
-    int                         maxRows, maxColumns;
-    NSColor                     *defaultBackgroundColor;
-    NSColor                     *defaultForegroundColor;
-    NSSize                      cellSize;
-    NSFont                      *font;
-    NSFont                      *fontWide;
-    float                       linespace;
-
-    // From NSTextView
-    NSSize                      insetSize;
-
-    float                       fontDescent;
-    BOOL                        antialias;
-    BOOL                        ligatures;
-    BOOL                        thinStrokes;
-    NSMutableArray              *drawData;
-
-    MMTextViewHelper            *helper;
-
-    unsigned                    maxlen;
-    CGGlyph                     *glyphs;
-    CGPoint                     *positions;
-    NSMutableArray              *fontCache;
-
-    BOOL                        cgLayerEnabled;
-    CGLayerRef                  cgLayer;
-    CGContextRef                cgLayerContext;
-    NSLock                      *cgLayerLock;
-
     // These are used in MMCoreTextView+ToolTip.m
-    id trackingRectOwner_;              // (not retained)
-    void *trackingRectUserData_;
-    NSTrackingRectTag lastToolTipTag_;
-    NSString* toolTip_;
+    id _trackingRectOwner;              // (not retained)
+    void *_trackingRectUserData;
+    NSTrackingRectTag _lastToolTipTag;
+    NSString* _toolTip;
 }
 
-- (id)initWithFrame:(NSRect)frame;
-
-//
-// MMTextStorage methods
-//
-- (int)maxRows;
-- (int)maxColumns;
-- (void)getMaxRows:(int*)rows columns:(int*)cols;
+/*
+ * MMTextStorage methods
+ */
+@property (nonatomic, readonly) int maxRows;
+@property (nonatomic, readonly) int maxColumns;
+@property (nonatomic, readonly) NSColor *defaultForegroundColor;
+@property (nonatomic, readonly) NSColor *defaultBackgroundColor;
+@property (nonatomic, retain) NSFont *font;
+@property (nonatomic, retain) NSFont *fontWide;
+@property (nonatomic, readonly) NSSize cellSize;
+@property (nonatomic) float linespace;
 - (void)setMaxRows:(int)rows columns:(int)cols;
-- (void)setDefaultColorsBackground:(NSColor *)bgColor
-                        foreground:(NSColor *)fgColor;
-- (NSColor *)defaultBackgroundColor;
-- (NSColor *)defaultForegroundColor;
+- (void)getMaxRows:(int *)rows columns:(int *)cols;
+- (void)setDefaultColorsBackground:(NSColor *)bg foreground:(NSColor *)fg;
 - (NSRect)rectForRowsInRange:(NSRange)range;
 - (NSRect)rectForColumnsInRange:(NSRange)range;
+- (void)setWideFont:(NSFont *)font; // FIXME: あとで消す
 
-- (void)setFont:(NSFont *)newFont;
-- (void)setWideFont:(NSFont *)newFont;
-- (NSFont *)font;
-- (NSFont *)fontWide;
-- (NSSize)cellSize;
-- (void)setLinespace:(float)newLinespace;
-
-//
-// MMTextView methods
-//
+/*
+ * MMTextView methods
+ */
+@property (nonatomic, assign) BOOL antialias;
+@property (nonatomic, assign) BOOL ligatures;
+@property (nonatomic, assign) BOOL thinStrokes;
+@property (nonatomic, assign) BOOL CGLayerEnabled;
 - (void)deleteSign:(NSString *)signName;
 - (void)setShouldDrawInsertionPoint:(BOOL)on;
 - (void)setPreEditRow:(int)row column:(int)col;
 - (void)setMouseShape:(int)shape;
-- (void)setAntialias:(BOOL)state;
-- (void)setLigatures:(BOOL)state;
-- (void)setThinStrokes:(BOOL)state;
 - (void)setImControl:(BOOL)enable;
 - (void)activateIm:(BOOL)enable;
 - (void)checkImState;
 - (BOOL)convertPoint:(NSPoint)point toRow:(int *)row column:(int *)column;
-- (NSRect)rectForRow:(int)row column:(int)column numRows:(int)nr
-          numColumns:(int)nc;
-- (void)setCGLayerEnabled:(BOOL)enabled;
+- (NSRect)rectForRow:(int)row column:(int)column numRows:(int)nr numColumns:(int)nc;
 
-//
-// NSTextView methods
-//
+/*
+ * NSTextView methods
+ */
+@property (nonatomic, assign) NSSize textContainerInset;
 - (void)keyDown:(NSEvent *)event;
 - (void)insertText:(id)string;
 - (void)doCommandBySelector:(SEL)selector;
 
-//
-// NSTextContainer methods
-//
-- (void)setTextContainerInset:(NSSize)inset;
-
-//
-// MMCoreTextView methods
-//
+/*
+ * MMCoreTextView methods
+ */
+@property (nonatomic, readonly) NSSize desiredSize;
+@property (nonatomic, readonly) NSSize minSize;
 - (void)performBatchDrawWithData:(NSData *)data;
-- (NSSize)desiredSize;
-- (NSSize)minSize;
 - (NSSize)constrainRows:(int *)rows columns:(int *)cols toSize:(NSSize)size;
+
 @end
 
-
-//
-// This category is defined in MMCoreTextView+ToolTip.m
-//
+/*
+ * This category is defined in MMCoreTextView+ToolTip.m
+ */
 @interface MMCoreTextView (ToolTip)
 - (void)setToolTipAtMousePoint:(NSString *)string;
 @end
