@@ -30,6 +30,7 @@
 #import "MMCoreTextView.h"
 #import "MMCoreTextRenderer.h"
 #import "MMCoreTextView+Compatibility.h"
+#import "MMFontSmoothing.h"
 #import "MMTextViewHelper.h"
 #import "MMVimController.h"
 #import "MMWindowController.h"
@@ -57,8 +58,13 @@
 - (void)clearAll;
 - (void)drawInsertionPointAtRow:(int)row column:(int)col shape:(int)shape fraction:(int)percent color:(int)color;
 - (void)drawInvertedRectAtRow:(int)row column:(int)col numRows:(int)nrows numColumns:(int)ncols;
+#if 0
 #undef ASLogNotice
 #define ASLogNotice(format, ...) NSLog(format, ##__VA_ARGS__)
+#else
+#undef ASLogNotice
+#define ASLogNotice(format, ...)
+#endif
 @end
 
 
@@ -93,6 +99,7 @@ defaultAdvanceForFont(NSFont *font)
     CGLayerRef          _CGLayer;
     CGContextRef        _CGLayerContext;
     NSLock              *_CGLayerLock;
+    NSMutableData       *_characters;
 }
 
 @synthesize maxRows = _maxRows, maxColumns = _maxColumns,
@@ -120,6 +127,7 @@ defaultAdvanceForFont(NSFont *font)
 
     _drawData = NSMutableArray.new;
     _fontCache = NSMutableArray.new;
+    _characters = NSMutableData.new;
 
     _helper = MMTextViewHelper.new;
     _helper.textView = self;
@@ -848,32 +856,14 @@ defaultAdvanceForFont(NSFont *font)
             const int cells = *((int *)bytes); bytes += sizeof(int);
             const int flags = *((int *)bytes); bytes += sizeof(int);
             const int length = *((int *)bytes); bytes += sizeof(int);
-            const UInt8 *u8 = (UInt8 *)bytes; bytes += length;
+            UInt8 *u8 = (UInt8 *)bytes; bytes += length;
 
             ASLogNotice(@"   Draw string length=%d row=%d col=%d flags=%#x", length, row, col, flags);
 
             // Convert UTF-8 chars to UTF-16
-            CFStringRef stringRef = CFStringCreateWithBytesNoCopy(NULL, u8, length, kCFStringEncodingUTF8, false, kCFAllocatorNull);
-            if (!stringRef) {
-                ASLogWarn(@"Conversion error: some text may not be rendered");
-                continue;
-            }
-            CFIndex charCount = CFStringGetLength(stringRef);
-            const UniChar *charPtr = CFStringGetCharactersPtr(stringRef);
-            UniChar *buffer = NULL;
-            if (!charPtr) {
-                buffer = malloc(charCount * sizeof(UniChar));
-                CFStringGetCharacters(stringRef, (CFRange){0, charCount}, buffer);
-                charPtr = buffer;
-            }
+            NSString *string = [[NSString alloc] initWithBytesNoCopy:u8 length:length encoding:NSUTF8StringEncoding freeWhenDone:NO];
+            [self drawString:string row:row column:col cells:cells flags:flags fg:fg bg:bg sp:sp];
 
-            [self drawString:charPtr length:charCount atRow:row column:col cells:cells withFlags:flags foregroundColor:fg backgroundColor:bg specialColor:sp];
-
-            if (buffer) {
-                free(buffer);
-                buffer = NULL;
-            }
-            CFRelease(stringRef);
         } else if (InsertLinesDrawType == type) {
             unsigned color = *((unsigned*)bytes);  bytes += sizeof(unsigned);
             int row = *((int*)bytes);  bytes += sizeof(int);
@@ -919,89 +909,101 @@ defaultAdvanceForFont(NSFont *font)
     ASLogNotice(@"<==== END");
 }
 
+- (void)drawString:(NSString *)string row:(int)row column:(int)col cells:(int)cells flags:(int)flags fg:(int)fg bg:(int)bg sp:(int)sp
+{
+    const UniChar *ptr = CFStringGetCharactersPtr((__bridge CFStringRef)string);
+    if (!ptr) {
+        _characters.length = string.length * sizeof(UniChar);
+        CFStringGetCharacters((__bridge CFStringRef)string, (CFRange){0, string.length}, _characters.mutableBytes);
+        ptr = _characters.bytes;
+    }
+
+    [self drawString:ptr length:string.length atRow:row column:col cells:cells withFlags:flags foregroundColor:fg backgroundColor:bg specialColor:sp];
+}
+
 - (void)drawString:(const UniChar *)chars length:(UniCharCount)length atRow:(int)row column:(int)col cells:(int)cells withFlags:(int)flags foregroundColor:(int)fg backgroundColor:(int)bg specialColor:(int)sp
 {
     CGContextRef context = self.getCGContext;
-    const CGFloat x = col * _cellSize.width + _textContainerInset.width;
-    const CGFloat y = self.bounds.size.height - _textContainerInset.height - (1 + row) * _cellSize.height;
+    const CGPoint origin = {
+        .x = col * _cellSize.width + _textContainerInset.width,
+        .y = self.bounds.size.height - _textContainerInset.height - (row + 1) * _cellSize.height,
+    };
 
     // NOTE: It is assumed that either all characters in 'chars' are wide or
     // all are normal width.
     const CGFloat charWidth = _cellSize.width * (flags & DRAW_WIDE ? 2 : 1);
 
-    CGContextSaveGState(context);
-
-    int originalFontSmoothingStyle = 0;
-    if (_thinStrokes) {
-        CGContextSetShouldSmoothFonts(context, YES);
-        originalFontSmoothingStyle = CGContextGetFontSmoothingStyle(context);
-        CGContextSetFontSmoothingStyle(context, fontSmoothingStyleLight);
-    }
-
     // NOTE!  'cells' is zero if we're drawing a composing character
-    const CGRect clipRect = {{x, y}, {cells > 0 ? cells*_cellSize.width : charWidth, _cellSize.height}};
-    CGContextClipToRect(context, clipRect);
+    const CGRect clipRect = {origin, {cells > 0 ? cells*_cellSize.width : charWidth, _cellSize.height}};
 
-    if (!(flags & DRAW_TRANSP)) {
-        // Draw the background of the text.  Note that if we ignore the
-        // DRAW_TRANSP flag and always draw the background, then the insert
-        // mode cursor is drawn over.
-        CGContextSetRGBFillColor(context, RED(bg), GREEN(bg), BLUE(bg), ALPHA(bg));
+    CGContextSaveGState(context);
+    {
+        MMFontSmoothing *fontSmoothing = [MMFontSmoothing fontSmoothingEnabled:_thinStrokes on:context];
 
-        // Antialiasing may cause bleeding effects which are highly undesirable
-        // when clearing the background (this code is also called to draw the
-        // cursor sometimes) so disable it temporarily.
-        CGContextSetShouldAntialias(context, NO);
-        CGContextSetBlendMode(context, kCGBlendModeCopy);
-        CGContextFillRect(context, (CGRect){{x, y}, {cells * _cellSize.width, _cellSize.height}});
-        CGContextSetShouldAntialias(context, _antialias);
-        CGContextSetBlendMode(context, kCGBlendModeNormal);
-    }
+        CGContextClipToRect(context, clipRect);
 
-    if (flags & DRAW_UNDERL) {
-        // Draw underline
-        CGContextSetRGBFillColor(context, RED(sp), GREEN(sp), BLUE(sp), ALPHA(sp));
-        CGContextFillRect(context, (CGRect){{x, y + 0.4 * _fontDescent}, {cells * _cellSize.width, 1}});
-    } else if (flags & DRAW_UNDERC) {
-        // Draw curly underline
-        CGFloat x0 = x;
-        const CGFloat y0 = y + 1, cw = _cellSize.width, h = 0.5 * _fontDescent;
-        const CGFloat sw = 0.25 * cw;
-        const CGFloat mw = 0.5 * cw;
-        const CGFloat lw = 0.75 * cw;
-
-        CGContextMoveToPoint(context, x0, y0);
-        for (int k = 0; k < cells; ++k) {
-            CGContextAddCurveToPoint(context, x0 + sw, y0 + 0, x0 + sw, y0 + h, x0 + mw, y0 + h);
-            CGContextAddCurveToPoint(context, x0 + lw, y0 + h, x0 + lw, y0 + 0, x0 + cw, y0 + 0);
-            x0 += cw;
+        if (!(flags & DRAW_TRANSP)) {
+            [self drawOn:context backgroundAt:origin stride:cells color:bg];
+        }
+        if (flags & DRAW_UNDERL) {
+            [self drawOn:context underlineAt:origin stride:cells color:sp];
+        } else if (flags & DRAW_UNDERC) {
+            [self drawOn:context curlyUnderlineAt:origin stride:cells color:sp];
         }
 
-        CGContextSetRGBStrokeColor(context, RED(sp), GREEN(sp), BLUE(sp), ALPHA(sp));
-        CGContextStrokePath(context);
+        [self prepareGlyphsWithCount:length charWidth:charWidth];
+        [self drawOn:context characters:chars count:length at:origin color:fg flags:flags];
+      
+        fontSmoothing = nil;
     }
+    CGContextRestoreGState(context);
 
-    if (length > _maxlen) {
+    [self setNeedsDisplayCGLayerInRect:clipRect];
+}
+
+- (void)drawOn:(CGContextRef)context backgroundAt:(CGPoint)point stride:(int)stride color:(int)color
+{
+    // Draw the background of the text.  Note that if we ignore the
+    // DRAW_TRANSP flag and always draw the background, then the insert
+    // mode cursor is drawn over.
+    CGContextSetRGBFillColor(context, RED(color), GREEN(color), BLUE(color), ALPHA(color));
+
+    // Antialiasing may cause bleeding effects which are highly undesirable
+    // when clearing the background (this code is also called to draw the
+    // cursor sometimes) so disable it temporarily.
+    CGContextSetShouldAntialias(context, NO);
+    CGContextSetBlendMode(context, kCGBlendModeCopy);
+    CGContextFillRect(context, (CGRect){point, {stride * _cellSize.width, _cellSize.height}});
+    CGContextSetShouldAntialias(context, _antialias);
+    CGContextSetBlendMode(context, kCGBlendModeNormal);
+}
+
+- (void)drawOn:(CGContextRef)context underlineAt:(CGPoint)point stride:(int)stride color:(int)color
+{
+    CGContextSetRGBFillColor(context, RED(color), GREEN(color), BLUE(color), ALPHA(color));
+    CGContextFillRect(context, (CGRect){{point.x, point.y + 0.4 * _fontDescent}, {stride * _cellSize.width, 1}});
+}
+
+- (void)prepareGlyphsWithCount:(UniCharCount)count charWidth:(CGFloat)charWidth
+{
+    if (count > _maxlen) {
         if (_glyphs) free(_glyphs);
         if (_positions) free(_positions);
-        _glyphs = (CGGlyph *)malloc(length * sizeof(CGGlyph));
-        _positions = (CGPoint *)calloc(length, sizeof(CGPoint));
-        _maxlen = length;
+        _glyphs = (CGGlyph *)malloc(count * sizeof(CGGlyph));
+        _positions = (CGPoint *)calloc(count, sizeof(CGPoint));
+        _maxlen = count;
     }
-
-    CGContextSetTextMatrix(context, CGAffineTransformIdentity);
-    CGContextSetTextDrawingMode(context, kCGTextFill);
-    CGContextSetRGBFillColor(context, RED(fg), GREEN(fg), BLUE(fg), ALPHA(fg));
-    CGContextSetFontSize(context, _font.pointSize);
-
     // Calculate position of each glyph relative to (x,y).
     CGFloat xrel = 0;
-    for (UniCharCount i = 0; i < length; ++i) {
+    for (UniCharCount i = 0; i < count; ++i, xrel += charWidth) {
         _positions[i].x = xrel;
-        xrel += charWidth;
     }
+}
 
+- (NSFont *)fontWithFlags:(int)flags
+{
     CTFontRef fontRef = (__bridge_retained CTFontRef)(flags & DRAW_WIDE ? _fontWide : _font);
+
     CTFontSymbolicTraits traits = 0;
     if (flags & DRAW_ITALIC) traits |= kCTFontItalicTrait;
     if (flags & DRAW_BOLD) traits |= kCTFontBoldTrait;
@@ -1013,14 +1015,39 @@ defaultAdvanceForFont(NSFont *font)
         }
     }
 
-    CGContextSetTextPosition(context, x, y + _fontDescent);
-    RecurseDraw(chars, _glyphs, _positions, length, context, fontRef, _fontCache, _ligatures);
+    return (__bridge_transfer NSFont *)fontRef;
+}
 
-    CFRelease(fontRef);
-    if (_thinStrokes) CGContextSetFontSmoothingStyle(context, originalFontSmoothingStyle);
-    CGContextRestoreGState(context);
+- (void)drawOn:(CGContextRef)context characters:(const UniChar *)characters count:(UniCharCount)count at:(CGPoint)at color:(int)color flags:(int)flags
+{
+    NSFont *font = [self fontWithFlags:flags];
 
-    [self setNeedsDisplayCGLayerInRect:clipRect];
+    CGContextSetTextMatrix(context, CGAffineTransformIdentity);
+    CGContextSetTextDrawingMode(context, kCGTextFill);
+    CGContextSetRGBFillColor(context, RED(color), GREEN(color), BLUE(color), ALPHA(color));
+    CGContextSetFontSize(context, _font.pointSize);
+    CGContextSetTextPosition(context, at.x, at.y + _fontDescent);
+
+    RecurseDraw(characters, _glyphs, _positions, count, context, (__bridge CTFontRef)font, _fontCache, _ligatures);
+}
+
+- (void)drawOn:(CGContextRef)context curlyUnderlineAt:(CGPoint)point stride:(int)stride color:(int)color
+{
+    CGFloat x0 = point.x;
+    const CGFloat y0 = point.y + 1, cw = _cellSize.width, h = 0.5 * _fontDescent;
+    const CGFloat sw = 0.25 * cw;
+    const CGFloat mw = 0.5 * cw;
+    const CGFloat lw = 0.75 * cw;
+
+    CGContextMoveToPoint(context, x0, y0);
+    for (int k = 0; k < stride; ++k) {
+        CGContextAddCurveToPoint(context, x0 + sw, y0 + 0, x0 + sw, y0 + h, x0 + mw, y0 + h);
+        CGContextAddCurveToPoint(context, x0 + lw, y0 + h, x0 + lw, y0 + 0, x0 + cw, y0 + 0);
+        x0 += cw;
+    }
+
+    CGContextSetRGBStrokeColor(context, RED(color), GREEN(color), BLUE(color), ALPHA(color));
+    CGContextStrokePath(context);
 }
 
 - (void)scrollRect:(NSRect)rect lineCount:(int)count
