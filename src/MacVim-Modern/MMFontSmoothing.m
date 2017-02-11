@@ -24,7 +24,7 @@
 
 - (void)dealloc
 {
-    if (_enabled) [self unsetStyle];
+    [self restore];
 }
 
 - (void)setStyle:(int)style
@@ -33,9 +33,9 @@
     CGContextSetFontSmoothingStyle(_context, style);
 }
 
-- (void)unsetStyle
+- (void)restore
 {
-    CGContextSetFontSmoothingStyle(_context, _style);
+    if (_enabled) CGContextSetFontSmoothingStyle(_context, _style);
 }
 
 @end

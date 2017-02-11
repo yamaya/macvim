@@ -7,6 +7,8 @@
 
 - (instancetype)initWithContext:(CGContextRef)context enabled:(BOOL)enabled;
 
+- (void)restore;
+
 + (instancetype)fontSmoothingEnabled:(BOOL)enabled on:(CGContextRef)context;
 
 @end
