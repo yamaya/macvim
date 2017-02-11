@@ -277,6 +277,9 @@ defaultAdvanceForFont(NSFont *font)
 
         // Use 'Apple Color Emoji' font for rendering emoji
         NSFontDescriptor *emoji = [NSFontDescriptor fontDescriptorWithName:@"Apple Color Emoji" size:_font.pointSize];
+        emoji = [emoji fontDescriptorByAddingAttributes:@{
+            NSFontFixedAdvanceAttribute: @(width)
+        }];
         NSFontDescriptor *merged = [emoji fontDescriptorByAddingAttributes:@{
             NSFontCascadeListAttribute: @[fontDescriptor],
             NSFontFixedAdvanceAttribute: @(width)
