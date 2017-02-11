@@ -24,7 +24,7 @@
  * inset.  This distinction is particularly important when the view is being
  * resized.
  */
-
+#define USE_ATTRIBUTED_STRING_DRAWING
 #import "Miscellaneous.h"
 #import "MMAppController.h"
 #import "MMCoreTextView.h"
@@ -34,6 +34,9 @@
 #import "MMTextViewHelper.h"
 #import "MMVimController.h"
 #import "MMWindowController.h"
+#ifdef USE_ATTRIBUTED_STRING_DRAWING
+#import "NSAttributedString+CoreText.h"
+#endif
 
 // TODO: What does DRAW_TRANSP flag do?  If the background isn't drawn when
 // this flag is set, then sometimes the character after the cursor becomes
@@ -51,7 +54,11 @@
 - (NSRect)rectFromRow:(int)row1 column:(int)col1 toRow:(int)row2 column:(int)col2;
 - (NSSize)textAreaSize;
 - (void)batchDrawData:(NSData *)data;
+#ifdef USE_ATTRIBUTED_STRING_DRAWING
+- (void)drawAttributedString:(NSAttributedString *)attributedString atRow:(int)row column:(int)col cells:(int)cells withFlags:(int)flags foregroundColor:(int)fg backgroundColor:(int)bg specialColor:(int)sp;
+#else
 - (void)drawString:(const UniChar *)chars length:(UniCharCount)length atRow:(int)row column:(int)col cells:(int)cells withFlags:(int)flags foregroundColor:(int)fg backgroundColor:(int)bg specialColor:(int)sp;
+#endif
 - (void)deleteLinesFromRow:(int)row lineCount:(int)count scrollBottom:(int)bottom left:(int)left right:(int)right color:(int)color;
 - (void)insertLinesAtRow:(int)row lineCount:(int)count scrollBottom:(int)bottom left:(int)left right:(int)right color:(int)color;
 - (void)clearBlockFromRow:(int)row1 column:(int)col1 toRow:(int)row2 column:(int)col2 color:(int)color;
@@ -226,12 +233,14 @@ defaultAdvanceForFont(NSFont *font)
 {
     if (!(newFont && _font != newFont)) return;
 
-    const double em = roundf(defaultAdvanceForFont(newFont));
-    const double pt = roundf(newFont.pointSize);
+    const CGFloat em = roundf(defaultAdvanceForFont(newFont));
+    const CGFloat pt = roundf(newFont.pointSize);
+    const CGFloat width = ceilf(em * [NSUserDefaults.standardUserDefaults floatForKey:MMCellWidthMultiplierKey]);
 
     CTFontDescriptorRef desc = CTFontDescriptorCreateWithAttributes((CFDictionaryRef)@{
         (NSString *)kCTFontNameAttribute: newFont.displayName,
         (NSString *)kCTFontSizeAttribute: @(pt),
+        (NSString *)kCTFontFixedAdvanceAttribute: @(width),
     });
     CTFontRef fontRef = CTFontCreateWithFontDescriptor(desc, pt, NULL);
     CFRelease(desc);
@@ -242,12 +251,13 @@ defaultAdvanceForFont(NSFont *font)
     // only render at integer sizes.  Hence, we restrict the cell width to
     // an integer here, otherwise the window width and the actual text
     // width will not match.
-    _cellSize.width = ceil(em * [NSUserDefaults.standardUserDefaults floatForKey:MMCellWidthMultiplierKey]);
+    _cellSize.width = width;
     _cellSize.height = _linespace + defaultLineHeightForFont(_font);
 
     _fontDescent = ceil(CTFontGetDescent(fontRef));
 
     [_fontCache removeAllObjects];
+NSLog(@"setFont: %@, width=%g", _font.displayName, width);
 }
 
 - (void)setFontWide:(NSFont *)newFont
@@ -261,10 +271,19 @@ defaultAdvanceForFont(NSFont *font)
         // regular font when drawing.
         _fontWide = nil;
 
+        const CGFloat width = _cellSize.width * 2;
+        NSFontDescriptor *fontDescriptor = [newFont.fontDescriptor fontDescriptorByAddingAttributes:@{
+            NSFontFixedAdvanceAttribute: @(width)
+        }];
+
         // Use 'Apple Color Emoji' font for rendering emoji
-        NSFontDescriptor *emojiDesc = [NSFontDescriptor fontDescriptorWithName:@"Apple Color Emoji" size:_font.pointSize];
-        NSFontDescriptor *desc = [emojiDesc fontDescriptorByAddingAttributes:@{NSFontCascadeListAttribute: @[newFont.fontDescriptor]}];
-        _fontWide = [NSFont fontWithDescriptor:desc size:_font.pointSize];
+        NSFontDescriptor *emoji = [NSFontDescriptor fontDescriptorWithName:@"Apple Color Emoji" size:_font.pointSize];
+        NSFontDescriptor *merged = [emoji fontDescriptorByAddingAttributes:@{
+            NSFontCascadeListAttribute: @[fontDescriptor],
+            NSFontFixedAdvanceAttribute: @(width)
+        }];
+        _fontWide = [NSFont fontWithDescriptor:merged size:_font.pointSize];
+NSLog(@"setFontWide: %@, width=%g", newFont.displayName, width);
     }
 }
 
@@ -484,19 +503,20 @@ defaultAdvanceForFont(NSFont *font)
         // position.
         [_CGLayerLock lock];
         CGLayerRef layerRef = [self getCGLayer];
-        const CGSize layerSize = CGLayerGetSize(layerRef);
-        const NSRect drawRect = {{0, self.frame.size.height - layerSize.height}, layerSize};
+        const CGSize size = CGLayerGetSize(layerRef);
+        const NSRect drawRect = {{0, self.frame.size.height - size.height}, size};
+
+        CGContextRef context = NSGraphicsContext.currentContext.graphicsPort;
 
         const NSRect *rects = nil;
         NSInteger count = 0;
         [self getRectsBeingDrawn:&rects count:&count];
 
-        CGContextRef contextRef = NSGraphicsContext.currentContext.graphicsPort;
-        CGContextSaveGState(contextRef);
-        CGContextClipToRects(contextRef, rects, count);
-        CGContextSetBlendMode(contextRef, kCGBlendModeCopy);
-        CGContextDrawLayerInRect(contextRef, drawRect, layerRef);
-        CGContextRestoreGState(contextRef);
+        CGContextSaveGState(context);
+        CGContextClipToRects(context, rects, count);
+        CGContextSetBlendMode(context, kCGBlendModeCopy);
+        CGContextDrawLayerInRect(context, drawRect, layerRef);
+        CGContextRestoreGState(context);
 
         [_CGLayerLock unlock];
         return;
@@ -515,7 +535,7 @@ defaultAdvanceForFont(NSFont *font)
         [_CGLayerLock unlock];
     } else {
         [_drawData addObject:data];
-        [self setNeedsDisplay:YES];
+        self.needsDisplay = YES;
 
         // NOTE: During resizing, Cocoa only sends draw messages before Vim's rows
         // and columns are changed (due to ipc delays). Force a redraw here.
@@ -896,10 +916,13 @@ defaultAdvanceForFont(NSFont *font)
 
             [self drawInvertedRectAtRow:row column:col numRows:nr numColumns:nc];
         } else if (SetCursorPosDrawType == type) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-variable"
             // TODO: This is used for Voice Over support in MMTextView,
             // MMCoreTextView currently does not support Voice Over.
             int row = *((int*)bytes);  bytes += sizeof(int);
             int col = *((int*)bytes);  bytes += sizeof(int);
+#pragma clang diagnostic pop
             ASLogNotice(@"   Set cursor row=%d col=%d", row, col);
         } else {
             ASLogWarn(@"Unknown draw type (type=%d)", type);
@@ -911,6 +934,15 @@ defaultAdvanceForFont(NSFont *font)
 
 - (void)drawString:(NSString *)string row:(int)row column:(int)col cells:(int)cells flags:(int)flags fg:(int)fg bg:(int)bg sp:(int)sp
 {
+#ifdef USE_ATTRIBUTED_STRING_DRAWING
+    NSFont *font = [self fontWithFlags:flags];
+    NSAttributedString *as = [[NSAttributedString alloc] initWithString:string attributes:@{
+        NSFontAttributeName: font,
+        NSLigatureAttributeName: @2,
+        NSForegroundColorAttributeName: [NSColor colorWithDeviceRed:RED(fg) green:GREEN(fg) blue:BLUE(fg) alpha:ALPHA(fg)]
+    }];
+    [self drawAttributedString:as atRow:row column:col cells:cells withFlags:flags foregroundColor:fg backgroundColor:bg specialColor:sp];
+#else
     const UniChar *ptr = CFStringGetCharactersPtr((__bridge CFStringRef)string);
     if (!ptr) {
         _characters.length = string.length * sizeof(UniChar);
@@ -919,11 +951,52 @@ defaultAdvanceForFont(NSFont *font)
     }
 
     [self drawString:ptr length:string.length atRow:row column:col cells:cells withFlags:flags foregroundColor:fg backgroundColor:bg specialColor:sp];
+#endif
 }
 
+#ifdef USE_ATTRIBUTED_STRING_DRAWING
+- (void)drawAttributedString:(NSAttributedString *)attributedString atRow:(int)row column:(int)col cells:(int)cells withFlags:(int)flags foregroundColor:(int)fg backgroundColor:(int)bg specialColor:(int)sp
+{
+    CGContextRef context = [self getCGContext];
+    const CGPoint origin = {
+        .x = col * _cellSize.width + _textContainerInset.width,
+        .y = self.bounds.size.height - _textContainerInset.height - (row + 1) * _cellSize.height,
+    };
+
+    // NOTE: It is assumed that either all characters in 'chars' are wide or
+    // all are normal width.
+    const CGFloat charWidth = _cellSize.width * (flags & DRAW_WIDE ? 2 : 1);
+
+    // NOTE!  'cells' is zero if we're drawing a composing character
+    const CGRect clipRect = {origin, {cells > 0 ? cells*_cellSize.width : charWidth, _cellSize.height}};
+
+    CGContextSaveGState(context);
+    {
+        MMFontSmoothing *fontSmoothing = [MMFontSmoothing fontSmoothingEnabled:_thinStrokes on:context];
+
+        CGContextClipToRect(context, clipRect);
+
+        if (!(flags & DRAW_TRANSP)) {
+            [self drawOn:context backgroundAt:origin stride:cells color:bg];
+        }
+        if (flags & DRAW_UNDERL) {
+            [self drawOn:context underlineAt:origin stride:cells color:sp];
+        } else if (flags & DRAW_UNDERC) {
+            [self drawOn:context curlyUnderlineAt:origin stride:cells color:sp];
+        }
+
+        [attributedString drawAtPoint:(CGPoint){origin.x, origin.y + _fontDescent} on:context];
+
+        fontSmoothing = nil;
+    }
+    CGContextRestoreGState(context);
+
+    [self setNeedsDisplayCGLayerInRect:clipRect];
+}
+#else
 - (void)drawString:(const UniChar *)chars length:(UniCharCount)length atRow:(int)row column:(int)col cells:(int)cells withFlags:(int)flags foregroundColor:(int)fg backgroundColor:(int)bg specialColor:(int)sp
 {
-    CGContextRef context = self.getCGContext;
+    CGContextRef context = [self getCGContext];
     const CGPoint origin = {
         .x = col * _cellSize.width + _textContainerInset.width,
         .y = self.bounds.size.height - _textContainerInset.height - (row + 1) * _cellSize.height,
@@ -954,12 +1027,13 @@ defaultAdvanceForFont(NSFont *font)
         [self prepareGlyphsWithCount:length charWidth:charWidth];
         [self drawOn:context characters:chars count:length at:origin color:fg flags:flags];
       
-        fontSmoothing = nil;
+        [fontSmoothing restore];
     }
     CGContextRestoreGState(context);
 
     [self setNeedsDisplayCGLayerInRect:clipRect];
 }
+#endif
 
 - (void)drawOn:(CGContextRef)context backgroundAt:(CGPoint)point stride:(int)stride color:(int)color
 {
