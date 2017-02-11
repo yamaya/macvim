@@ -485,26 +485,26 @@ defaultAdvanceForFont(NSFont *font)
         [_CGLayerLock lock];
         CGLayerRef layerRef = [self getCGLayer];
         const CGSize layerSize = CGLayerGetSize(layerRef);
-        const NSRect drawRect = NSMakeRect(0, self.frame.size.height - layerSize.height, layerSize.width, layerSize.height);
-
-        CGContextRef contextRef = NSGraphicsContext.currentContext.graphicsPort;
+        const NSRect drawRect = {{0, self.frame.size.height - layerSize.height}, layerSize};
 
         const NSRect *rects = nil;
-        long count = 0;
+        NSInteger count = 0;
         [self getRectsBeingDrawn:&rects count:&count];
 
-        for (long i = 0; i < count; i++) {
-            CGContextSaveGState(contextRef);
-            CGContextClipToRect(contextRef, rects[i]);
-            CGContextSetBlendMode(contextRef, kCGBlendModeCopy);
-            CGContextDrawLayerInRect(contextRef, drawRect, layerRef);
-            CGContextRestoreGState(contextRef);
-        }
+        CGContextRef contextRef = NSGraphicsContext.currentContext.graphicsPort;
+        CGContextSaveGState(contextRef);
+        CGContextClipToRects(contextRef, rects, count);
+        CGContextSetBlendMode(contextRef, kCGBlendModeCopy);
+        CGContextDrawLayerInRect(contextRef, drawRect, layerRef);
+        CGContextRestoreGState(contextRef);
+
         [_CGLayerLock unlock];
-    } else {
-        for (NSData *data in _drawData.objectEnumerator) [self batchDrawData:data];
-        [_drawData removeAllObjects];
+        return;
     }
+    for (NSData *data in _drawData.objectEnumerator) {
+        [self batchDrawData:data];
+    }
+    [_drawData removeAllObjects];
 }
 
 - (void)performBatchDrawWithData:(NSData *)data
