@@ -257,7 +257,6 @@ defaultAdvanceForFont(NSFont *font)
     _fontDescent = ceil(CTFontGetDescent(fontRef));
 
     [_fontCache removeAllObjects];
-NSLog(@"setFont: %@, width=%g", _font.displayName, width);
 }
 
 - (void)setFontWide:(NSFont *)newFont
@@ -283,7 +282,6 @@ NSLog(@"setFont: %@, width=%g", _font.displayName, width);
             NSFontFixedAdvanceAttribute: @(width)
         }];
         _fontWide = [NSFont fontWithDescriptor:merged size:_font.pointSize];
-NSLog(@"setFontWide: %@, width=%g", newFont.displayName, width);
     }
 }
 
