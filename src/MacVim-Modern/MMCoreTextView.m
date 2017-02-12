@@ -228,22 +228,21 @@ defaultAdvanceForFont(NSFont *font)
     return rect;
 }
 
-
 - (void)setFont:(NSFont *)newFont
 {
     if (!(newFont && _font != newFont)) return;
 
-    const CGFloat em = roundf(defaultAdvanceForFont(newFont));
-    const CGFloat pt = roundf(newFont.pointSize);
-    const CGFloat width = ceilf(em * [NSUserDefaults.standardUserDefaults floatForKey:MMCellWidthMultiplierKey]);
+    const CGFloat emSize = roundf(defaultAdvanceForFont(newFont));
+    const CGFloat pointSize = roundf(newFont.pointSize);
+    const CGFloat width = ceilf(emSize * [NSUserDefaults.standardUserDefaults floatForKey:MMCellWidthMultiplierKey]);
 
-    CTFontDescriptorRef desc = CTFontDescriptorCreateWithAttributes((CFDictionaryRef)@{
+    CTFontDescriptorRef fontDescriptor = CTFontDescriptorCreateWithAttributes((__bridge CFDictionaryRef)@{
         (NSString *)kCTFontNameAttribute: newFont.displayName,
-        (NSString *)kCTFontSizeAttribute: @(pt),
+        (NSString *)kCTFontSizeAttribute: @(pointSize),
         (NSString *)kCTFontFixedAdvanceAttribute: @(width),
     });
-    CTFontRef fontRef = CTFontCreateWithFontDescriptor(desc, pt, NULL);
-    CFRelease(desc);
+    CTFontRef fontRef = CTFontCreateWithFontDescriptor(fontDescriptor, pointSize, NULL);
+    CFRelease(fontDescriptor);
 
     _font = (__bridge_transfer NSFont*)fontRef;
 
@@ -936,12 +935,18 @@ defaultAdvanceForFont(NSFont *font)
 - (void)drawString:(NSString *)string row:(int)row column:(int)col cells:(int)cells flags:(int)flags fg:(int)fg bg:(int)bg sp:(int)sp
 {
 #ifdef USE_ATTRIBUTED_STRING_DRAWING
-    NSFont *font = [self fontWithFlags:flags];
-    NSAttributedString *as = [[NSAttributedString alloc] initWithString:string attributes:@{
-        NSFontAttributeName: font,
+    NSMutableDictionary *attributes = @{
+        NSFontAttributeName: [self fontWithFlags:flags],
         NSLigatureAttributeName: @2,
         NSForegroundColorAttributeName: [NSColor colorWithDeviceRed:RED(fg) green:GREEN(fg) blue:BLUE(fg) alpha:ALPHA(fg)]
-    }];
+    }.mutableCopy;
+
+    if (flags & DRAW_UNDERL) {
+        attributes[NSUnderlineColorAttributeName] = [NSColor colorWithDeviceRed:RED(sp) green:GREEN(sp) blue:BLUE(sp) alpha:ALPHA(sp)];
+        attributes[NSUnderlineStyleAttributeName] = @(NSUnderlineStyleThick);
+    }
+
+    NSAttributedString *as = [[NSAttributedString alloc] initWithString:string attributes:attributes.copy];
     [self drawAttributedString:as atRow:row column:col cells:cells withFlags:flags foregroundColor:fg backgroundColor:bg specialColor:sp];
 #else
     const UniChar *ptr = CFStringGetCharactersPtr((__bridge CFStringRef)string);
@@ -976,13 +981,10 @@ defaultAdvanceForFont(NSFont *font)
         MMFontSmoothing *fontSmoothing = [MMFontSmoothing fontSmoothingEnabled:_thinStrokes on:context];
 
         CGContextClipToRect(context, clipRect);
-
         if (!(flags & DRAW_TRANSP)) {
             [self drawOn:context backgroundAt:origin stride:cells color:bg];
         }
-        if (flags & DRAW_UNDERL) {
-            [self drawOn:context underlineAt:origin stride:cells color:sp];
-        } else if (flags & DRAW_UNDERC) {
+        if (!(flags & DRAW_UNDERL) && (flags & DRAW_UNDERC)) {
             [self drawOn:context curlyUnderlineAt:origin stride:cells color:sp];
         }
 
