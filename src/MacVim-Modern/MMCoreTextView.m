@@ -56,7 +56,6 @@
 - (void)batchDrawData:(NSData *)data;
 #ifdef USE_ATTRIBUTED_STRING_DRAWING
 - (void)drawAttributedString:(NSAttributedString *)attributedString atRow:(int)row column:(int)col cells:(int)cells withFlags:(int)flags foregroundColor:(int)fg backgroundColor:(int)bg specialColor:(int)sp;
-- (void)removeUnusedEntryFromAttributedStringCache;
 #else
 - (void)drawString:(const UniChar *)chars length:(UniCharCount)length atRow:(int)row column:(int)col cells:(int)cells withFlags:(int)flags foregroundColor:(int)fg backgroundColor:(int)bg specialColor:(int)sp;
 #endif
@@ -96,13 +95,6 @@ defaultAdvanceForFont(NSFont *font)
     return [@"m" sizeWithAttributes:@{NSFontAttributeName: font}].width;
 }
 
-@interface AttributedStringCacheValue: NSObject
-@property (nonatomic) NSDate *accessedAt;
-@property (nonatomic) NSAttributedString *attributedString;
-@end
-@implementation AttributedStringCacheValue
-@end
-
 @implementation MMCoreTextView {
     float               _fontDescent;
     NSMutableArray      *_drawData;
@@ -115,9 +107,6 @@ defaultAdvanceForFont(NSFont *font)
     CGContextRef        _CGLayerContext;
     NSLock              *_CGLayerLock;
     NSMutableData       *_characters;
-#ifdef USE_ATTRIBUTED_STRING_DRAWING
-    NSMutableDictionary *_attributedStringCache;
-#endif
 }
 
 @synthesize maxRows = _maxRows, maxColumns = _maxColumns,
@@ -146,9 +135,6 @@ defaultAdvanceForFont(NSFont *font)
     _drawData = NSMutableArray.new;
     _fontCache = NSMutableArray.new;
     _characters = NSMutableData.new;
-#ifdef USE_ATTRIBUTED_STRING_DRAWING
-    _attributedStringCache = NSMutableDictionary.new;
-#endif
     _helper = MMTextViewHelper.new;
     _helper.textView = self;
 
@@ -269,11 +255,6 @@ defaultAdvanceForFont(NSFont *font)
     _fontDescent = ceil(CTFontGetDescent(fontRef));
 
     [_fontCache removeAllObjects];
-#ifdef USE_ATTRIBUTED_STRING_DRAWING
-    @synchronized (_attributedStringCache) {
-        [_attributedStringCache removeAllObjects];
-    }
-#endif
 }
 
 - (void)setFontWide:(NSFont *)newFont
@@ -302,11 +283,6 @@ defaultAdvanceForFont(NSFont *font)
             NSFontFixedAdvanceAttribute: @(width)
         }];
         _fontWide = [NSFont fontWithDescriptor:merged size:_font.pointSize];
-#ifdef USE_ATTRIBUTED_STRING_DRAWING
-        @synchronized (_attributedStringCache) {
-            [_attributedStringCache removeAllObjects];
-        }
-#endif
     }
 }
 
@@ -321,15 +297,6 @@ defaultAdvanceForFont(NSFont *font)
     // linespace is non-zero the baseline will be adjusted as well; check
     // MMTypesetter. _cellSize.height = _linespace + defaultLineHeightForFont(_font);
 }
-
-#ifdef USE_ATTRIBUTED_STRING_DRAWING
-- (void)setLigatures:(BOOL)ligatures
-{
-    _ligatures = ligatures;
-    [_attributedStringCache removeAllObjects];
-    self.needsDisplayCGLayer = YES;
-}
-#endif
 
 - (void)deleteSign:(NSString *)signName
 {
@@ -551,9 +518,6 @@ defaultAdvanceForFont(NSFont *font)
         CGContextRestoreGState(context);
 
         [_CGLayerLock unlock];
-#ifdef USE_ATTRIBUTED_STRING_DRAWING
-        [self removeUnusedEntryFromAttributedStringCache];
-#endif
         return;
     }
     for (NSData *data in _drawData.objectEnumerator) {
@@ -970,29 +934,20 @@ defaultAdvanceForFont(NSFont *font)
 - (void)drawString:(NSString *)string row:(int)row column:(int)col cells:(int)cells flags:(int)flags fg:(int)fg bg:(int)bg sp:(int)sp
 {
 #ifdef USE_ATTRIBUTED_STRING_DRAWING
-    @synchronized (_attributedStringCache) {
-        NSString *key = [NSString stringWithFormat:@"%@:%d:%d:%d:%d", string, flags, fg, bg, sp];
-        AttributedStringCacheValue *value = _attributedStringCache[key];
-        if (!value) {
-            NSMutableDictionary *attributes = @{
-                NSFontAttributeName: [self fontWithFlags:flags],
-                NSLigatureAttributeName: (_ligatures ? @1 : @0),
-                NSKernAttributeName: @0,
-                NSForegroundColorAttributeName: [NSColor colorWithDeviceRed:RED(fg) green:GREEN(fg) blue:BLUE(fg) alpha:ALPHA(fg)]
-            }.mutableCopy;
+    NSMutableDictionary *attributes = @{
+        NSFontAttributeName: [self fontWithFlags:flags],
+        NSLigatureAttributeName: (_ligatures ? @1 : @0),
+        NSKernAttributeName: @0,
+        NSForegroundColorAttributeName: [NSColor colorWithDeviceRed:RED(fg) green:GREEN(fg) blue:BLUE(fg) alpha:ALPHA(fg)]
+    }.mutableCopy;
 
-            if (flags & DRAW_UNDERL) {
-                attributes[NSUnderlineColorAttributeName] = [NSColor colorWithDeviceRed:RED(sp) green:GREEN(sp) blue:BLUE(sp) alpha:ALPHA(sp)];
-                attributes[NSUnderlineStyleAttributeName] = @(NSUnderlineStyleThick);
-            }
-
-            value = AttributedStringCacheValue.new;
-            value.attributedString = [[NSAttributedString alloc] initWithString:string attributes:attributes.copy];
-            _attributedStringCache[key] = value;
-        }
-        value.accessedAt = NSDate.new;
-        [self drawAttributedString:value.attributedString atRow:row column:col cells:cells withFlags:flags foregroundColor:fg backgroundColor:bg specialColor:sp];
+    if (flags & DRAW_UNDERL) {
+        attributes[NSUnderlineColorAttributeName] = [NSColor colorWithDeviceRed:RED(sp) green:GREEN(sp) blue:BLUE(sp) alpha:ALPHA(sp)];
+        attributes[NSUnderlineStyleAttributeName] = @(NSUnderlineStyleThick);
     }
+
+    NSAttributedString *attributedString = [[NSAttributedString alloc] initWithString:string attributes:attributes.copy];
+    [self drawAttributedString:attributedString atRow:row column:col cells:cells withFlags:flags foregroundColor:fg backgroundColor:bg specialColor:sp];
 #else
     const UniChar *ptr = CFStringGetCharactersPtr((__bridge CFStringRef)string);
     if (!ptr) {
@@ -1296,24 +1251,5 @@ defaultAdvanceForFont(NSFont *font)
     [self setNeedsDisplayCGLayerInRect:rect];
     CGContextRestoreGState(contextRef);
 }
-
-#ifdef USE_ATTRIBUTED_STRING_DRAWING
-- (void)removeUnusedEntryFromAttributedStringCache
-{
-    @synchronized (_attributedStringCache) {
-        NSDate *threshold = [NSDate dateWithTimeIntervalSinceNow:-60 * 3];
-        NSMutableArray *removed = NSMutableArray.new;
-        for (NSString *key in _attributedStringCache) {
-            AttributedStringCacheValue *value = _attributedStringCache[key];
-            if ([value.accessedAt compare:threshold] == NSOrderedAscending) {
-                [removed addObject:key];
-            }
-        }
-        for (NSString *key in removed) {
-            [_attributedStringCache removeObjectForKey:key];
-        }
-    }
-}
-#endif
 
 @end // MMCoreTextView (Drawing)
