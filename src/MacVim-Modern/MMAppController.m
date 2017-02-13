@@ -42,6 +42,7 @@
 #import "MMVimController.h"
 #import "MMWindowController.h"
 #import "MMTextView.h"
+#import "MMVimView.h"
 #import "Miscellaneous.h"
 #import <unistd.h>
 #import <CoreServices/CoreServices.h>
@@ -103,19 +104,14 @@ typedef struct
 
 @interface MMAppController (Private)
 - (MMVimController *)topmostVimController;
-- (int)launchVimProcessWithArguments:(NSArray *)args
-                    workingDirectory:(NSString *)cwd;
+- (int)launchVimProcessWithArguments:(NSArray *)args workingDirectory:(NSString *)cwd;
 - (NSArray *)filterFilesAndNotify:(NSArray *)files;
-- (NSArray *)filterOpenFiles:(NSArray *)filenames
-               openFilesDict:(NSDictionary **)openFiles;
+- (NSArray *)filterOpenFiles:(NSArray *)filenames openFilesDict:(NSDictionary **)openFiles;
 #if MM_HANDLE_XCODE_MOD_EVENT
-- (void)handleXcodeModEvent:(NSAppleEventDescriptor *)event
-                 replyEvent:(NSAppleEventDescriptor *)reply;
+- (void)handleXcodeModEvent:(NSAppleEventDescriptor *)event replyEvent:(NSAppleEventDescriptor *)reply;
 #endif
-- (void)handleGetURLEvent:(NSAppleEventDescriptor *)event
-               replyEvent:(NSAppleEventDescriptor *)reply;
-- (NSMutableDictionary *)extractArgumentsFromOdocEvent:
-    (NSAppleEventDescriptor *)desc;
+- (void)handleGetURLEvent:(NSAppleEventDescriptor *)event replyEvent:(NSAppleEventDescriptor *)reply;
+- (NSMutableDictionary *)extractArgumentsFromOdocEvent:(NSAppleEventDescriptor *)desc;
 - (void)scheduleVimControllerPreloadAfterDelay:(NSTimeInterval)delay;
 - (void)cancelVimControllerPreloadRequests;
 - (void)preloadVimController:(id)sender;
@@ -133,8 +129,7 @@ typedef struct
 - (void)reapChildProcesses:(id)sender;
 - (void)processInputQueues:(id)sender;
 - (void)addVimController:(MMVimController *)vc;
-- (NSDictionary *)convertVimControllerArguments:(NSDictionary *)args
-                                  toCommandLine:(NSArray **)cmdline;
+- (NSDictionary *)convertVimControllerArguments:(NSDictionary *)args toCommandLine:(NSArray **)cmdline;
 - (NSString *)workingDirectoryForArguments:(NSDictionary *)args;
 - (NSScreen *)screenContainingTopLeftPoint:(NSPoint)pt;
 - (void)addInputSourceChangedObserver;
@@ -152,10 +147,25 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
                 const FSEventStreamEventFlags eventFlags[],
                 const FSEventStreamEventId eventIds[])
 {
-    [[MMAppController sharedInstance] handleFSEvent];
+    [MMAppController.shared handleFSEvent];
 }
 
-@implementation MMAppController
+@implementation MMAppController {
+    NSConnection        *_connection;
+    NSMutableArray      *_vimControllers;
+    NSMutableArray      *_cachedVimControllers;
+    NSString            *_openSelectionString;
+    NSMutableDictionary *_pidArguments;
+    NSMenuItem          *_recentFilesMenuItem;
+    int                 _preloadPid;
+    BOOL                _shouldActivateWhenNextWindowOpens;
+    int                 _numChildProcesses;
+    NSMutableDictionary *_inputQueues;
+    int                 _processingFlag;
+    FSEventStreamRef    _fsEventStream;
+}
+@synthesize defaultMainMenu = _defaultMainMenu, appMenuItemTemplate = _appMenuItemTemplate;
+@dynamic keyVimController, mainMenu;
 
 + (void)initialize
 {
@@ -248,7 +258,7 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
             NSHomeDirectory()];
 }
 
-- (id)init
+- (instancetype)init
 {
     if (!(self = [super init])) return nil;
 
@@ -258,64 +268,45 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
         [NSApp disableRelaunchOnLogin];
 #endif
 
-    vimControllers = [NSMutableArray new];
-    cachedVimControllers = [NSMutableArray new];
-    preloadPid = -1;
-    pidArguments = [NSMutableDictionary new];
-    inputQueues = [NSMutableDictionary new];
+    _vimControllers = NSMutableArray.new;
+    _cachedVimControllers = NSMutableArray.new;
+    _preloadPid = -1;
+    _pidArguments = NSMutableDictionary.new;
+    _inputQueues = NSMutableDictionary.new;
 
     // NOTE: Do not use the default connection since the Logitech Control
     // Center (LCC) input manager steals and this would cause MacVim to
     // never open any windows.  (This is a bug in LCC but since they are
     // unlikely to fix it, we graciously give them the default connection.)
-    connection = [[NSConnection alloc] initWithReceivePort:[NSPort port]
-                                                  sendPort:nil];
-    [connection setRootObject:self];
-    [connection setRequestTimeout:MMRequestTimeout];
-    [connection setReplyTimeout:MMReplyTimeout];
+    _connection = [[NSConnection alloc] initWithReceivePort:[NSPort port] sendPort:nil];
+    [_connection setRootObject:self];
+    [_connection setRequestTimeout:MMRequestTimeout];
+    [_connection setReplyTimeout:MMReplyTimeout];
 
     // NOTE!  If the name of the connection changes here it must also be
     // updated in MMBackend.m.
     NSString *name = [NSString stringWithFormat:@"%@-connection",
              [[NSBundle mainBundle] bundlePath]];
-    if (![connection registerName:name]) {
+    if (![_connection registerName:name]) {
         ASLogCrit(@"Failed to register connection with name '%@'", name);
-        [connection release];  connection = nil;
+        _connection = nil;
     }
 
     return self;
-}
-
-- (void)dealloc
-{
-    ASLogDebug(@"");
-
-    [connection release];  connection = nil;
-    [inputQueues release];  inputQueues = nil;
-    [pidArguments release];  pidArguments = nil;
-    [vimControllers release];  vimControllers = nil;
-    [cachedVimControllers release];  cachedVimControllers = nil;
-    [openSelectionString release];  openSelectionString = nil;
-    [recentFilesMenuItem release];  recentFilesMenuItem = nil;
-    [defaultMainMenu release];  defaultMainMenu = nil;
-    [appMenuItemTemplate release];  appMenuItemTemplate = nil;
-
-    [super dealloc];
 }
 
 - (void)applicationWillFinishLaunching:(NSNotification *)notification
 {
     // Remember the default menu so that it can be restored if the user closes
     // all editor windows.
-    defaultMainMenu = [[NSApp mainMenu] retain];
+    _defaultMainMenu = NSApp.mainMenu;
 
     // Store a copy of the default app menu so we can use this as a template
     // for all other menus.  We make a copy here because the "Services" menu
     // will not yet have been populated at this time.  If we don't we get
     // problems trying to set key equivalents later on because they might clash
     // with items on the "Services" menu.
-    appMenuItemTemplate = [defaultMainMenu itemAtIndex:0];
-    appMenuItemTemplate = [appMenuItemTemplate copy];
+    _appMenuItemTemplate = [[_defaultMainMenu itemAtIndex:0] copy];
 
     // Set up the "Open Recent" menu. See
     //   http://lapcatsoftware.com/blog/2007/07/10/
@@ -328,19 +319,13 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
     // hack around a bit to get it to work.  (This has to be done in
     // applicationWillFinishLaunching at the latest, otherwise it doesn't
     // work.)
-    NSMenu *fileMenu = [defaultMainMenu findFileMenu];
+    NSMenu *fileMenu = _defaultMainMenu.findFileMenu;
     if (fileMenu) {
         int idx = [fileMenu indexOfItemWithAction:@selector(fileOpen:)];
         if (idx >= 0 && idx+1 < [fileMenu numberOfItems])
 
-        recentFilesMenuItem = [fileMenu itemWithTitle:@"Open Recent"];
-        [[recentFilesMenuItem submenu] performSelector:@selector(_setMenuName:)
-                                        withObject:@"NSRecentDocumentsMenu"];
-
-        // Note: The "Recent Files" menu must be moved around since there is no
-        // -[NSApp setRecentFilesMenu:] method.  We keep a reference to it to
-        // facilitate this move (see setMainMenu: below).
-        [recentFilesMenuItem retain];
+        _recentFilesMenuItem = [fileMenu itemWithTitle:@"Open Recent"];
+        [_recentFilesMenuItem.submenu performSelector:@selector(_setMenuName:) withObject:@"NSRecentDocumentsMenu"];
     }
 
 #if MM_HANDLE_XCODE_MOD_EVENT
@@ -409,47 +394,43 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
 
 - (BOOL)applicationShouldOpenUntitledFile:(NSApplication *)sender
 {
-    NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
     NSAppleEventManager *aem = [NSAppleEventManager sharedAppleEventManager];
     NSAppleEventDescriptor *desc = [aem currentAppleEvent];
 
     // The user default MMUntitledWindow can be set to control whether an
     // untitled window should open on 'Open' and 'Reopen' events.
-    int untitledWindowFlag = [ud integerForKey:MMUntitledWindowKey];
+    int untitledWindowFlag = [NSUserDefaults.standardUserDefaults integerForKey:MMUntitledWindowKey];
 
-    BOOL isAppOpenEvent = [desc eventID] == kAEOpenApplication;
+    const BOOL isAppOpenEvent = desc.eventID == kAEOpenApplication;
     if (isAppOpenEvent && (untitledWindowFlag & MMUntitledWindowOnOpen) == 0)
         return NO;
 
-    BOOL isAppReopenEvent = [desc eventID] == kAEReopenApplication;
-    if (isAppReopenEvent
-            && (untitledWindowFlag & MMUntitledWindowOnReopen) == 0)
+    const BOOL isAppReopenEvent = desc.eventID == kAEReopenApplication;
+    if (isAppReopenEvent && (untitledWindowFlag & MMUntitledWindowOnReopen) == 0)
         return NO;
 
     // When a process is started from the command line, the 'Open' event may
     // contain a parameter to surpress the opening of an untitled window.
     desc = [desc paramDescriptorForKeyword:keyAEPropData];
     desc = [desc paramDescriptorForKeyword:keyMMUntitledWindow];
-    if (desc && ![desc booleanValue])
+    if (desc && !desc.booleanValue)
         return NO;
 
     // Never open an untitled window if there is at least one open window.
-    if ([vimControllers count] > 0)
+    if (_vimControllers.count > 0)
         return NO;
 
     // Don't open an untitled window if there are processes about to launch...
-    NSUInteger numLaunching = [pidArguments count];
-    if (numLaunching > 0) {
+    NSUInteger numLaunching = _pidArguments.count;
+    if (numLaunching != 0) {
         // ...unless the launching process is being preloaded
-        NSNumber *key = [NSNumber numberWithInt:preloadPid];
-        if (numLaunching != 1 || [pidArguments objectForKey:key] == nil)
-            return NO;
+        if (numLaunching != 1 || _pidArguments[@(_preloadPid)] == nil) return NO;
     }
 
     // NOTE!  This way it possible to start the app with the command-line
     // argument '-nowindow yes' and no window will be opened by default but
     // this argument will only be heeded when the application is opening.
-    if (isAppOpenEvent && [ud boolForKey:MMNoWindowKey] == YES)
+    if (isAppOpenEvent && [NSUserDefaults.standardUserDefaults boolForKey:MMNoWindowKey])
         return NO;
 
     return YES;
@@ -508,9 +489,7 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
     BOOL modifiedBuffers = NO;
 
     // Go through Vim controllers, checking for modified buffers.
-    NSEnumerator *e = [vimControllers objectEnumerator];
-    id vc;
-    while ((vc = [e nextObject])) {
+    for (id vc in _vimControllers) {
         if ([vc hasModifiedBuffer]) {
             modifiedBuffers = YES;
             break;
@@ -518,114 +497,77 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
     }
 
     if (modifiedBuffers) {
-        NSAlert *alert = [[NSAlert alloc] init];
+        NSAlert *alert = NSAlert.new;
         [alert setAlertStyle:NSAlertStyleWarning];
-        [alert addButtonWithTitle:NSLocalizedString(@"Quit",
-                @"Dialog button")];
-        [alert addButtonWithTitle:NSLocalizedString(@"Cancel",
-                @"Dialog button")];
-        [alert setMessageText:NSLocalizedString(@"Quit without saving?",
-                @"Quit dialog with changed buffers, title")];
-        [alert setInformativeText:NSLocalizedString(
-                @"There are modified buffers, "
-                "if you quit now all changes will be lost.  Quit anyway?",
-                @"Quit dialog with changed buffers, text")];
+        [alert addButtonWithTitle:NSLocalizedString(@"Quit", @"Dialog button")];
+        [alert addButtonWithTitle:NSLocalizedString(@"Cancel", @"Dialog button")];
+        [alert setMessageText:NSLocalizedString(@"Quit without saving?", @"Quit dialog with changed buffers, title")];
+        [alert setInformativeText:NSLocalizedString(@"There are modified buffers, if you quit now all changes will be lost.  Quit anyway?", @"Quit dialog with changed buffers, text")];
 
-        if ([alert runModal] != NSAlertFirstButtonReturn)
-            reply = NSTerminateCancel;
-
-        [alert release];
-    } else if (![[NSUserDefaults standardUserDefaults]
-                                boolForKey:MMSuppressTerminationAlertKey]) {
+        if (alert.runModal != NSAlertFirstButtonReturn) reply = NSTerminateCancel;
+    } else if (![NSUserDefaults.standardUserDefaults boolForKey:MMSuppressTerminationAlertKey]) {
         // No unmodified buffers, but give a warning if there are multiple
         // windows and/or tabs open.
-        int numWindows = [vimControllers count];
+        int numWindows = _vimControllers.count;
         int numTabs = 0;
 
         // Count the number of open tabs
-        e = [vimControllers objectEnumerator];
-        while ((vc = [e nextObject]))
+        for (id vc in _vimControllers) {
             numTabs += [[vc objectForVimStateKey:@"numTabs"] intValue];
+        }
 
         if (numWindows > 1 || numTabs > 1) {
-            NSAlert *alert = [[NSAlert alloc] init];
-            [alert setAlertStyle:NSAlertStyleWarning];
-            [alert addButtonWithTitle:NSLocalizedString(@"Quit",
-                    @"Dialog button")];
-            [alert addButtonWithTitle:NSLocalizedString(@"Cancel",
-                    @"Dialog button")];
-            [alert setMessageText:NSLocalizedString(
-                    @"Are you sure you want to quit MacVim?",
-                    @"Quit dialog with no changed buffers, title")];
-            [alert setShowsSuppressionButton:YES];
+            NSAlert *alert = NSAlert.new;
+            alert.alertStyle = NSAlertStyleWarning;
+            [alert addButtonWithTitle:NSLocalizedString(@"Quit", @"Dialog button")];
+            [alert addButtonWithTitle:NSLocalizedString(@"Cancel", @"Dialog button")];
+            [alert setMessageText:NSLocalizedString(@"Are you sure you want to quit MacVim?", @"Quit dialog with no changed buffers, title")];
+            alert.showsSuppressionButton = YES;
 
             NSString *info = nil;
             if (numWindows > 1) {
                 if (numTabs > numWindows)
-                    info = [NSString stringWithFormat:NSLocalizedString(
-                            @"There are %d windows open in MacVim, with a "
-                            "total of %d tabs. Do you want to quit anyway?",
-                            @"Quit dialog with no changed buffers, text"),
-                         numWindows, numTabs];
+                    info = [NSString stringWithFormat:NSLocalizedString(@"There are %d windows open in MacVim, with a total of %d tabs. Do you want to quit anyway?", @"Quit dialog with no changed buffers, text"), numWindows, numTabs];
                 else
-                    info = [NSString stringWithFormat:NSLocalizedString(
-                            @"There are %d windows open in MacVim. "
-                            "Do you want to quit anyway?",
-                            @"Quit dialog with no changed buffers, text"),
-                        numWindows];
-
+                    info = [NSString stringWithFormat:NSLocalizedString(@"There are %d windows open in MacVim. Do you want to quit anyway?", @"Quit dialog with no changed buffers, text"), numWindows];
             } else {
-                info = [NSString stringWithFormat:NSLocalizedString(
-                        @"There are %d tabs open in MacVim. "
-                        "Do you want to quit anyway?",
-                        @"Quit dialog with no changed buffers, text"), 
-                     numTabs];
+                info = [NSString stringWithFormat:NSLocalizedString(@"There are %d tabs open in MacVim. Do you want to quit anyway?", @"Quit dialog with no changed buffers, text"), numTabs];
             }
 
-            [alert setInformativeText:info];
+            alert.informativeText = info;
 
-            if ([alert runModal] != NSAlertFirstButtonReturn)
-                reply = NSTerminateCancel;
+            if (alert.runModal != NSAlertFirstButtonReturn) reply = NSTerminateCancel;
 
-            if ([[alert suppressionButton] state] == NSOnState) {
-                [[NSUserDefaults standardUserDefaults]
-                            setBool:YES forKey:MMSuppressTerminationAlertKey];
+            if (alert.suppressionButton.state == NSOnState) {
+                [NSUserDefaults.standardUserDefaults setBool:YES forKey:MMSuppressTerminationAlertKey];
             }
-
-            [alert release];
         }
     }
-
 
     // Tell all Vim processes to terminate now (otherwise they'll leave swap
     // files behind).
     if (NSTerminateNow == reply) {
-        e = [vimControllers objectEnumerator];
-        id vc;
-        while ((vc = [e nextObject])) {
-            ASLogDebug(@"Terminate pid=%d", [vc pid]);
+        for (MMVimController *vc in _vimControllers) {
+            ASLogDebug(@"Terminate pid=%d", vc.pid);
             [vc sendMessage:TerminateNowMsgID data:nil];
         }
 
-        e = [cachedVimControllers objectEnumerator];
-        while ((vc = [e nextObject])) {
-            ASLogDebug(@"Terminate pid=%d (cached)", [vc pid]);
+        for (MMVimController *vc in _cachedVimControllers) {
+            ASLogDebug(@"Terminate pid=%d (cached)", vc.pid);
             [vc sendMessage:TerminateNowMsgID data:nil];
         }
 
         // If a Vim process is being preloaded as we quit we have to forcibly
         // kill it since we have not established a connection yet.
-        if (preloadPid > 0) {
-            ASLogDebug(@"Kill incomplete preloaded process pid=%d", preloadPid);
-            kill(preloadPid, SIGKILL);
+        if (_preloadPid > 0) {
+            ASLogDebug(@"Kill incomplete preloaded process pid=%d", _preloadPid);
+            kill(_preloadPid, SIGKILL);
         }
 
         // If a Vim process was loading as we quit we also have to kill it.
-        e = [[pidArguments allKeys] objectEnumerator];
-        NSNumber *pidKey;
-        while ((pidKey = [e nextObject])) {
-            ASLogDebug(@"Kill incomplete process pid=%d", [pidKey intValue]);
-            kill([pidKey intValue], SIGKILL);
+        for (NSNumber *pidKey in _pidArguments) {
+            ASLogDebug(@"Kill incomplete process pid=%d", pidKey.intValue);
+            kill(pidKey.intValue, SIGKILL);
         }
 
         // Sleep a little to allow all the Vim processes to exit.
@@ -644,26 +586,26 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
     [self stopWatchingVimDir];
 
 #if MM_HANDLE_XCODE_MOD_EVENT
-    [[NSAppleEventManager sharedAppleEventManager]
+    [NSAppleEventManager.sharedAppleEventManager
             removeEventHandlerForEventClass:'KAHL'
                                  andEventID:'MOD '];
 #endif
 
     // This will invalidate all connections (since they were spawned from this
     // connection).
-    [connection invalidate];
+    [_connection invalidate];
 
-    [NSApp setDelegate:nil];
+    NSApp.delegate = nil;
 
     // Try to wait for all child processes to avoid leaving zombies behind (but
     // don't wait around for too long).
     NSDate *timeOutDate = [NSDate dateWithTimeIntervalSinceNow:2];
-    while ([timeOutDate timeIntervalSinceNow] > 0) {
+    while (timeOutDate.timeIntervalSinceNow > 0) {
         [self reapChildProcesses:nil];
-        if (numChildProcesses <= 0)
+        if (_numChildProcesses <= 0)
             break;
 
-        ASLogDebug(@"%d processes still left, hold on...", numChildProcesses);
+        ASLogDebug(@"%d processes still left, hold on...", _numChildProcesses);
 
         // Run in NSConnectionReplyMode while waiting instead of calling e.g.
         // usleep().  Otherwise incoming messages may clog up the DO queues and
@@ -673,69 +615,51 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
         // annoying "dropping incoming DO message".  (E.g. this may happen if
         // you quickly hit Cmd-n several times in a row and then immediately
         // press Cmd-q, Enter.)
-        while (CFRunLoopRunInMode((CFStringRef)NSConnectionReplyMode,
-                0.05, true) == kCFRunLoopRunHandledSource)
+        while (CFRunLoopRunInMode((CFStringRef)NSConnectionReplyMode, 0.05, true) == kCFRunLoopRunHandledSource)
             ;   // do nothing
     }
 
-    if (numChildProcesses > 0) {
-        ASLogNotice(@"%d zombies left behind", numChildProcesses);
+    if (_numChildProcesses > 0) {
+        ASLogNotice(@"%d zombies left behind", _numChildProcesses);
     }
 }
 
-+ (MMAppController *)sharedInstance
++ (MMAppController *)shared
 {
     // Note: The app controller is a singleton which is instantiated in
     // MainMenu.nib where it is also connected as the delegate of NSApp.
-    id delegate = [NSApp delegate];
-    return [delegate isKindOfClass:self] ? (MMAppController*)delegate : nil;
-}
-
-- (NSMenu *)defaultMainMenu
-{
-    return defaultMainMenu;
-}
-
-- (NSMenuItem *)appMenuItemTemplate
-{
-    return appMenuItemTemplate;
+    id delegate = NSApp.delegate;
+    return [delegate isKindOfClass:self] ? (MMAppController *)delegate : nil;
 }
 
 - (void)removeVimController:(id)controller
 {
     ASLogDebug(@"Remove Vim controller pid=%d id=%d (processingFlag=%d)",
-               [controller pid], [controller vimControllerId], processingFlag);
+               [controller pid], [controller vimControllerId], _processingFlag);
 
-    NSUInteger idx = [vimControllers indexOfObject:controller];
+    const NSUInteger idx = [_vimControllers indexOfObject:controller];
     if (NSNotFound == idx) {
         ASLogDebug(@"Controller not found, probably due to duplicate removal");
         return;
     }
 
-    [controller retain];
-    [vimControllers removeObjectAtIndex:idx];
+    [_vimControllers removeObjectAtIndex:idx];
     [controller cleanup];
-    [controller release];
+    controller = nil;
 
-    if (![vimControllers count]) {
+    if (_vimControllers.count == 0) {
         // The last editor window just closed so restore the main menu back to
         // its default state (which is defined in MainMenu.nib).
-        [self setMainMenu:defaultMainMenu];
+        self.mainMenu = _defaultMainMenu;
 
-        BOOL hide = (MMHideWhenLastWindowClosed ==
-                    [[NSUserDefaults standardUserDefaults]
-                        integerForKey:MMLastWindowClosedBehaviorKey]);
-        if (hide)
-            [NSApp hide:self];
+        if (MMHideWhenLastWindowClosed == [NSUserDefaults.standardUserDefaults integerForKey:MMLastWindowClosedBehaviorKey]) [NSApp hide:self];
     }
 
     // There is a small delay before the Vim process actually exits so wait a
     // little before trying to reap the child process.  If the process still
     // hasn't exited after this wait it won't be reaped until the next time
     // reapChildProcesses: is called (but this should be harmless).
-    [self performSelector:@selector(reapChildProcesses:)
-               withObject:nil
-               afterDelay:0.1];
+    [self performSelector:@selector(reapChildProcesses:) withObject:nil afterDelay:0.1];
 }
 
 - (void)windowControllerWillOpen:(MMWindowController *)windowController
@@ -812,56 +736,51 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
             [win setFrameTopLeftPoint:topLeft];
     }
 
-    if (1 == [vimControllers count]) {
+    if (1 == _vimControllers.count) {
         // The first window autosaves its position.  (The autosaving
         // features of Cocoa are not used because we need more control over
         // what is autosaved and when it is restored.)
         [windowController setWindowAutosaveKey:MMTopLeftPointKey];
     }
 
-    if (openSelectionString) {
-        // TODO: Pass this as a parameter instead!  Get rid of
-        // 'openSelectionString' etc.
+    if (_openSelectionString) {
+        // TODO: Pass this as a parameter instead!  Get rid of '_openSelectionString' etc.
         //
         // There is some text to paste into this window as a result of the
         // services menu "Open selection ..." being used.
-        [[windowController vimController] dropString:openSelectionString];
-        [openSelectionString release];
-        openSelectionString = nil;
+        [windowController.vimController dropString:_openSelectionString];
+        _openSelectionString = nil;
     }
 
-    if (shouldActivateWhenNextWindowOpens) {
+    if (_shouldActivateWhenNextWindowOpens) {
         [NSApp activateIgnoringOtherApps:YES];
-        shouldActivateWhenNextWindowOpens = NO;
+        _shouldActivateWhenNextWindowOpens = NO;
     }
 }
 
 - (void)setMainMenu:(NSMenu *)mainMenu
 {
-    if ([NSApp mainMenu] == mainMenu) return;
+    if (NSApp.mainMenu == mainMenu) return;
 
     // If the new menu has a "Recent Files" dummy item, then swap the real item
     // for the dummy.  We are forced to do this since Cocoa initializes the
     // "Recent Files" menu and there is no way to simply point Cocoa to a new
     // item each time the menus are swapped.
-    NSMenu *fileMenu = [mainMenu findFileMenu];
-    if (recentFilesMenuItem && fileMenu) {
-        int dummyIdx =
-                [fileMenu indexOfItemWithAction:@selector(recentFilesDummy:)];
+    NSMenu *fileMenu = mainMenu.findFileMenu;
+    if (_recentFilesMenuItem && fileMenu) {
+        int dummyIdx = [fileMenu indexOfItemWithAction:@selector(recentFilesDummy:)];
         if (dummyIdx >= 0) {
-            NSMenuItem *dummyItem = [[fileMenu itemAtIndex:dummyIdx] retain];
+            NSMenuItem *dummyItem = [fileMenu itemAtIndex:dummyIdx];
             [fileMenu removeItemAtIndex:dummyIdx];
 
-            NSMenu *recentFilesParentMenu = [recentFilesMenuItem menu];
-            int idx = [recentFilesParentMenu indexOfItem:recentFilesMenuItem];
+            NSMenu *recentFilesParentMenu = _recentFilesMenuItem.menu;
+            int idx = [recentFilesParentMenu indexOfItem:_recentFilesMenuItem];
             if (idx >= 0) {
-                [[recentFilesMenuItem retain] autorelease];
                 [recentFilesParentMenu removeItemAtIndex:idx];
                 [recentFilesParentMenu insertItem:dummyItem atIndex:idx];
             }
 
-            [fileMenu insertItem:recentFilesMenuItem atIndex:dummyIdx];
-            [dummyItem release];
+            [fileMenu insertItem:_recentFilesMenuItem atIndex:dummyIdx];
         }
     }
 
@@ -869,18 +788,16 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
     // window since each editor can have its own set of menus.  When swapping
     // menus we have to tell Cocoa where the new "MacVim", "Windows", and
     // "Services" menu are.
-    [NSApp setMainMenu:mainMenu];
+    NSApp.mainMenu = mainMenu;
 
     // Setting the "MacVim" (or "Application") menu ensures that it is typeset
     // in boldface.  (The setAppleMenu: method used to be public but is now
     // private so this will have to be considered a bit of a hack!)
-    NSMenu *appMenu = [mainMenu findApplicationMenu];
-    [NSApp performSelector:@selector(setAppleMenu:) withObject:appMenu];
+    [NSApp performSelector:@selector(setAppleMenu:) withObject:mainMenu.findApplicationMenu];
 
-    NSMenu *servicesMenu = [mainMenu findServicesMenu];
-    [NSApp setServicesMenu:servicesMenu];
+    NSApp.servicesMenu = mainMenu.findServicesMenu;
 
-    NSMenu *windowsMenu = [mainMenu findWindowsMenu];
+    NSMenu *windowsMenu = mainMenu.findWindowsMenu;
     if (windowsMenu) {
         // Cocoa isn't clever enough to get rid of items it has added to the
         // "Windows" menu so we have to do it ourselves otherwise there will be
@@ -889,14 +806,17 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
         // send off the action makeKeyAndOrderFront:.  (Cocoa will not add
         // another separator item if the last item on the "Windows" menu
         // already is a separator, so we needen't worry about separators.)
-        int i, count = [windowsMenu numberOfItems];
-        for (i = count-1; i >= 0; --i) {
+        for (int i = windowsMenu.numberOfItems - 1; i >= 0; --i) {
             NSMenuItem *item = [windowsMenu itemAtIndex:i];
-            if ([item action] == @selector(makeKeyAndOrderFront:))
-                [windowsMenu removeItem:item];
+            if (item.action == @selector(makeKeyAndOrderFront:)) [windowsMenu removeItem:item];
         }
     }
-    [NSApp setWindowsMenu:windowsMenu];
+    NSApp.windowsMenu = windowsMenu;
+}
+
+- (NSMenu *)mainMenu
+{
+    return NSApp.mainMenu;
 }
 
 - (NSArray *)filterOpenFiles:(NSArray *)filenames
@@ -913,34 +833,30 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
     // Each launching Vim process has a dictionary of arguments that are passed
     // to the process when in checks in (via connectBackend:pid:).  The
     // arguments for each launching process can be looked up by its PID (in the
-    // pidArguments dictionary).
+    // _pidArguments dictionary).
 
-    NSMutableDictionary *arguments = (args ? [[args mutableCopy] autorelease]
-                                           : [NSMutableDictionary dictionary]);
+    NSMutableDictionary *arguments = args ? args.mutableCopy : NSMutableDictionary.new;
 
     filenames = normalizeFilenames(filenames);
 
     //
     // a) Filter out any already open files
     //
-    NSString *firstFile = [filenames objectAtIndex:0];
+    NSString *firstFile = filenames.firstObject;
     NSDictionary *openFilesDict = nil;
     filenames = [self filterOpenFiles:filenames openFilesDict:&openFilesDict];
 
     // The meaning of "layout" is defined by the WIN_* defines in main.c.
-    NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
-    int layout = [ud integerForKey:MMOpenLayoutKey];
-    BOOL splitVert = [ud boolForKey:MMVerticalSplitKey];
-    BOOL openInCurrentWindow = [ud boolForKey:MMOpenInCurrentWindowKey];
+    int layout = [NSUserDefaults.standardUserDefaults integerForKey:MMOpenLayoutKey];
+    BOOL splitVert = [NSUserDefaults.standardUserDefaults boolForKey:MMVerticalSplitKey];
+    BOOL openInCurrentWindow = [NSUserDefaults.standardUserDefaults boolForKey:MMOpenInCurrentWindowKey];
 
-    if (splitVert && MMLayoutHorizontalSplit == layout)
-        layout = MMLayoutVerticalSplit;
-    if (layout < 0 || (layout > MMLayoutTabs && openInCurrentWindow))
-        layout = MMLayoutTabs;
+    if (splitVert && MMLayoutHorizontalSplit == layout) layout = MMLayoutVerticalSplit;
+    if (layout < 0 || (layout > MMLayoutTabs && openInCurrentWindow)) layout = MMLayoutTabs;
 
     // Pass arguments to vim controllers that had files open.
     id key;
-    NSEnumerator *e = [openFilesDict keyEnumerator];
+    NSEnumerator *e = openFilesDict.keyEnumerator;
 
     // (Indicate that we do not wish to open any files at the moment.)
     [arguments setObject:[NSNumber numberWithBool:YES] forKey:@"dontOpen"];
@@ -982,64 +898,56 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
 
     // Add filenames to "Recent Files" menu, unless they are being edited
     // remotely (using ODB).
-    if ([arguments objectForKey:@"remoteID"] == nil) {
-        [[NSDocumentController sharedDocumentController]
-                noteNewRecentFilePaths:filenames];
+    if (!arguments[@"remoteID"]) {
+        [NSDocumentController.sharedDocumentController noteNewRecentFilePaths:filenames];
     }
 
-    if ([filenames count] == 0)
+    if (filenames.count == 0)
         return YES; // No files left to open (all were already open)
 
     //
     // b) Open any remaining files
     //
 
-    [arguments setObject:[NSNumber numberWithInt:layout] forKey:@"layout"];
+    [arguments setObject:@(layout) forKey:@"layout"];
     [arguments setObject:filenames forKey:@"filenames"];
     // (Indicate that files should be opened from now on.)
-    [arguments setObject:[NSNumber numberWithBool:NO] forKey:@"dontOpen"];
+    [arguments setObject:@NO forKey:@"dontOpen"];
 
     MMVimController *vc;
-    if (openInCurrentWindow && (vc = [self topmostVimController])) {
+    if (openInCurrentWindow && (vc = self.topmostVimController) != nil) {
         // Open files in an already open window.
-        [[[vc windowController] window] makeKeyAndOrderFront:self];
+        [vc.windowController.window makeKeyAndOrderFront:self];
         [vc passArguments:arguments];
         return YES;
     }
 
     BOOL openOk = YES;
-    int numFiles = [filenames count];
-    if (MMLayoutWindows == layout && numFiles > 1) {
+    const int numFiles = filenames.count;
+    if (MMLayoutWindows == layout && numFiles != 1) {
         // Open one file at a time in a new window, but don't open too many at
         // once (at most cap+1 windows will open).  If the user has increased
         // the preload cache size we'll take that as a hint that more windows
         // should be able to open at once.
-        int cap = [self maxPreloadCacheSize] - 1;
+        int cap = self.maxPreloadCacheSize - 1;
         if (cap < 4) cap = 4;
         if (cap > numFiles) cap = numFiles;
 
         int i;
         for (i = 0; i < cap; ++i) {
-            NSArray *a = [NSArray arrayWithObject:[filenames objectAtIndex:i]];
-            [arguments setObject:a forKey:@"filenames"];
+            arguments[@"filenames"] = @[filenames[i]];
 
             // NOTE: We have to copy the args since we'll mutate them in the
             // next loop and the below call may retain the arguments while
             // waiting for a process to start.
-            NSDictionary *args = [[arguments copy] autorelease];
-
-            openOk = [self openVimControllerWithArguments:args];
+            openOk = [self openVimControllerWithArguments:arguments.copy];
             if (!openOk) break;
         }
 
         // Open remaining files in tabs in a new window.
         if (openOk && numFiles > cap) {
-            NSRange range = { i, numFiles-cap };
-            NSArray *a = [filenames subarrayWithRange:range];
-            [arguments setObject:a forKey:@"filenames"];
-            [arguments setObject:[NSNumber numberWithInt:MMLayoutTabs]
-                          forKey:@"layout"];
-
+            arguments[@"filenames"] = [filenames subarrayWithRange:(NSRange){i, numFiles - cap}];
+            arguments[@"layout"] = @(MMLayoutTabs);
             openOk = [self openVimControllerWithArguments:arguments];
         }
     } else {
@@ -1059,7 +967,7 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
     // 1-2 seconds to start a new Vim process.
     MMVimController *vc = [self takeVimControllerFromCache];
     if (vc) {
-        [[vc backendProxy] acknowledgeConnection];
+        [vc.backendProxy acknowledgeConnection];
     } else {
         [self launchVimProcessWithArguments:nil workingDirectory:nil];
     }
@@ -1079,7 +987,7 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
     BOOL trackPwd = [[NSUserDefaults standardUserDefaults]
             boolForKey:MMDialogsTrackPwdKey];
     if (trackPwd) {
-        MMVimController *vc = [self keyVimController];
+        MMVimController *vc = self.keyVimController;
         if (vc) dir = [vc objectForVimStateKey:@"pwd"];
     }
 
@@ -1125,21 +1033,18 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
 {
     ASLogDebug(@"Select next window");
 
-    unsigned i, count = [vimControllers count];
-    if (!count) return;
+    const NSUInteger count = _vimControllers.count;
+    if (count == 0) return;
 
-    NSWindow *keyWindow = [NSApp keyWindow];
+    NSUInteger i;
     for (i = 0; i < count; ++i) {
-        MMVimController *vc = [vimControllers objectAtIndex:i];
-        if ([[[vc windowController] window] isEqual:keyWindow])
-            break;
+        MMVimController *vc = _vimControllers[i];
+        if ([vc.windowController.window isEqual:NSApp.keyWindow]) break;
     }
-
     if (i < count) {
-        if (++i >= count)
-            i = 0;
-        MMVimController *vc = [vimControllers objectAtIndex:i];
-        [[vc windowController] showWindow:self];
+        if (++i >= count) i = 0;
+        MMVimController *vc = _vimControllers[i];
+        [vc.windowController showWindow:self];
     }
 }
 
@@ -1147,47 +1052,42 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
 {
     ASLogDebug(@"Select previous window");
 
-    unsigned i, count = [vimControllers count];
-    if (!count) return;
+    const NSUInteger count = _vimControllers.count;
+    if (count == 0) return;
 
-    NSWindow *keyWindow = [NSApp keyWindow];
+    NSUInteger i;
     for (i = 0; i < count; ++i) {
-        MMVimController *vc = [vimControllers objectAtIndex:i];
-        if ([[[vc windowController] window] isEqual:keyWindow])
-            break;
+        MMVimController *vc = _vimControllers[i];
+        if ([vc.windowController.window isEqual:NSApp.keyWindow]) break;
     }
-
     if (i < count) {
         if (i > 0) {
             --i;
         } else {
             i = count - 1;
         }
-        MMVimController *vc = [vimControllers objectAtIndex:i];
-        [[vc windowController] showWindow:self];
+        MMVimController *vc = _vimControllers[i];
+        [vc.windowController showWindow:self];
     }
 }
 
 - (IBAction)orderFrontPreferencePanel:(id)sender
 {
     ASLogDebug(@"Show preferences panel");
-    [[MMPreferenceController sharedPrefsWindowController] showWindow:self];
+    [MMPreferenceController.sharedPrefsWindowController showWindow:self];
 }
 
 - (IBAction)openWebsite:(id)sender
 {
     ASLogDebug(@"Open MacVim website");
-    [[NSWorkspace sharedWorkspace] openURL:
-            [NSURL URLWithString:MMWebsiteString]];
+    [NSWorkspace.sharedWorkspace openURL: [NSURL URLWithString:MMWebsiteString]];
 }
 
 - (IBAction)showVimHelp:(id)sender
 {
     ASLogDebug(@"Open window with Vim help");
     // Open a new window with the help window maximized.
-    [self launchVimProcessWithArguments:[NSArray arrayWithObjects:
-                                    @"-c", @":h gui_mac", @"-c", @":res", nil]
-                       workingDirectory:nil];
+    [self launchVimProcessWithArguments:@[@"-c", @":h gui_mac", @"-c", @":res"] workingDirectory:nil];
 }
 
 - (IBAction)zoomAll:(id)sender
@@ -1199,31 +1099,27 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
 - (IBAction)stayInFront:(id)sender
 {
     ASLogDebug(@"Stay in Front");
-    NSWindow *keyWindow = [NSApp keyWindow];
-    [keyWindow setLevel:NSFloatingWindowLevel];
+    [NSApp.keyWindow setLevel:NSFloatingWindowLevel];
 }
 
 - (IBAction)stayInBack:(id)sender
 {
     ASLogDebug(@"Stay in Back");
-    NSWindow *keyWindow = [NSApp keyWindow];
-    [keyWindow setLevel:kCGDesktopIconWindowLevel +1];
+    [NSApp.keyWindow setLevel:kCGDesktopIconWindowLevel +1];
 }
 
 - (IBAction)stayLevelNormal:(id)sender
 {
     ASLogDebug(@"Stay level normal");
-    NSWindow *keyWindow = [NSApp keyWindow];
-    [keyWindow setLevel:NSNormalWindowLevel];
+    [NSApp.keyWindow setLevel:NSNormalWindowLevel];
 }
 
 - (IBAction)coreTextButtonClicked:(id)sender
 {
     ASLogDebug(@"Toggle CoreText renderer");
-    NSInteger renderer = MMRendererDefault;
-    BOOL enable = ([sender state] == NSOnState);
 
-    if (enable) {
+    NSInteger renderer = MMRendererDefault;
+    if ([sender state] == NSOnState) {
         renderer = MMRendererCoreText;
     }
 
@@ -1231,7 +1127,7 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
     // any new Vim process will pick up on the changed setting.
     CFPreferencesSetAppValue(
             (CFStringRef)MMRendererKey,
-            (CFPropertyListRef)[NSNumber numberWithInt:renderer],
+            (CFPropertyListRef)@(renderer),
             kCFPreferencesCurrentApplication);
     CFPreferencesAppSynchronize(kCFPreferencesCurrentApplication);
 
@@ -1254,7 +1150,7 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
 {
     ASLogDebug(@"Toggle Quickstart option");
     if ([self maxPreloadCacheSize] > 0) {
-        [self scheduleVimControllerPreloadAfterDelay:1.0];
+        [self scheduleVimControllerPreloadAfterDelay:1];
         [self startWatchingVimDir];
     } else {
         [self cancelVimControllerPreloadRequests];
@@ -1265,16 +1161,12 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
 
 - (MMVimController *)keyVimController
 {
-    NSWindow *keyWindow = [NSApp keyWindow];
+    const NSWindow *keyWindow = NSApp.keyWindow;
     if (keyWindow) {
-        unsigned i, count = [vimControllers count];
-        for (i = 0; i < count; ++i) {
-            MMVimController *vc = [vimControllers objectAtIndex:i];
-            if ([[[vc windowController] window] isEqual:keyWindow])
-                return vc;
+        for (MMVimController *vc in _vimControllers) {
+            if ([vc.windowController.window isEqual:keyWindow]) return vc;
         }
     }
-
     return nil;
 }
 
@@ -1282,7 +1174,7 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
 {
     ASLogDebug(@"pid=%d", pid);
 
-    [(NSDistantObject*)proxy setProtocolForProxy:@protocol(MMBackendProtocol)];
+    [(NSDistantObject *)proxy setProtocolForProxy:@protocol(MMBackendProtocol)];
 
     // NOTE: Allocate the vim controller now but don't add it to the list of
     // controllers since this is a distributed object call and as such can
@@ -1294,21 +1186,15 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
     // Also, since the app may be multithreaded (e.g. as a result of showing
     // the open panel) we have to ensure this call happens on the main thread,
     // else there is a race condition that may lead to a crash.
-    MMVimController *vc = [[MMVimController alloc] initWithBackend:proxy
-                                                               pid:pid];
+    MMVimController *vc = [[MMVimController alloc] initWithBackend:proxy pid:pid];
     [self performSelectorOnMainThread:@selector(addVimController:)
                            withObject:vc
                         waitUntilDone:NO
-                                modes:[NSArray arrayWithObject:
-                                       NSDefaultRunLoopMode]];
-
-    [vc release];
-
-    return [vc vimControllerId];
+                                modes:@[NSDefaultRunLoopMode]];
+    return vc.vimControllerId;
 }
 
-- (oneway void)processInput:(in bycopy NSArray *)queue
-              forIdentifier:(unsigned)identifier
+- (oneway void)processInput:(in bycopy NSArray *)queue forIdentifier:(unsigned)identifier
 {
     // NOTE: Input is not handled immediately since this is a distributed
     // object call and as such can arrive at unpredictable times.  Instead,
@@ -1319,16 +1205,15 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
         return;
     }
 
-    ASLogDebug(@"QUEUE for identifier=%d: <<< %@>>>", identifier,
-               debugStringForMessageQueue(queue));
+    ASLogDebug(@"QUEUE for identifier=%d: <<< %@>>>", identifier, debugStringForMessageQueue(queue));
 
-    NSNumber *key = [NSNumber numberWithUnsignedInt:identifier];
-    NSArray *q = [inputQueues objectForKey:key];
+    NSNumber *key = @(identifier);
+    NSArray *q = _inputQueues[key];
     if (q) {
         q = [q arrayByAddingObjectsFromArray:queue];
-        [inputQueues setObject:q forKey:key];
+        _inputQueues[key] = q;
     } else {
-        [inputQueues setObject:queue forKey:key];
+        _inputQueues[key] = queue;
     }
 
     // NOTE: We must use "event tracking mode" as well as "default mode",
@@ -1340,133 +1225,109 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
     [self performSelectorOnMainThread:@selector(processInputQueues:)
                            withObject:nil
                         waitUntilDone:NO
-                                modes:[NSArray arrayWithObjects:
-                                       NSDefaultRunLoopMode,
-                                       NSEventTrackingRunLoopMode, nil]];
+                                modes:@[NSDefaultRunLoopMode, NSEventTrackingRunLoopMode]];
 }
 
 - (NSArray *)serverList
 {
-    NSMutableArray *array = [NSMutableArray array];
-
-    unsigned i, count = [vimControllers count];
-    for (i = 0; i < count; ++i) {
-        MMVimController *controller = [vimControllers objectAtIndex:i];
-        if ([controller serverName])
-            [array addObject:[controller serverName]];
+    NSMutableArray *names = NSMutableArray.new;
+    for (MMVimController *controller in _vimControllers) {
+        if (controller.serverName) [names addObject:controller.serverName];
     }
-
-    return array;
+    return names.copy;
 }
 
 @end // MMAppController
 
 
-
-
 @implementation MMAppController (MMServices)
 
-- (void)openSelection:(NSPasteboard *)pboard userData:(NSString *)userData
-                error:(NSString **)error
+- (void)openSelection:(NSPasteboard *)pboard userData:(NSString *)userData error:(NSString **)error
 {
-    if (![[pboard types] containsObject:NSStringPboardType]) {
+    if (![pboard.types containsObject:NSStringPboardType]) {
         ASLogNotice(@"Pasteboard contains no NSStringPboardType");
         return;
     }
 
     ASLogInfo(@"Open new window containing current selection");
 
-    NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
-    BOOL openInCurrentWindow = [ud boolForKey:MMOpenInCurrentWindowKey];
+    BOOL openInCurrentWindow = [NSUserDefaults.standardUserDefaults boolForKey:MMOpenInCurrentWindowKey];
     MMVimController *vc;
 
-    if (openInCurrentWindow && (vc = [self topmostVimController])) {
+    if (openInCurrentWindow && (vc = self.topmostVimController) != nil) {
         [vc sendMessage:AddNewTabMsgID data:nil];
         [vc dropString:[pboard stringForType:NSStringPboardType]];
     } else {
         // Save the text, open a new window, and paste the text when the next
         // window opens.  (If this is called several times in a row, then all
         // but the last call may be ignored.)
-        if (openSelectionString) [openSelectionString release];
-        openSelectionString = [[pboard stringForType:NSStringPboardType] copy];
+        _openSelectionString = [[pboard stringForType:NSStringPboardType] copy];
 
         [self newWindow:self];
     }
 }
 
-- (void)openFile:(NSPasteboard *)pboard userData:(NSString *)userData
-           error:(NSString **)error
+- (void)openFile:(NSPasteboard *)pboard userData:(NSString *)userData error:(NSString **)error
 {
-    if (![[pboard types] containsObject:NSStringPboardType]) {
+    if (![pboard.types containsObject:NSStringPboardType]) {
         ASLogNotice(@"Pasteboard contains no NSStringPboardType");
         return;
     }
 
     // TODO: Parse multiple filenames and create array with names.
     NSString *string = [pboard stringForType:NSStringPboardType];
-    string = [string stringByTrimmingCharactersInSet:
-            [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    string = [string stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
     string = [string stringByStandardizingPath];
 
     ASLogInfo(@"Open new window with selected file: %@", string);
 
-    NSArray *filenames = [self filterFilesAndNotify:
-            [NSArray arrayWithObject:string]];
-    if ([filenames count] == 0)
+    NSArray *filenames = [self filterFilesAndNotify:@[string]];
+    if (filenames.count == 0)
         return;
 
-    NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
-    BOOL openInCurrentWindow = [ud boolForKey:MMOpenInCurrentWindowKey];
+    BOOL openInCurrentWindow = [NSUserDefaults.standardUserDefaults boolForKey:MMOpenInCurrentWindowKey];
     MMVimController *vc;
 
-    if (openInCurrentWindow && (vc = [self topmostVimController])) {
+    if (openInCurrentWindow && (vc = self.topmostVimController) != nil) {
         [vc dropFiles:filenames forceOpen:YES];
     } else {
         [self openFiles:filenames withArguments:nil];
     }
 }
 
-- (void)newFileHere:(NSPasteboard *)pboard userData:(NSString *)userData
-              error:(NSString **)error
+- (void)newFileHere:(NSPasteboard *)pboard userData:(NSString *)userData error:(NSString **)error
 {
-    if (![[pboard types] containsObject:NSFilenamesPboardType]) {
+    if (![pboard.types containsObject:NSFilenamesPboardType]) {
         ASLogNotice(@"Pasteboard contains no NSFilenamesPboardType");
         return;
     }
 
     NSArray *filenames = [pboard propertyListForType:NSFilenamesPboardType];
-    NSString *path = [filenames lastObject];
+    NSString *path = filenames.lastObject;
 
     BOOL dirIndicator;
-    if (![[NSFileManager defaultManager] fileExistsAtPath:path
-                                              isDirectory:&dirIndicator]) {
+    if (![NSFileManager.defaultManager fileExistsAtPath:path isDirectory:&dirIndicator]) {
         ASLogNotice(@"Invalid path. Cannot open new document at: %@", path);
         return;
     }
 
     ASLogInfo(@"Open new file at path=%@", path);
 
-    if (!dirIndicator)
-        path = [path stringByDeletingLastPathComponent];
+    if (!dirIndicator) path = [path stringByDeletingLastPathComponent];
 
     path = [path stringByEscapingSpecialFilenameCharacters];
 
-    NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
-    BOOL openInCurrentWindow = [ud boolForKey:MMOpenInCurrentWindowKey];
+    BOOL openInCurrentWindow = [NSUserDefaults.standardUserDefaults boolForKey:MMOpenInCurrentWindowKey];
     MMVimController *vc;
 
-    if (openInCurrentWindow && (vc = [self topmostVimController])) {
-        NSString *input = [NSString stringWithFormat:@"<C-\\><C-N>"
-                ":tabe|cd %@<CR>", path];
-        [vc addVimInput:input];
+    if (openInCurrentWindow && (vc = self.topmostVimController) != nil) {
+        [vc addVimInput:[NSString stringWithFormat:@"<C-\\><C-N>:tabe|cd %@<CR>", path]];
     } else {
         [self launchVimProcessWithArguments:nil workingDirectory:path];
     }
 }
 
 @end // MMAppController (MMServices)
-
-
 
 
 @implementation MMAppController (Private)
@@ -1482,54 +1343,43 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
     //    fall back on ...
     // 2. Search through all Vim controllers and return the first visible
     //    window.
-
-    NSEnumerator *e = [[NSApp orderedWindows] objectEnumerator];
-    id window;
-    while ((window = [e nextObject]) && [window isVisible]) {
-        unsigned i, count = [vimControllers count];
-        for (i = 0; i < count; ++i) {
-            MMVimController *vc = [vimControllers objectAtIndex:i];
-            if ([[[vc windowController] window] isEqual:window])
-                return vc;
+    for (NSWindow *window in NSApp.orderedWindows) {
+        for (MMVimController *controller in _vimControllers) {
+            if ([controller.windowController.window isEqual:window]) {
+                return controller;
+            }
         }
     }
-
-    unsigned i, count = [vimControllers count];
-    for (i = 0; i < count; ++i) {
-        MMVimController *vc = [vimControllers objectAtIndex:i];
-        if ([[[vc windowController] window] isVisible]) {
-            return vc;
+    for (MMVimController *controller in _vimControllers) {
+        if (controller.windowController.window.isVisible) {
+            return controller;
         }
     }
 
     return nil;
 }
 
-- (int)launchVimProcessWithArguments:(NSArray *)args
-                    workingDirectory:(NSString *)cwd
+- (int)launchVimProcessWithArguments:(NSArray *)args workingDirectory:(NSString *)cwd
 {
     int pid = -1;
-    NSString *path = [[NSBundle mainBundle] pathForAuxiliaryExecutable:@"Vim"];
-
+    NSString *path = [NSBundle.mainBundle pathForAuxiliaryExecutable:@"Vim"];
     if (!path) {
         ASLogCrit(@"Vim executable could not be found inside app bundle!");
         return -1;
     }
 
     // Change current working directory so that the child process picks it up.
-    NSFileManager *fm = [NSFileManager defaultManager];
     NSString *restoreCwd = nil;
     if (cwd) {
-        restoreCwd = [fm currentDirectoryPath];
-        [fm changeCurrentDirectoryPath:cwd];
+        restoreCwd = [NSFileManager.defaultManager currentDirectoryPath];
+        [NSFileManager.defaultManager changeCurrentDirectoryPath:cwd];
     }
 
     NSArray *taskArgs = [NSArray arrayWithObjects:@"-g", @"-f", nil];
     if (args)
         taskArgs = [taskArgs arrayByAddingObjectsFromArray:args];
 
-    BOOL useLoginShell = [[NSUserDefaults standardUserDefaults]
-            boolForKey:MMLoginShellKey];
+    const BOOL useLoginShell = [NSUserDefaults.standardUserDefaults boolForKey:MMLoginShellKey];
     if (useLoginShell) {
         // Run process with a login shell, roughly:
         //   echo "exec Vim -g -f args" | ARGV0=-`basename $SHELL` $SHELL [-l]
@@ -1537,29 +1387,26 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
     } else {
         // Run process directly:
         //   Vim -g -f args
-        NSTask *task = [NSTask launchedTaskWithLaunchPath:path
-                                                arguments:taskArgs];
-        pid = task ? [task processIdentifier] : -1;
+        NSTask *task = [NSTask launchedTaskWithLaunchPath:path arguments:taskArgs];
+        pid = task ? task.processIdentifier : -1;
     }
 
     if (-1 != pid) {
-        // The 'pidArguments' dictionary keeps arguments to be passed to the
+        // The '_pidArguments' dictionary keeps arguments to be passed to the
         // process when it connects (this is in contrast to arguments which are
         // passed on the command line, like '-f' and '-g').
         // NOTE: If there are no arguments to pass we still add a null object
         // so that we can use this dictionary to check if there are any
         // processes loading.
-        NSNumber *pidKey = [NSNumber numberWithInt:pid];
-        if (![pidArguments objectForKey:pidKey])
-            [pidArguments setObject:[NSNull null] forKey:pidKey];
+        NSNumber *pidKey = @(pid);
+        if (!_pidArguments[pidKey]) _pidArguments[pidKey] = NSNull.null;
     } else {
-        ASLogWarn(@"Failed to launch Vim process: args=%@, useLoginShell=%d",
-                  args, useLoginShell);
+        ASLogWarn(@"Failed to launch Vim process: args=%@, useLoginShell=%d", args, useLoginShell);
     }
 
     // Now that child has launched, restore the current working directory.
     if (restoreCwd)
-        [fm changeCurrentDirectoryPath:restoreCwd];
+        [NSFileManager.defaultManager changeCurrentDirectoryPath:restoreCwd];
 
     return pid;
 }
@@ -1570,44 +1417,31 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
     // warning dialog if some file was missing.
 
     NSString *firstMissingFile = nil;
-    NSMutableArray *files = [NSMutableArray array];
-    unsigned i, count = [filenames count];
+    NSMutableArray *files = NSMutableArray.array;
 
-    for (i = 0; i < count; ++i) {
-        NSString *name = [filenames objectAtIndex:i];
-        if ([[NSFileManager defaultManager] fileExistsAtPath:name]) {
+    for (NSString *name in filenames) {
+        if ([NSFileManager.defaultManager fileExistsAtPath:name]) {
             [files addObject:name];
         } else if (!firstMissingFile) {
             firstMissingFile = name;
         }
     }
-
     if (firstMissingFile) {
-        NSAlert *alert = [[NSAlert alloc] init];
-        [alert addButtonWithTitle:NSLocalizedString(@"OK",
-                @"Dialog button")];
+        NSAlert *alert = NSAlert.new;
+        [alert addButtonWithTitle:NSLocalizedString(@"OK", @"Dialog button")];
 
         NSString *text;
-        if ([files count] >= count-1) {
-            [alert setMessageText:NSLocalizedString(@"File not found",
-                    @"File not found dialog, title")];
-            text = [NSString stringWithFormat:NSLocalizedString(
-                    @"Could not open file with name %@.",
-                    @"File not found dialog, text"), firstMissingFile];
+        if (files.count >= filenames.count - 1) {
+            alert.messageText = NSLocalizedString(@"File not found", @"File not found dialog, title");
+            text = [NSString stringWithFormat:NSLocalizedString(@"Could not open file with name %@.", @"File not found dialog, text"), firstMissingFile];
         } else {
-            [alert setMessageText:NSLocalizedString(@"Multiple files not found",
-                    @"File not found dialog, title")];
-            text = [NSString stringWithFormat:NSLocalizedString(
-                    @"Could not open file with name %@, and %d other files.",
-                    @"File not found dialog, text"),
-                firstMissingFile, count-[files count]-1];
+            alert.messageText = NSLocalizedString(@"Multiple files not found", @"File not found dialog, title");
+            text = [NSString stringWithFormat:NSLocalizedString(@"Could not open file with name %@, and %d other files.", @"File not found dialog, text"), firstMissingFile, filenames.count - files.count - 1];
         }
-
-        [alert setInformativeText:text];
-        [alert setAlertStyle:NSAlertStyleWarning];
+        alert.informativeText = text;
+        alert.alertStyle = NSAlertStyleWarning;
 
         [alert runModal];
-        [alert release];
 
         [NSApp replyToOpenOrPrint:NSApplicationDelegateReplyFailure];
     }
@@ -1615,83 +1449,50 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
     return files;
 }
 
-- (NSArray *)filterOpenFiles:(NSArray *)filenames
-               openFilesDict:(NSDictionary **)openFiles
+- (NSArray *)filterOpenFiles:(NSArray *)filenames openFilesDict:(NSDictionary **)openFiles
 {
     // Filter out any files in the 'filenames' array that are open and return
     // all files that are not already open.  On return, the 'openFiles'
     // parameter (if non-nil) will point to a dictionary of open files, indexed
     // by Vim controller.
 
-    NSMutableDictionary *dict = [NSMutableDictionary dictionary];
-    NSMutableArray *files = [filenames mutableCopy];
+    NSMutableDictionary *dict = NSMutableDictionary.new;
+    NSMutableArray *files = filenames.mutableCopy;
 
     // TODO: Escape special characters in 'files'?
-    NSString *expr = [NSString stringWithFormat:
-            @"map([\"%@\"],\"bufloaded(v:val)\")",
-            [files componentsJoinedByString:@"\",\""]];
+    NSString *expr = [NSString stringWithFormat:@"map([\"%@\"],\"bufloaded(v:val)\")", [files componentsJoinedByString:@"\",\""]];
 
-    unsigned i, count = [vimControllers count];
-    for (i = 0; i < count && [files count] > 0; ++i) {
-        MMVimController *vc = [vimControllers objectAtIndex:i];
-
+    for (MMVimController *vc in _vimControllers) {
         // Query Vim for which files in the 'files' array are open.
         NSString *eval = [vc evaluateVimExpression:expr];
         if (!eval) continue;
 
         NSIndexSet *idxSet = [NSIndexSet indexSetWithVimList:eval];
-        if ([idxSet count] > 0) {
-            [dict setObject:[files objectsAtIndexes:idxSet]
-                     forKey:[NSValue valueWithPointer:vc]];
+        if (idxSet.count > 0) {
+            [dict setObject:[files objectsAtIndexes:idxSet] forKey:[NSValue valueWithPointer:(__bridge const void * _Nullable)vc]];
 
             // Remove all the files that were open in this Vim process and
             // create a new expression to evaluate.
             [files removeObjectsAtIndexes:idxSet];
-            expr = [NSString stringWithFormat:
-                    @"map([\"%@\"],\"bufloaded(v:val)\")",
-                    [files componentsJoinedByString:@"\",\""]];
+            expr = [NSString stringWithFormat:@"map([\"%@\"],\"bufloaded(v:val)\")", [files componentsJoinedByString:@"\",\""]];
         }
     }
 
-    if (openFiles != nil)
+    if (openFiles)
         *openFiles = dict;
 
-    return [files autorelease];
+    return files;
 }
 
 #if MM_HANDLE_XCODE_MOD_EVENT
-- (void)handleXcodeModEvent:(NSAppleEventDescriptor *)event
-                 replyEvent:(NSAppleEventDescriptor *)reply
+- (void)handleXcodeModEvent:(NSAppleEventDescriptor *)event replyEvent:(NSAppleEventDescriptor *)reply
 {
-#if 0
-    // Xcode sends this event to query MacVim which open files have been
-    // modified.
-    ASLogDebug(@"reply:%@", reply);
-    ASLogDebug(@"event:%@", event);
-
-    NSEnumerator *e = [vimControllers objectEnumerator];
-    id vc;
-    while ((vc = [e nextObject])) {
-        DescType type = [reply descriptorType];
-        unsigned len = [[type data] length];
-        NSMutableData *data = [NSMutableData data];
-
-        [data appendBytes:&type length:sizeof(DescType)];
-        [data appendBytes:&len length:sizeof(unsigned)];
-        [data appendBytes:[reply data] length:len];
-
-        [vc sendMessage:XcodeModMsgID data:data];
-    }
-#endif
 }
 #endif
 
-- (void)handleGetURLEvent:(NSAppleEventDescriptor *)event
-               replyEvent:(NSAppleEventDescriptor *)reply
+- (void)handleGetURLEvent:(NSAppleEventDescriptor *)event replyEvent:(NSAppleEventDescriptor *)reply
 {
-    NSURL *url = [NSURL URLWithString:[[event
-                                        paramDescriptorForKeyword:keyDirectObject]
-                                        stringValue]];
+    NSURL *url = [NSURL URLWithString:[[event paramDescriptorForKeyword:keyDirectObject] stringValue]];
 
     // We try to be compatible with TextMate's URL scheme here, as documented
     // at http://blog.macromates.com/2007/the-textmate-url-scheme/ . Currently,
@@ -1706,83 +1507,61 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
     //
     // Example: mvim://open?url=file:///etc/profile&line=20
 
-    if ([[url host] isEqualToString:@"open"]) {
-        NSMutableDictionary *dict = [NSMutableDictionary dictionary];
+    if ([url.host isEqualToString:@"open"]) {
+        NSMutableDictionary *dict = NSMutableDictionary.new;
 
         // Parse query ("url=file://...&line=14") into a dictionary
-        NSArray *queries = [[url query] componentsSeparatedByString:@"&"];
-        NSEnumerator *enumerator = [queries objectEnumerator];
-        NSString *param;
-        while ((param = [enumerator nextObject])) {
-            NSArray *arr = [param componentsSeparatedByString:@"="];
-            if ([arr count] == 2) {
+        for (NSString *param in [url.query componentsSeparatedByString:@"&"]) {
+            NSArray *pair = [param componentsSeparatedByString:@"="];
+            if (pair.count == 2) {
 #if MAC_OS_X_VERSION_MIN_REQUIRED >= MAC_OS_X_VERSION_10_11
-                [dict setValue:[[arr lastObject] stringByRemovingPercentEncoding]
-                        forKey:[[arr objectAtIndex:0] stringByRemovingPercentEncoding]];
+                [dict setValue:[pair.lastObject stringByRemovingPercentEncoding]
+                        forKey:[pair.firstObject stringByRemovingPercentEncoding]];
 #else
-                [dict setValue:[[arr lastObject]
-                            stringByReplacingPercentEscapesUsingEncoding:
-                                NSUTF8StringEncoding]
-                        forKey:[[arr objectAtIndex:0]
-                            stringByReplacingPercentEscapesUsingEncoding:
-                                NSUTF8StringEncoding]];
+                [dict setValue:[pair.lastObject stringByReplacingPercentEscapesUsingEncoding:NSUTF8StringEncoding]
+                        forKey:[pair.firstObject stringByReplacingPercentEscapesUsingEncoding:NSUTF8StringEncoding]];
 #endif
             }
         }
 
         // Actually open the file.
-        NSString *file = [dict objectForKey:@"url"];
-        if (file != nil) {
-            NSURL *fileUrl= [NSURL URLWithString:file];
+        NSString *file = dict[@"url"];
+        if (file) {
+            NSURL *fileUrl = [NSURL URLWithString:file];
             // TextMate only opens files that already exist.
-            if ([fileUrl isFileURL]
-                    && [[NSFileManager defaultManager] fileExistsAtPath:
-                           [fileUrl path]]) {
+            if (fileUrl.isFileURL && [NSFileManager.defaultManager fileExistsAtPath:fileUrl.path]) {
                 // Strip 'file://' path, else application:openFiles: might think
                 // the file is not yet open.
-                NSArray *filenames = [NSArray arrayWithObject:[fileUrl path]];
+                NSArray *filenames = @[fileUrl.path];
 
                 // Look for the line and column options.
                 NSDictionary *args = nil;
-                NSString *line = [dict objectForKey:@"line"];
+                NSString *line = dict[@"line"];
                 if (line) {
-                    NSString *column = [dict objectForKey:@"column"];
+                    NSString *column = dict[@"column"];
                     if (column)
-                        args = [NSDictionary dictionaryWithObjectsAndKeys:
-                                line, @"cursorLine",
-                                column, @"cursorColumn",
-                                nil];
+                      args = @{@"cursorLine": line, @"cursorColumn": column};
                     else
-                        args = [NSDictionary dictionaryWithObject:line
-                                forKey:@"cursorLine"];
+                               args = @{@"cursorLine": line};
                 }
 
                 [self openFiles:filenames withArguments:args];
             }
         }
     } else {
-        NSAlert *alert = [[NSAlert alloc] init];
-        [alert addButtonWithTitle:NSLocalizedString(@"OK",
-            @"Dialog button")];
+        NSAlert *alert = NSAlert.new;
+        [alert addButtonWithTitle:NSLocalizedString(@"OK", @"Dialog button")];
 
-        [alert setMessageText:NSLocalizedString(@"Unknown URL Scheme",
-            @"Unknown URL Scheme dialog, title")];
-        [alert setInformativeText:[NSString stringWithFormat:NSLocalizedString(
-            @"This version of MacVim does not support \"%@\""
-            @" in its URL scheme.",
-            @"Unknown URL Scheme dialog, text"),
-            [url host]]];
-
-        [alert setAlertStyle:NSAlertStyleWarning];
+        alert.messageText = NSLocalizedString(@"Unknown URL Scheme", @"Unknown URL Scheme dialog, title");
+        alert.informativeText = [NSString stringWithFormat:NSLocalizedString(@"This version of MacVim does not support \"%@\" in its URL scheme.", @"Unknown URL Scheme dialog, text"), url.host];
+        alert.alertStyle = NSAlertStyleWarning;
         [alert runModal];
-        [alert release];
     }
 }
 
-- (NSMutableDictionary *)extractArgumentsFromOdocEvent:
-    (NSAppleEventDescriptor *)desc
+- (NSMutableDictionary *)extractArgumentsFromOdocEvent:(NSAppleEventDescriptor *)desc
 {
-    NSMutableDictionary *dict = [NSMutableDictionary dictionary];
+    NSMutableDictionary *dict = NSMutableDictionary.new;
 
     // 1. Extract ODB parameters (if any)
     NSAppleEventDescriptor *odbdesc = desc;
@@ -1794,64 +1573,51 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
     }
 
     if (odbdesc) {
-        NSAppleEventDescriptor *p =
-                [odbdesc paramDescriptorForKeyword:keyFileSender];
-        if (p)
-            [dict setObject:[NSNumber numberWithUnsignedInt:[p typeCodeValue]]
-                     forKey:@"remoteID"];
+        NSAppleEventDescriptor *p = [odbdesc paramDescriptorForKeyword:keyFileSender];
+        if (p) dict[@"remoteID"] = @(p.typeCodeValue);
 
         p = [odbdesc paramDescriptorForKeyword:keyFileCustomPath];
-        if (p)
-            [dict setObject:[p stringValue] forKey:@"remotePath"];
+        if (p) dict[@"remotePath"] = p.stringValue;
 
         p = [odbdesc paramDescriptorForKeyword:keyFileSenderToken];
         if (p) {
-            [dict setObject:[NSNumber numberWithUnsignedLong:[p descriptorType]]
-                     forKey:@"remoteTokenDescType"];
-            [dict setObject:[p data] forKey:@"remoteTokenData"];
+            dict[@"remoteTokenDescType"] = @(p.descriptorType);
+            dict[@"remoteTokenData"] = p.data;
         }
     }
 
     // 2. Extract Xcode parameters (if any)
-    NSAppleEventDescriptor *xcodedesc =
-            [desc paramDescriptorForKeyword:keyAEPosition];
+    NSAppleEventDescriptor *xcodedesc = [desc paramDescriptorForKeyword:keyAEPosition];
     if (xcodedesc) {
         NSRange range;
-        NSData *data = [xcodedesc data];
-        NSUInteger length = [data length];
+        NSData *data = xcodedesc.data;
+        const NSUInteger length = data.length;
 
         if (length == sizeof(MMXcodeSelectionRange)) {
-            MMXcodeSelectionRange *sr = (MMXcodeSelectionRange*)[data bytes];
-            ASLogDebug(@"Xcode selection range (%d,%d,%d,%d,%d,%d)",
-                    sr->unused1, sr->lineNum, sr->startRange, sr->endRange,
-                    sr->unused2, sr->theDate);
+            MMXcodeSelectionRange *sr = (MMXcodeSelectionRange *)data.bytes;
+            ASLogDebug(@"Xcode selection range (%d,%d,%d,%d,%d,%d)", sr->unused1, sr->lineNum, sr->startRange, sr->endRange, sr->unused2, sr->theDate);
 
             if (sr->lineNum < 0) {
                 // Should select a range of characters.
                 range.location = sr->startRange + 1;
-                range.length = sr->endRange > sr->startRange
-                             ? sr->endRange - sr->startRange : 1;
+                range.length = sr->endRange > sr->startRange ? sr->endRange - sr->startRange : 1;
             } else {
                 // Should only move cursor to a line.
                 range.location = sr->lineNum + 1;
                 range.length = 0;
             }
-
-            [dict setObject:NSStringFromRange(range) forKey:@"selectionRange"];
+            dict[@"selectionRange"] = NSStringFromRange(range);
         } else {
-            ASLogErr(@"Xcode selection range size mismatch! got=%ld "
-                     "expected=%ld", length, sizeof(MMXcodeSelectionRange));
+            ASLogErr(@"Xcode selection range size mismatch! got=%ld expected=%ld", length, sizeof(MMXcodeSelectionRange));
         }
     }
 
     // 3. Extract Spotlight search text (if any)
-    NSAppleEventDescriptor *spotlightdesc = 
-            [desc paramDescriptorForKeyword:keyAESearchText];
+    NSAppleEventDescriptor *spotlightdesc = [desc paramDescriptorForKeyword:keyAESearchText];
     if (spotlightdesc) {
-        NSString *s = [[spotlightdesc stringValue]
-                                            stringBySanitizingSpotlightSearch];
-        if (s && [s length] > 0)
-            [dict setObject:s forKey:@"searchText"];
+        NSString *s = [spotlightdesc.stringValue stringBySanitizingSpotlightSearch];
+        if (s.length != 0)
+            dict[@"searchText"] = s;
     }
 
     return dict;
@@ -1859,33 +1625,27 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
 
 - (void)scheduleVimControllerPreloadAfterDelay:(NSTimeInterval)delay
 {
-    [self performSelector:@selector(preloadVimController:)
-               withObject:nil
-               afterDelay:delay];
+    [self performSelector:@selector(preloadVimController:) withObject:nil afterDelay:delay];
 }
 
 - (void)cancelVimControllerPreloadRequests
 {
-    [NSObject cancelPreviousPerformRequestsWithTarget:self
-            selector:@selector(preloadVimController:)
-              object:nil];
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(preloadVimController:) object:nil];
 }
 
 - (void)preloadVimController:(id)sender
 {
     // We only allow preloading of one Vim process at a time (to avoid hogging
     // CPU), so schedule another preload in a little while if necessary.
-    if (-1 != preloadPid) {
+    if (-1 != _preloadPid) {
         [self scheduleVimControllerPreloadAfterDelay:2];
         return;
     }
 
-    if ([cachedVimControllers count] >= [self maxPreloadCacheSize])
+    if (_cachedVimControllers.count >= self.maxPreloadCacheSize)
         return;
 
-    preloadPid = [self launchVimProcessWithArguments:
-                                    [NSArray arrayWithObject:@"--mmwaitforack"]
-                                    workingDirectory:nil];
+    _preloadPid = [self launchVimProcessWithArguments:@[@"--mmwaitforack"] workingDirectory:nil];
 
     // This method is kicked off via FSEvents, so if MacVim is in the
     // background, the runloop won't bother flushing the autorelease pool.
@@ -1907,12 +1667,8 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
 {
     // The maximum number of Vim processes to keep in the cache can be
     // controlled via the user default "MMPreloadCacheSize".
-    int maxCacheSize = [[NSUserDefaults standardUserDefaults]
-            integerForKey:MMPreloadCacheSizeKey];
-    if (maxCacheSize < 0) maxCacheSize = 0;
-    else if (maxCacheSize > 10) maxCacheSize = 10;
-
-    return maxCacheSize;
+    const int size = [NSUserDefaults.standardUserDefaults integerForKey:MMPreloadCacheSizeKey];
+    return MIN(MAX(size, 0), 10);
 }
 
 - (MMVimController *)takeVimControllerFromCache
@@ -1924,15 +1680,14 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
     // This method may return nil even though the cache might be non-empty; the
     // caller should handle this by starting a new Vim process.
 
-    int i, count = [cachedVimControllers count];
+    int i, count = _cachedVimControllers.count;
     if (0 == count) return nil;
 
     // Locate the first Vim controller with up-to-date rc-files sourced.
     NSDate *rcDate = [self rcFilesModificationDate];
     for (i = 0; i < count; ++i) {
-        MMVimController *vc = [cachedVimControllers objectAtIndex:i];
-        NSDate *date = [vc creationDate];
-        if ([date compare:rcDate] != NSOrderedAscending)
+        MMVimController *vc = _cachedVimControllers[i];
+        if ([vc.creationDate compare:rcDate] != NSOrderedAscending)
             break;
     }
 
@@ -1943,20 +1698,20 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
         [self clearPreloadCacheWithCount:i];
     }
 
-    if ([cachedVimControllers count] == 0) {
+    if (_cachedVimControllers.count == 0) {
         [self scheduleVimControllerPreloadAfterDelay:2.0];
         return nil;
     }
 
-    MMVimController *vc = [cachedVimControllers objectAtIndex:0];
-    [vimControllers addObject:vc];
-    [cachedVimControllers removeObjectAtIndex:0];
-    [vc setIsPreloading:NO];
+    MMVimController *vc = _cachedVimControllers.firstObject;
+    [_vimControllers addObject:vc];
+    [_cachedVimControllers removeObjectAtIndex:0];
+    vc.isPreloading = NO;
 
     // If the Vim process has finished loading then the window will displayed
     // now, otherwise it will be displayed when the OpenWindowMsgID message is
     // received.
-    [[vc windowController] presentWindow:nil];
+    [vc.windowController presentWindow:nil];
 
     // Since we've taken one controller from the cache we take the opportunity
     // to preload another.
@@ -1972,19 +1727,19 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
     // this effectively clears the 'count' oldest entries.
     // If 'count' is negative, then the entire cache is cleared.
 
-    if ([cachedVimControllers count] == 0 || count == 0)
+    if (_cachedVimControllers.count == 0 || count == 0)
         return;
 
     if (count < 0)
-        count = [cachedVimControllers count];
+        count = _cachedVimControllers.count;
 
     // Make sure the preloaded Vim processes get killed or they'll just hang
     // around being useless until MacVim is terminated.
-    NSEnumerator *e = [cachedVimControllers objectEnumerator];
     MMVimController *vc;
     int n = count;
-    while ((vc = [e nextObject]) && n-- > 0) {
-        [[NSNotificationCenter defaultCenter] removeObserver:vc];
+    NSEnumerator *e = _cachedVimControllers.objectEnumerator;
+    while ((vc = e.nextObject) && n-- > 0) {
+        [NSNotificationCenter.defaultCenter removeObserver:vc];
         [vc sendMessage:TerminateNowMsgID data:nil];
 
         // Since the preloaded processes were killed "prematurely" we have to
@@ -1994,24 +1749,22 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
     }
 
     n = count;
-    while (n-- > 0 && [cachedVimControllers count] > 0)
-        [cachedVimControllers removeObjectAtIndex:0];
+    while (n-- > 0 && _cachedVimControllers.count != 0)
+        [_cachedVimControllers removeObjectAtIndex:0];
 
     // There is a small delay before the Vim process actually exits so wait a
     // little before trying to reap the child process.  If the process still
     // hasn't exited after this wait it won't be reaped until the next time
     // reapChildProcesses: is called (but this should be harmless).
-    [self performSelector:@selector(reapChildProcesses:)
-               withObject:nil
-               afterDelay:0.1];
+    [self performSelector:@selector(reapChildProcesses:) withObject:nil afterDelay:0.1];
 }
 
 - (void)rebuildPreloadCache
 {
-    if ([self maxPreloadCacheSize] > 0) {
+    if (self.maxPreloadCacheSize > 0) {
         [self clearPreloadCacheWithCount:-1];
         [self cancelVimControllerPreloadRequests];
-        [self scheduleVimControllerPreloadAfterDelay:1.0];
+        [self scheduleVimControllerPreloadAfterDelay:1];
     }
 }
 
@@ -2050,20 +1803,18 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
 
 - (BOOL)openVimControllerWithArguments:(NSDictionary *)arguments
 {
-    MMVimController *vc = [self takeVimControllerFromCache];
+    MMVimController *vc = self.takeVimControllerFromCache;
     if (vc) {
         // Open files in a new window using a cached vim controller.  This
         // requires virtually no loading time so the new window will pop up
         // instantaneously.
         [vc passArguments:arguments];
-        [[vc backendProxy] acknowledgeConnection];
+        [vc.backendProxy acknowledgeConnection];
     } else {
         NSArray *cmdline = nil;
         NSString *cwd = [self workingDirectoryForArguments:arguments];
-        arguments = [self convertVimControllerArguments:arguments
-                                          toCommandLine:&cmdline];
-        int pid = [self launchVimProcessWithArguments:cmdline
-                                     workingDirectory:cwd];
+        arguments = [self convertVimControllerArguments:arguments toCommandLine:&cmdline];
+        const int pid = [self launchVimProcessWithArguments:cmdline workingDirectory:cwd];
         if (-1 == pid)
             return NO;
 
@@ -2071,9 +1822,7 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
         // then the memory allocated for these parameters will leak.
         // Ensure that this cannot happen or somehow detect it.
 
-        if ([arguments count] > 0)
-            [pidArguments setObject:arguments
-                             forKey:[NSNumber numberWithInt:pid]];
+        if (arguments.count != 0) _pidArguments[@(pid)] = arguments;
     }
 
     return YES;
@@ -2082,36 +1831,28 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
 - (void)activateWhenNextWindowOpens
 {
     ASLogDebug(@"Activate MacVim when next window opens");
-    shouldActivateWhenNextWindowOpens = YES;
+    _shouldActivateWhenNextWindowOpens = YES;
 }
 
 - (void)startWatchingVimDir
 {
-    if (fsEventStream)
+    if (_fsEventStream)
         return;
 
-    NSString *path = [@"~/.vim" stringByExpandingTildeInPath];
-    NSArray *pathsToWatch = [NSArray arrayWithObject:path];
- 
-    fsEventStream = FSEventStreamCreate(NULL, &fsEventCallback, NULL,
-            (CFArrayRef)pathsToWatch, kFSEventStreamEventIdSinceNow,
-            MMEventStreamLatency, kFSEventStreamCreateFlagNone);
+    _fsEventStream = FSEventStreamCreate(NULL, &fsEventCallback, NULL, (__bridge CFArrayRef)@[[@"~/.vim" stringByExpandingTildeInPath]], kFSEventStreamEventIdSinceNow, MMEventStreamLatency, kFSEventStreamCreateFlagNone);
+    FSEventStreamScheduleWithRunLoop(_fsEventStream, NSRunLoop.currentRunLoop.getCFRunLoop, kCFRunLoopDefaultMode);
 
-    FSEventStreamScheduleWithRunLoop(fsEventStream,
-            [[NSRunLoop currentRunLoop] getCFRunLoop],
-            kCFRunLoopDefaultMode);
-
-    FSEventStreamStart(fsEventStream);
+    FSEventStreamStart(_fsEventStream);
     ASLogDebug(@"Started FS event stream");
 }
 
 - (void)stopWatchingVimDir
 {
-    if (fsEventStream) {
-        FSEventStreamStop(fsEventStream);
-        FSEventStreamInvalidate(fsEventStream);
-        FSEventStreamRelease(fsEventStream);
-        fsEventStream = NULL;
+    if (_fsEventStream) {
+        FSEventStreamStop(_fsEventStream);
+        FSEventStreamInvalidate(_fsEventStream);
+        FSEventStreamRelease(_fsEventStream);
+        _fsEventStream = NULL;
         ASLogDebug(@"Stopped FS event stream");
     }
 }
@@ -2133,56 +1874,45 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
     // when MacVim was started from the Finder.
 
     int pid = -1;
-    NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
 
     // Determine which shell to use to execute the command.  The user
     // may decide which shell to use by setting a user default or the
     // $SHELL environment variable.
-    NSString *shell = [ud stringForKey:MMLoginShellCommandKey];
-    if (!shell || [shell length] == 0)
-        shell = [[[NSProcessInfo processInfo] environment]
-            objectForKey:@"SHELL"];
+    NSString *shell = [NSUserDefaults.standardUserDefaults stringForKey:MMLoginShellCommandKey];
+    if (!shell || shell.length == 0)
+        shell = NSProcessInfo.processInfo.environment[@"SHELL"];
     if (!shell)
         shell = @"/bin/bash";
 
     // Bash needs the '-l' flag to launch a login shell.  The user may add
     // flags by setting a user default.
-    NSString *shellArgument = [ud stringForKey:MMLoginShellArgumentKey];
-    if (!shellArgument || [shellArgument length] == 0) {
-        if ([[shell lastPathComponent] isEqual:@"bash"])
+    NSString *shellArgument = [NSUserDefaults.standardUserDefaults stringForKey:MMLoginShellArgumentKey];
+    if (!shellArgument || shellArgument.length == 0) {
+        if ([shell.lastPathComponent isEqual:@"bash"])
             shellArgument = @"-l";
         else
             shellArgument = nil;
     }
 
     // Build input string to pipe to the login shell.
-    NSMutableString *input = [NSMutableString stringWithFormat:
-            @"exec \"%@\"", path];
-    if (args) {
+    NSMutableString *input = [NSMutableString stringWithFormat:@"exec \"%@\"", path];
+    for (NSString *org in args) {
         // Append all arguments, making sure they are properly quoted, even
         // when they contain single quotes.
-        NSEnumerator *e = [args objectEnumerator];
-        id obj;
-
-        while ((obj = [e nextObject])) {
-            NSMutableString *arg = [NSMutableString stringWithString:obj];
-            [arg replaceOccurrencesOfString:@"'" withString:@"'\"'\"'"
-                                    options:NSLiteralSearch
-                                      range:NSMakeRange(0, [arg length])];
-            [input appendFormat:@" '%@'", arg];
-        }
+        NSMutableString *arg = org.mutableCopy;
+        [arg replaceOccurrencesOfString:@"'" withString:@"'\"'\"'" options:NSLiteralSearch range:NSMakeRange(0, arg.length)];
+        [input appendFormat:@" '%@'", arg];
     }
 
     // Build the argument vector used to start the login shell.
-    NSString *shellArg0 = [NSString stringWithFormat:@"-%@",
-             [shell lastPathComponent]];
-    char *shellArgv[3] = { (char *)[shellArg0 UTF8String], NULL, NULL };
+    NSString *shellArg0 = [NSString stringWithFormat:@"-%@", shell.lastPathComponent];
+    char *shellArgv[3] = {(char *)shellArg0.UTF8String, NULL, NULL};
     if (shellArgument)
-        shellArgv[1] = (char *)[shellArgument UTF8String];
+        shellArgv[1] = (char *)shellArgument.UTF8String;
 
     // Get the C string representation of the shell path before the fork since
     // we must not call Foundation functions after a fork.
-    const char *shellPath = [shell fileSystemRepresentation];
+    const char *shellPath = shell.fileSystemRepresentation;
 
     // Fork and execute the process.
     int ds[2];
@@ -2213,13 +1943,13 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
 
         // Send input to execute to the child process
         [input appendString:@"\n"];
-        int bytes = [input lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+        const int bytes = [input lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
 
-        if (write(ds[1], [input UTF8String], bytes) != bytes) return -1;
+        if (write(ds[1], input.UTF8String, bytes) != bytes) return -1;
         if (close(ds[1]) == -1) return -1;
 
-        ++numChildProcesses;
-        ASLogDebug(@"new process pid=%d (count=%d)", pid, numChildProcesses);
+        ++_numChildProcesses;
+        ASLogDebug(@"new process pid=%d (count=%d)", pid, _numChildProcesses);
     }
 
     return pid;
@@ -2227,19 +1957,19 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
 
 - (void)reapChildProcesses:(id)sender
 {
-    // NOTE: numChildProcesses (currently) only counts the number of Vim
+    // NOTE: _numChildProcesses (currently) only counts the number of Vim
     // processes that have been started with executeInLoginShell::.  If other
     // processes are spawned this code may need to be adjusted (or
-    // numChildProcesses needs to be incremented when such a process is
+    // _numChildProcesses needs to be incremented when such a process is
     // started).
-    while (numChildProcesses > 0) {
+    while (_numChildProcesses > 0) {
         int status = 0;
         int pid = waitpid(-1, &status, WNOHANG);
         if (pid <= 0)
             break;
 
         ASLogDebug(@"Wait for pid=%d complete", pid);
-        --numChildProcesses;
+        --_numChildProcesses;
     }
 }
 
@@ -2252,106 +1982,97 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
 
     // The processing flag is > 0 if this function is already on the call
     // stack; < 0 if this function was also re-entered.
-    if (processingFlag != 0) {
+    if (_processingFlag != 0) {
         ASLogDebug(@"BUSY!");
-        processingFlag = -1;
+        _processingFlag = -1;
         return;
     }
 
     // NOTE: Be _very_ careful that no exceptions can be raised between here
-    // and the point at which 'processingFlag' is reset.  Otherwise the above
+    // and the point at which '_processingFlag' is reset.  Otherwise the above
     // test could end up always failing and no input queues would ever be
     // processed!
-    processingFlag = 1;
+    _processingFlag = 1;
 
     // NOTE: New input may arrive while we're busy processing; we deal with
     // this by putting the current queue aside and creating a new input queue
     // for future input.
-    NSDictionary *queues = inputQueues;
-    inputQueues = [NSMutableDictionary new];
+    NSDictionary *queues = _inputQueues;
+    _inputQueues = NSMutableDictionary.new;
 
     // Pass each input queue on to the vim controller with matching
     // identifier (and note that it could be cached).
-    NSEnumerator *e = [queues keyEnumerator];
-    NSNumber *key;
-    while ((key = [e nextObject])) {
-        unsigned ukey = [key unsignedIntValue];
-        int i = 0, count = [vimControllers count];
-        for (i = 0; i < count; ++i) {
-            MMVimController *vc = [vimControllers objectAtIndex:i];
-            if (ukey == [vc vimControllerId]) {
-                [vc processInputQueue:[queues objectForKey:key]]; // !exceptions
+    for (NSNumber *key in queues) {
+        const unsigned ukey = key.unsignedIntValue;
+        NSUInteger i = 0;
+        for (MMVimController *vc in _vimControllers) {
+            if (ukey == vc.vimControllerId) {
+                [vc processInputQueue:queues[key]]; // !exceptions
                 break;
             }
+            i++;
         }
+        if (i < _vimControllers.count) continue;
 
-        if (i < count) continue;
-
-        count = [cachedVimControllers count];
-        for (i = 0; i < count; ++i) {
-            MMVimController *vc = [cachedVimControllers objectAtIndex:i];
-            if (ukey == [vc vimControllerId]) {
-                [vc processInputQueue:[queues objectForKey:key]]; // !exceptions
+        i = 0;
+        for (MMVimController *vc in _cachedVimControllers) {
+            if (ukey == vc.vimControllerId) {
+                [vc processInputQueue:queues[key]]; // !exceptions
                 break;
             }
+            i++;
         }
-
-        if (i == count) {
+        if (i == _vimControllers.count) {
             ASLogWarn(@"No Vim controller for identifier=%d", ukey);
         }
     }
 
-    [queues release];
+    queues = nil;
 
     // If new input arrived while we were processing it would have been
     // blocked so we have to schedule it to be processed again.
-    if (processingFlag < 0)
+    if (_processingFlag < 0)
         [self performSelectorOnMainThread:@selector(processInputQueues:)
                                withObject:nil
                             waitUntilDone:NO
-                                    modes:[NSArray arrayWithObjects:
-                                           NSDefaultRunLoopMode,
-                                           NSEventTrackingRunLoopMode, nil]];
-
-    processingFlag = 0;
+                                    modes:@[NSDefaultRunLoopMode, NSEventTrackingRunLoopMode]];
+    _processingFlag = 0;
 }
 
 - (void)addVimController:(MMVimController *)vc
 {
-    ASLogDebug(@"Add Vim controller pid=%d id=%d",
-            [vc pid], [vc vimControllerId]);
+    ASLogDebug(@"Add Vim controller pid=%d id=%d", vc.pid, vc.vimControllerId);
 
-    int pid = [vc pid];
-    NSNumber *pidKey = [NSNumber numberWithInt:pid];
-    id args = [pidArguments objectForKey:pidKey];
+    const int pid = vc.pid;
+    NSNumber *pidKey = @(pid);
+    id args = _pidArguments[pidKey];
 
-    if (preloadPid == pid) {
+    if (_preloadPid == pid) {
         // This controller was preloaded, so add it to the cache and
         // schedule another vim process to be preloaded.
-        preloadPid = -1;
-        [vc setIsPreloading:YES];
-        [cachedVimControllers addObject:vc];
+        _preloadPid = -1;
+        vc.isPreloading = YES;
+        [_cachedVimControllers addObject:vc];
         [self scheduleVimControllerPreloadAfterDelay:1];
     } else {
-        [vimControllers addObject:vc];
+        [_vimControllers addObject:vc];
 
-        if (args && [NSNull null] != args)
+        if (args && NSNull.null != args)
             [vc passArguments:args];
 
         // HACK!  MacVim does not get activated if it is launched from the
         // terminal, so we forcibly activate here.  Note that each process
-        // launched from MacVim has an entry in the pidArguments dictionary,
+        // launched from MacVim has an entry in the _pidArguments dictionary,
         // which is how we detect if the process was launched from the
         // terminal.
         if (!args) [self activateWhenNextWindowOpens];
     }
 
     if (args)
-        [pidArguments removeObjectForKey:pidKey];
+        [_pidArguments removeObjectForKey:pidKey];
 }
 
-- (NSDictionary *)convertVimControllerArguments:(NSDictionary *)args
-                                  toCommandLine:(NSArray **)cmdline
+- (NSDictionary *)convertVimControllerArguments:(NSDictionary *)args toCommandLine:(NSArray **)cmdline
 {
     // Take all arguments out of 'args' and put them on an array suitable to
     // pass as arguments to launchVimProcessWithArguments:.  The untouched
@@ -2367,8 +2088,8 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
     if (numFiles <= 0 || !openFiles)
         return args;
 
-    NSMutableArray *a = [NSMutableArray array];
-    NSMutableDictionary *d = [[args mutableCopy] autorelease];
+    NSMutableArray *a = NSMutableArray.new;
+    NSMutableDictionary *d = args.mutableCopy;
 
     // Search for text and highlight it (this Vim script avoids warnings in
     // case there is no match for the search text).
@@ -2508,11 +2229,8 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
 
 - (void)inputSourceChanged:(NSNotification *)notification
 {
-    unsigned i, count = [vimControllers count];
-    for (i = 0; i < count; ++i) {
-        MMVimController *controller = [vimControllers objectAtIndex:i];
-        MMWindowController *wc = [controller windowController];
-        MMTextView *tv = (MMTextView *)[[wc vimView] textView];
+    for (MMVimController *controller in _vimControllers) {
+        MMTextView *tv = (MMTextView *)[controller.windowController.vimView textView];
         [tv checkImState];
     }
 }
