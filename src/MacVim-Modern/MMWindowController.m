@@ -422,8 +422,8 @@
             ++autosaveRows;
 
         NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
-        [ud setInteger:autosaveRows forKey:MMAutosaveRowsKey];
-        [ud setInteger:cols forKey:MMAutosaveColumnsKey];
+        [ud setInteger:autosaveRows forKey:(NSString *)MMAutosaveRowsKey];
+        [ud setInteger:cols forKey:(NSString *)MMAutosaveColumnsKey];
         [ud synchronize];
     }
 }

@@ -430,7 +430,7 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
     // NOTE!  This way it possible to start the app with the command-line
     // argument '-nowindow yes' and no window will be opened by default but
     // this argument will only be heeded when the application is opening.
-    if (isAppOpenEvent && [NSUserDefaults.standardUserDefaults boolForKey:MMNoWindowKey])
+    if (isAppOpenEvent && [NSUserDefaults.standardUserDefaults boolForKey:(NSString *)MMNoWindowKey])
         return NO;
 
     return YES;
