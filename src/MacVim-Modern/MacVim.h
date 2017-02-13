@@ -160,7 +160,7 @@
 //
 
 // NOTE! This array must be updated whenever the enum below changes!
-extern char *MessageStrings[];
+extern const char * const MessageStrings[];
 
 enum {
     OpenWindowMsgID = 1,    // NOTE: FIRST IN ENUM MUST BE 1
@@ -299,23 +299,22 @@ enum {
 // Create a string holding the labels of all messages in message queue for
 // debugging purposes (condense some messages since there may typically be LOTS
 // of them on a queue).
-NSString *debugStringForMessageQueue(NSArray *queue);
-
+extern NSString *debugStringForMessageQueue(NSArray *queue);
 
 // Shared user defaults (most user defaults are in Miscellaneous.h).
 // Contrary to the user defaults in Miscellaneous.h these defaults are not
 // intitialized to any default values.  That is, unless the user sets them
 // these keys will not be present in the user default database.
-extern NSString *MMLogLevelKey;
-extern NSString *MMLogToStdErrKey;
+extern const NSString *MMLogLevelKey;
+extern const NSString *MMLogToStdErrKey;
 
 // Argument used to stop MacVim from opening an empty window on startup
 // (techincally this is a user default but should not be used as such).
-extern NSString *MMNoWindowKey;
+extern const NSString *MMNoWindowKey;
 
-extern NSString *MMAutosaveRowsKey;
-extern NSString *MMAutosaveColumnsKey;
-extern NSString *MMRendererKey;
+extern const NSString *MMAutosaveRowsKey;
+extern const NSString *MMAutosaveColumnsKey;
+extern const NSString *MMRendererKey;
 
 enum {
     MMRendererDefault = 0,
@@ -400,7 +399,7 @@ extern NSString *VimFindPboardType;
 
 extern int ASLogLevel;
 
-void ASLInit();
+extern void ASLInit();
 
 #if defined(MM_USE_ASL)
 

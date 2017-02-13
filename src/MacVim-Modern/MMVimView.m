@@ -89,7 +89,7 @@ enum {
     [self setAutoresizesSubviews:YES];
 
     NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
-    NSInteger renderer = [ud integerForKey:MMRendererKey];
+    NSInteger renderer = [ud integerForKey:(NSString *)MMRendererKey];
     ASLogInfo(@"Use renderer=%ld", renderer);
 
     if (MMRendererCoreText == renderer) {

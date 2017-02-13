@@ -14,7 +14,7 @@
 #import "MacVim.h"
 
 
-char *MessageStrings[] = 
+const char * const MessageStrings[] = 
 {
     "INVALID MESSAGE ID",
     "OpenWindowMsgID",
@@ -107,22 +107,13 @@ char *MessageStrings[] =
     "END OF MESSAGE IDs"     // NOTE: Must be last!
 };
 
-
-
-
-NSString *MMLogLevelKey     = @"MMLogLevel";
-NSString *MMLogToStdErrKey  = @"MMLogToStdErr";
-
-// Argument used to stop MacVim from opening an empty window on startup
-// (techincally this is a user default but should not be used as such).
-NSString *MMNoWindowKey = @"MMNoWindow";
-
-NSString *MMAutosaveRowsKey    = @"MMAutosaveRows";
-NSString *MMAutosaveColumnsKey = @"MMAutosaveColumns";
-NSString *MMRendererKey	       = @"MMRenderer";
-
-// Vim find pasteboard type (string contains Vim regex patterns)
-NSString *VimFindPboardType = @"VimFindPboardType";
+const NSString *MMLogLevelKey           = @"MMLogLevel";
+const NSString *MMLogToStdErrKey        = @"MMLogToStdErr";
+const NSString *MMNoWindowKey           = @"MMNoWindow";
+const NSString *MMAutosaveRowsKey       = @"MMAutosaveRows";
+const NSString *MMAutosaveColumnsKey    = @"MMAutosaveColumns";
+const NSString *MMRendererKey	        = @"MMRenderer";
+const NSString *VimFindPboardType       = @"VimFindPboardType";
 
 int ASLogLevel = MM_ASL_LEVEL_DEFAULT;
 
@@ -131,16 +122,16 @@ int ASLogLevel = MM_ASL_LEVEL_DEFAULT;
 // Create a string holding the labels of all messages in message queue for
 // debugging purposes (condense some messages since there may typically be LOTS
 // of them on a queue).
-    NSString *
+extern NSString *
 debugStringForMessageQueue(NSArray *queue)
 {
-    NSMutableString *s = [NSMutableString new];
-    unsigned i, count = [queue count];
+    NSMutableString *s = NSMutableString.new;
+    NSUInteger const count = queue.count;
     int item = 0, menu = 0, enable = 0, remove = 0;
     int sets = 0, sett = 0, shows = 0, cres = 0, dess = 0;
-    for (i = 0; i < count; i += 2) {
-        NSData *value = [queue objectAtIndex:i];
-        int msgid = *((int*)[value bytes]);
+    for (NSUInteger i = 0; i < count; i += 2) {
+        NSData *value = queue[i];
+        const int msgid = *((int *)value.bytes);
         if (msgid < 1 || msgid >= LastMsgID)
             continue;
         if (msgid == AddMenuItemMsgID) ++item;
@@ -164,10 +155,8 @@ debugStringForMessageQueue(NSArray *queue)
     if (cres > 0) [s appendFormat:@"CreateScrollbarMsgID(%d) ", cres];
     if (dess > 0) [s appendFormat:@"DestroyScrollbarMsgID(%d) ", dess];
 
-    return [s autorelease];
+    return s;
 }
-
-
 
 
 @implementation NSString (MMExtras)
@@ -175,38 +164,37 @@ debugStringForMessageQueue(NSArray *queue)
 - (NSString *)stringByEscapingSpecialFilenameCharacters
 {
     // NOTE: This code assumes that no characters already have been escaped.
-    NSMutableString *string = [self mutableCopy];
+    NSMutableString *string = self.mutableCopy;
 
     [string replaceOccurrencesOfString:@"\\"
                             withString:@"\\\\"
                                options:NSLiteralSearch
-                                 range:NSMakeRange(0, [string length])];
+                                 range:NSMakeRange(0, string.length)];
     [string replaceOccurrencesOfString:@" "
                             withString:@"\\ "
                                options:NSLiteralSearch
-                                 range:NSMakeRange(0, [string length])];
+                                 range:NSMakeRange(0, string.length)];
     [string replaceOccurrencesOfString:@"\t"
                             withString:@"\\\t "
                                options:NSLiteralSearch
-                                 range:NSMakeRange(0, [string length])];
+                                 range:NSMakeRange(0, string.length)];
     [string replaceOccurrencesOfString:@"%"
                             withString:@"\\%"
                                options:NSLiteralSearch
-                                 range:NSMakeRange(0, [string length])];
+                                 range:NSMakeRange(0, string.length)];
     [string replaceOccurrencesOfString:@"#"
                             withString:@"\\#"
                                options:NSLiteralSearch
-                                 range:NSMakeRange(0, [string length])];
+                                 range:NSMakeRange(0, string.length)];
     [string replaceOccurrencesOfString:@"|"
                             withString:@"\\|"
                                options:NSLiteralSearch
-                                 range:NSMakeRange(0, [string length])];
+                                 range:NSMakeRange(0, string.length)];
     [string replaceOccurrencesOfString:@"\""
                             withString:@"\\\""
                                options:NSLiteralSearch
-                                 range:NSMakeRange(0, [string length])];
-
-    return [string autorelease];
+                                 range:NSMakeRange(0, string.length)];
+    return string;
 }
 
 - (NSString *)stringByRemovingFindPatterns
@@ -214,44 +202,40 @@ debugStringForMessageQueue(NSArray *queue)
     // Remove some common patterns added to search strings that other apps are
     // not aware of.
 
-    NSMutableString *string = [self mutableCopy];
+    NSMutableString *string = self.mutableCopy;
 
     // Added when doing * search
     [string replaceOccurrencesOfString:@"\\<"
                             withString:@""
                                options:NSLiteralSearch
-                                 range:NSMakeRange(0, [string length])];
+                                 range:NSMakeRange(0, string.length)];
     [string replaceOccurrencesOfString:@"\\>"
                             withString:@""
                                options:NSLiteralSearch
-                                 range:NSMakeRange(0, [string length])];
+                                 range:NSMakeRange(0, string.length)];
     // \V = match whole word
     [string replaceOccurrencesOfString:@"\\V"
                             withString:@""
                                options:NSLiteralSearch
-                                 range:NSMakeRange(0, [string length])];
+                                 range:NSMakeRange(0, string.length)];
     // \c = case insensitive, \C = case sensitive
     [string replaceOccurrencesOfString:@"\\c"
                             withString:@""
-                               options:NSCaseInsensitiveSearch|NSLiteralSearch
-                                 range:NSMakeRange(0, [string length])];
-
-    return [string autorelease];
+                               options:NSCaseInsensitiveSearch | NSLiteralSearch
+                                 range:NSMakeRange(0, string.length)];
+    return string;
 }
 
 - (NSString *)stringBySanitizingSpotlightSearch
 {
     // Limit length of search text
-    NSUInteger len = [self length];
-    if (len > 1024) len = 1024;
-    else if (len == 0) return self;
+    const NSUInteger len = MIN(self.length, 1024);
+    if (len == 0) return self;
 
-    NSMutableString *string = [[[self substringToIndex:len] mutableCopy]
-                                                                autorelease];
+    NSMutableString *string = [[self substringToIndex:len] mutableCopy];
 
     // Ignore strings with control characters
-    NSCharacterSet *controlChars = [NSCharacterSet controlCharacterSet];
-    NSRange r = [string rangeOfCharacterFromSet:controlChars];
+    NSRange r = [string rangeOfCharacterFromSet:NSCharacterSet.controlCharacterSet];
     if (r.location != NSNotFound)
         return nil;
 
@@ -260,39 +244,37 @@ debugStringForMessageQueue(NSArray *queue)
     [string replaceOccurrencesOfString:@"'"
                             withString:@"''"
                                options:NSLiteralSearch
-                                 range:NSMakeRange(0, [string length])];
+                                 range:NSMakeRange(0, string.length)];
 
     // Replace \ with \\ to avoid Vim interpreting it as the beginning of a
     // character class.
     [string replaceOccurrencesOfString:@"\\"
                             withString:@"\\\\"
                                options:NSLiteralSearch
-                                 range:NSMakeRange(0, [string length])];
-
+                                 range:NSMakeRange(0, string.length)];
     return string;
 }
 
 @end // NSString (MMExtras)
 
 
-
 @implementation NSColor (MMExtras)
 
 + (NSColor *)colorWithRgbInt:(unsigned)rgb
 {
-    float r = ((rgb>>16) & 0xff)/255.0f;
-    float g = ((rgb>>8) & 0xff)/255.0f;
-    float b = (rgb & 0xff)/255.0f;
+    const float r = ((rgb >> 16) & 0xff) / 255.0f;
+    const float g = ((rgb >>  8) & 0xff) / 255.0f;
+    const float b = (rgb         & 0xff) / 255.0f;
 
-    return [NSColor colorWithDeviceRed:r green:g blue:b alpha:1.0f];
+    return [NSColor colorWithDeviceRed:r green:g blue:b alpha:1];
 }
 
 + (NSColor *)colorWithArgbInt:(unsigned)argb
 {
-    float a = ((argb>>24) & 0xff)/255.0f;
-    float r = ((argb>>16) & 0xff)/255.0f;
-    float g = ((argb>>8) & 0xff)/255.0f;
-    float b = (argb & 0xff)/255.0f;
+    const float a = ((argb >> 24) & 0xff) / 255.0f;
+    const float r = ((argb >> 16) & 0xff) / 255.0f;
+    const float g = ((argb >>  8) & 0xff) / 255.0f;
+    const float b = (argb & 0xff        ) / 255.0f;
 
     return [NSColor colorWithDeviceRed:r green:g blue:b alpha:a];
 }
@@ -300,42 +282,28 @@ debugStringForMessageQueue(NSArray *queue)
 @end // NSColor (MMExtras)
 
 
-
-
 @implementation NSDictionary (MMExtras)
 
 + (id)dictionaryWithData:(NSData *)data
 {
 #if MAC_OS_X_VERSION_MIN_REQUIRED > MAC_OS_X_VERSION_10_10
-    id plist = [NSPropertyListSerialization
-            propertyListWithData:data
-                         options:NSPropertyListImmutable
-                          format:NULL
-                           error:NULL];
+    id plist = [NSPropertyListSerialization propertyListWithData:data options:NSPropertyListImmutable format:NULL error:NULL];
 #else
-    id plist = [NSPropertyListSerialization
-            propertyListFromData:data
-                mutabilityOption:NSPropertyListImmutable
-                          format:NULL
-                errorDescription:NULL];
+    id plist = [NSPropertyListSerialization propertyListFromData:data mutabilityOption:NSPropertyListImmutable format:NULL errorDescription:NULL];
 #endif
-
-    return [plist isKindOfClass:[NSDictionary class]] ? plist : nil;
+    return [plist isKindOfClass:NSDictionary.class] ? plist : nil;
 }
 
 - (NSData *)dictionaryAsData
 {
 #if MAC_OS_X_VERSION_MIN_REQUIRED > MAC_OS_X_VERSION_10_10
-    return [NSPropertyListSerialization dataWithPropertyList:self
-            format:NSPropertyListBinaryFormat_v1_0 options:0 error:NULL];
+    return [NSPropertyListSerialization dataWithPropertyList:self format:NSPropertyListBinaryFormat_v1_0 options:0 error:NULL];
 #else
-    return [NSPropertyListSerialization dataFromPropertyList:self
-            format:NSPropertyListBinaryFormat_v1_0 errorDescription:NULL];
+    return [NSPropertyListSerialization dataFromPropertyList:self format:NSPropertyListBinaryFormat_v1_0 errorDescription:NULL];
 #endif
 }
 
 @end
-
 
 
 
@@ -344,37 +312,24 @@ debugStringForMessageQueue(NSArray *queue)
 + (id)dictionaryWithData:(NSData *)data
 {
 #if MAC_OS_X_VERSION_MIN_REQUIRED > MAC_OS_X_VERSION_10_10
-  id plist = [NSPropertyListSerialization
-            propertyListWithData:data
-                        options:NSPropertyListMutableContainers
-                          format:NULL
-                           error:NULL];
+  id plist = [NSPropertyListSerialization propertyListWithData:data options:NSPropertyListMutableContainers format:NULL error:NULL];
 #else
-    id plist = [NSPropertyListSerialization
-            propertyListFromData:data
-                mutabilityOption:NSPropertyListMutableContainers
-                          format:NULL
-                errorDescription:NULL];
+    id plist = [NSPropertyListSerialization propertyListFromData:data mutabilityOption:NSPropertyListMutableContainers format:NULL errorDescription:NULL];
 #endif
-
-    return [plist isKindOfClass:[NSMutableDictionary class]] ? plist : nil;
+    return [plist isKindOfClass:NSMutableDictionary.class] ? plist : nil;
 }
 
 @end
 
 
-
-
-    void
+void
 ASLInit()
 {
-    NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
-
     // Allow for changing the log level via user defaults.  If no key is found
     // the default log level will be used (which for ASL is to log everything
     // up to ASL_LEVEL_NOTICE).  This key is an integer which corresponds to
     // the ASL_LEVEL_* macros (0 is most severe, 7 is debug level).
-    id logLevelObj = [ud objectForKey:MMLogLevelKey];
+    const id logLevelObj = [NSUserDefaults.standardUserDefaults objectForKey:(NSString *)MMLogLevelKey];
     if (logLevelObj) {
         int logLevel = [logLevelObj intValue];
         if (logLevel < 0) logLevel = 0;
@@ -403,7 +358,7 @@ ASLInit()
     // (this defaults to NO if this key is missing in the user defaults
     // database).  The above filter mask is applied to logs going to stderr,
     // contrary to how "vanilla" ASL works.
-    BOOL logToStdErr = [ud boolForKey:MMLogToStdErrKey];
+    BOOL logToStdErr = [NSUserDefaults.standardUserDefaults boolForKey:MMLogToStdErrKey];
     if (logToStdErr)
         asl_add_log_file(NULL, 2);  // The file descriptor for stderr is 2
 #endif
