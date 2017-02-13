@@ -54,7 +54,7 @@
 		1DD04DEC0C529C5E006CDC2B /* Credits.rtf in Resources */ = {isa = PBXBuildFile; fileRef = 1DD04DEB0C529C5E006CDC2B /* Credits.rtf */; };
 		1DD0C20C0C60FFB4008CD84A /* gvimrc in Copy Vim Runtime Files */ = {isa = PBXBuildFile; fileRef = 1DD0C20A0C60FF9A008CD84A /* gvimrc */; };
 		1DD3D51E0D82D4C9006E4320 /* ibeam.png in Resources */ = {isa = PBXBuildFile; fileRef = 1DD3D51D0D82D4C9006E4320 /* ibeam.png */; };
-		1DD66ECE0C803D3600EBDAB3 /* MMApplication.m in Sources */ = {isa = PBXBuildFile; fileRef = 1DD66ECC0C803D3600EBDAB3 /* MMApplication.m */; };
+		1DD66ECE0C803D3600EBDAB3 /* MMApplication.m in Sources */ = {isa = PBXBuildFile; fileRef = 1DD66ECC0C803D3600EBDAB3 /* MMApplication.m */; settings = {COMPILER_FLAGS = "-fobjc-arc"; }; };
 		1DD9F5E50C85D60500E8D5A5 /* SystemColors.plist in Resources */ = {isa = PBXBuildFile; fileRef = 1DD9F5E40C85D60500E8D5A5 /* SystemColors.plist */; };
 		1DE3F8E70D50F80500052B9E /* Preferences.nib in Resources */ = {isa = PBXBuildFile; fileRef = 1DE3F8E50D50F80500052B9E /* Preferences.nib */; };
 		1DE3F8EB0D50F84600052B9E /* MMPreferenceController.m in Sources */ = {isa = PBXBuildFile; fileRef = 1DE3F8E90D50F84600052B9E /* MMPreferenceController.m */; };

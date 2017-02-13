@@ -10,8 +10,5 @@
 
 #import <Cocoa/Cocoa.h>
 
-
-@interface MMApplication : NSApplication {
-}
-
+@interface MMApplication : NSApplication
 @end
