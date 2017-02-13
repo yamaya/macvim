@@ -69,7 +69,7 @@
 		52A364731C4A5789005757EC /* Sparkle.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 52A364721C4A5789005757EC /* Sparkle.framework */; };
 		52A364761C4A57C1005757EC /* Sparkle.framework in Copy Frameworks */ = {isa = PBXBuildFile; fileRef = 52A364721C4A5789005757EC /* Sparkle.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		52B7ED9B1C4A4D6900AFFF15 /* dsa_pub.pem in Resources */ = {isa = PBXBuildFile; fileRef = 52B7ED9A1C4A4D6900AFFF15 /* dsa_pub.pem */; };
-		544DCE611E4F40C200E3C582 /* NSAttributedString+CoreText.m in Sources */ = {isa = PBXBuildFile; fileRef = 544DCE601E4F40C200E3C582 /* NSAttributedString+CoreText.m */; };
+		544DCE611E4F40C200E3C582 /* NSAttributedString+CoreText.m in Sources */ = {isa = PBXBuildFile; fileRef = 544DCE601E4F40C200E3C582 /* NSAttributedString+CoreText.m */; settings = {COMPILER_FLAGS = "-fobjc-arc"; }; };
 		5487106A1E4CA73D00D189F6 /* MMCoreTextRenderer.m in Sources */ = {isa = PBXBuildFile; fileRef = 548710681E4CA73D00D189F6 /* MMCoreTextRenderer.m */; settings = {COMPILER_FLAGS = "-fobjc-arc"; }; };
 		5487106E1E4E014600D189F6 /* MMFontSmoothing.m in Sources */ = {isa = PBXBuildFile; fileRef = 5487106D1E4E014600D189F6 /* MMFontSmoothing.m */; settings = {COMPILER_FLAGS = "-fobjc-arc"; }; };
 		8D11072A0486CEB800E47090 /* MainMenu.nib in Resources */ = {isa = PBXBuildFile; fileRef = 29B97318FDCFA39411CA2CEA /* MainMenu.nib */; };
@@ -641,7 +641,6 @@
 				1D1474A00C5673AE0038FA2B /* MMAppController.m in Sources */,
 				1D1474AA0C5677450038FA2B /* MMTextStorage.m in Sources */,
 				1D1474B00C5678370038FA2B /* MMTextView.m in Sources */,
-				544DCE611E4F40C200E3C582 /* NSAttributedString+CoreText.m in Sources */,
 				1D1474B60C56796D0038FA2B /* MMVimController.m in Sources */,
 				1D1474BC0C567A910038FA2B /* MMWindowController.m in Sources */,
 				1D09AB420C6A4D520045497E /* MMTypesetter.m in Sources */,
@@ -654,6 +653,7 @@
 				1D80591F0E1185EA001699D1 /* Miscellaneous.m in Sources */,
 				1D145C7F0E5227CE00691AA0 /* MMTextViewHelper.m in Sources */,
 				1D60088B0E96A0B2003763F0 /* MMFindReplaceController.m in Sources */,
+				544DCE611E4F40C200E3C582 /* NSAttributedString+CoreText.m in Sources */,
 				5487106E1E4E014600D189F6 /* MMFontSmoothing.m in Sources */,
 				5487106A1E4CA73D00D189F6 /* MMCoreTextRenderer.m in Sources */,
 				1DE63FFB0E71820F00959BDB /* MMCoreTextView.m in Sources */,
