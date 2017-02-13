@@ -11,36 +11,20 @@
 #import <Cocoa/Cocoa.h>
 #import "MacVim.h"
 
-
 @class MMWindowController;
 @class MMVimController;
 
+@interface MMAppController : NSObject <MMAppProtocol>
 
-@interface MMAppController : NSObject <MMAppProtocol> {
-    NSConnection        *connection;
-    NSMutableArray      *vimControllers;
-    NSString            *openSelectionString;
-    NSMutableDictionary *pidArguments;
-    NSMenu              *defaultMainMenu;
-    NSMenuItem          *appMenuItemTemplate;
-    NSMenuItem          *recentFilesMenuItem;
-    NSMutableArray      *cachedVimControllers;
-    int                 preloadPid;
-    BOOL                shouldActivateWhenNextWindowOpens;
-    int                 numChildProcesses;
-    NSMutableDictionary *inputQueues;
-    int                 processingFlag;
+@property (nonatomic, retain) NSMenu *mainMenu;
+@property (nonatomic, retain) NSMenu *defaultMainMenu;
+@property (nonatomic, readonly) NSMenuItem *appMenuItemTemplate;
+@property (nonatomic, readonly) MMVimController *keyVimController;
 
-    FSEventStreamRef    fsEventStream;
-}
++ (instancetype)shared;
 
-+ (MMAppController *)sharedInstance;
-- (NSMenu *)defaultMainMenu;
-- (NSMenuItem *)appMenuItemTemplate;
-- (MMVimController *)keyVimController;
 - (void)removeVimController:(id)controller;
 - (void)windowControllerWillOpen:(MMWindowController *)windowController;
-- (void)setMainMenu:(NSMenu *)mainMenu;
 - (NSArray *)filterOpenFiles:(NSArray *)filenames;
 - (BOOL)openFiles:(NSArray *)filenames withArguments:(NSDictionary *)args;
 

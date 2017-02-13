@@ -147,8 +147,7 @@ static BOOL isUnsafeMessage(int msgid);
     // which itself is set up in MainMenu.nib).  The main menu is populated
     // by Vim later on.
     mainMenu = [[NSMenu alloc] initWithTitle:@"MainMenu"];
-    NSMenuItem *appMenuItem = [[MMAppController sharedInstance]
-                                        appMenuItemTemplate];
+    NSMenuItem *appMenuItem = MMAppController.shared.appMenuItemTemplate;
     appMenuItem = [[appMenuItem copy] autorelease];
 
     // Note: If the title of the application menu is anything but what
@@ -1370,7 +1369,7 @@ static BOOL isUnsafeMessage(int msgid);
     // Also, since the app may be multithreaded (e.g. as a result of showing
     // the open panel) we have to ensure this call happens on the main thread,
     // else there is a race condition that may lead to a crash.
-    [[MMAppController sharedInstance]
+    [MMAppController.shared
             performSelectorOnMainThread:@selector(removeVimController:)
                              withObject:self
                           waitUntilDone:NO

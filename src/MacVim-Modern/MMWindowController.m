@@ -318,7 +318,7 @@
     // made as to which screen the window should be on.  This means that all
     // code that is executed before this point must not depend on the screen!
 
-    [[MMAppController sharedInstance] windowControllerWillOpen:self];
+    [MMAppController.shared windowControllerWillOpen:self];
     [self updateResizeConstraints];
     [self resizeWindowToFitContentSize:[vimView desiredSize]
                           keepOnScreen:YES];
@@ -968,7 +968,7 @@
 
 - (void)windowDidBecomeMain:(NSNotification *)notification
 {
-    [[MMAppController sharedInstance] setMainMenu:[vimController mainMenu]];
+    MMAppController.shared.mainMenu = vimController.mainMenu;
 
     if ([vimView textView]) {
         NSFontManager *fm = [NSFontManager sharedFontManager];
