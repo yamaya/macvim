@@ -312,7 +312,7 @@ debugStringForMessageQueue(NSArray *queue)
 + (id)dictionaryWithData:(NSData *)data
 {
 #if MAC_OS_X_VERSION_MIN_REQUIRED > MAC_OS_X_VERSION_10_10
-  id plist = [NSPropertyListSerialization propertyListWithData:data options:NSPropertyListMutableContainers format:NULL error:NULL];
+    id plist = [NSPropertyListSerialization propertyListWithData:data options:NSPropertyListMutableContainers format:NULL error:NULL];
 #else
     id plist = [NSPropertyListSerialization propertyListFromData:data mutabilityOption:NSPropertyListMutableContainers format:NULL errorDescription:NULL];
 #endif
@@ -358,8 +358,7 @@ ASLInit()
     // (this defaults to NO if this key is missing in the user defaults
     // database).  The above filter mask is applied to logs going to stderr,
     // contrary to how "vanilla" ASL works.
-    BOOL logToStdErr = [NSUserDefaults.standardUserDefaults boolForKey:MMLogToStdErrKey];
-    if (logToStdErr)
+    if ([NSUserDefaults.standardUserDefaults boolForKey:MMLogToStdErrKey])
         asl_add_log_file(NULL, 2);  // The file descriptor for stderr is 2
 #endif
 }
