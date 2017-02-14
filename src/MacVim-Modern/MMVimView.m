@@ -27,7 +27,6 @@
 #import <PSMTabBarControl/PSMTabBarControl.h>
 
 
-
 // Scroller type; these must match SBAR_* in gui.h
 enum {
     MMScrollerTypeLeft = 0,
@@ -42,15 +41,16 @@ enum {
     int type;
     NSRange range;
 }
-- (id)initWithIdentifier:(int32_t)ident type:(int)type;
+- (instancetype)initWithIdentifier:(int32_t)ident type:(int)type;
 - (int32_t)scrollerId;
 - (int)type;
 - (NSRange)range;
 - (void)setRange:(NSRange)newRange;
 @end
 
-
-@interface MMVimView (Private)
+/**
+ */
+@interface MMVimView ()
 - (BOOL)bottomScrollbarVisible;
 - (BOOL)leftScrollbarVisible;
 - (BOOL)rightScrollbarVisible;
@@ -59,7 +59,6 @@ enum {
 - (MMScroller *)scrollbarForIdentifier:(int32_t)ident index:(unsigned *)idx;
 - (NSSize)vimViewSizeForTextViewSize:(NSSize)textViewSize;
 - (NSRect)textViewRectForVimViewSize:(NSSize)contentSize;
-- (NSTabView *)tabView;
 - (void)frameSizeMayHaveChanged;
 @end
 
@@ -71,118 +70,100 @@ enum {
 - (void)liveResizeDidEnd;
 @end
 
+/**
+ */
+@implementation MMVimView {
+    MMVimController     *_vimController;
+    NSMutableArray      *_scrollbars;
+    NSTabView           *_tabView;
+    BOOL                _vimTaskSelectedTab;
+}
+@synthesize textView = _textView, tabBarControl = _tabBarControl;
+@dynamic desiredSize, minSize;
 
-
-@implementation MMVimView
-
-- (MMVimView *)initWithFrame:(NSRect)frame
-               vimController:(MMVimController *)controller
+- (instancetype)initWithFrame:(NSRect)frame vimController:(MMVimController *)controller
 {
-    if (!(self = [super initWithFrame:frame]))
-        return nil;
+    if (!(self = [super initWithFrame:frame])) return nil;
     
-    vimController = controller;
-    scrollbars = [[NSMutableArray alloc] init];
+    _vimController = controller;
+    _scrollbars = NSMutableArray.new;
 
     // Only the tabline is autoresized, all other subview placement is done in
     // frameSizeMayHaveChanged.
-    [self setAutoresizesSubviews:YES];
+    self.autoresizesSubviews = YES;
 
-    NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
-    NSInteger renderer = [ud integerForKey:(NSString *)MMRendererKey];
+    NSInteger renderer = [NSUserDefaults.standardUserDefaults integerForKey:(NSString *)MMRendererKey];
     ASLogInfo(@"Use renderer=%ld", renderer);
 
     if (MMRendererCoreText == renderer) {
         // HACK! 'textView' has type MMTextView, but MMCoreTextView is not
         // derived from MMTextView.
-        textView = (MMTextView *)[[MMCoreTextView alloc] initWithFrame:frame];
+        _textView = (MMTextView *)[[MMCoreTextView alloc] initWithFrame:frame];
     } else {
         // Use Cocoa text system for text rendering.
-        textView = [[MMTextView alloc] initWithFrame:frame];
+        _textView = [[MMTextView alloc] initWithFrame:frame];
     }
 
     // Allow control of text view inset via MMTextInset* user defaults.
-    int left = [ud integerForKey:MMTextInsetLeftKey];
-    int top = [ud integerForKey:MMTextInsetTopKey];
-    [textView setTextContainerInset:NSMakeSize(left, top)];
+    [_textView setTextContainerInset:(NSSize){
+        [NSUserDefaults.standardUserDefaults integerForKey:MMTextInsetLeftKey],
+        [NSUserDefaults.standardUserDefaults integerForKey:MMTextInsetTopKey],
+    }];
 
-    [textView setAutoresizingMask:NSViewNotSizable];
-    [self addSubview:textView];
+    _textView.autoresizingMask = NSViewNotSizable;
+    [self addSubview:_textView];
     
     // Create the tab view (which is never visible, but the tab bar control
     // needs it to function).
-    tabView = [[NSTabView alloc] initWithFrame:NSZeroRect];
+    _tabView = [[NSTabView alloc] initWithFrame:NSZeroRect];
 
     // Create the tab bar control (which is responsible for actually
     // drawing the tabline and tabs).
-    NSRect tabFrame = { { 0, frame.size.height - kPSMTabBarControlHeight },
-                        { frame.size.width, kPSMTabBarControlHeight } };
-    tabBarControl = [[PSMTabBarControl alloc] initWithFrame:tabFrame];
+    _tabBarControl = [[PSMTabBarControl alloc] initWithFrame:(NSRect){
+        {0, frame.size.height - kPSMTabBarControlHeight},
+        {frame.size.width, kPSMTabBarControlHeight}
+    }];
 
-    [tabView setDelegate:tabBarControl];
+    _tabView.delegate = _tabBarControl;
 
-    [tabBarControl setTabView:tabView];
-    [tabBarControl setDelegate:self];
-    [tabBarControl setHidden:YES];
+    _tabBarControl.tabView = _tabView;
+    _tabBarControl.delegate = self;
+    _tabBarControl.hidden = YES;
 
     if (shouldUseYosemiteTabBarStyle()) {
-        CGFloat screenWidth = [[NSScreen mainScreen] frame].size.width;
-        int tabMaxWidth = [ud integerForKey:MMTabMaxWidthKey];
-        if (tabMaxWidth == 0)
-            tabMaxWidth = screenWidth;
-        int tabOptimumWidth = [ud integerForKey:MMTabOptimumWidthKey];
-        if (tabOptimumWidth == 0)
-            tabOptimumWidth = screenWidth;
+        CGFloat screenWidth = NSScreen.mainScreen.frame.size.width;
+        int tabMaxWidth = [NSUserDefaults.standardUserDefaults integerForKey:MMTabMaxWidthKey];
+        if (tabMaxWidth == 0) tabMaxWidth = screenWidth;
+        int tabOptimumWidth = [NSUserDefaults.standardUserDefaults integerForKey:MMTabOptimumWidthKey];
+        if (tabOptimumWidth == 0) tabOptimumWidth = screenWidth;
 
-        [tabBarControl setStyleNamed:@"Yosemite"];
-        [tabBarControl setCellMinWidth:[ud integerForKey:MMTabMinWidthKey]];
-        [tabBarControl setCellMaxWidth:tabMaxWidth];
-        [tabBarControl setCellOptimumWidth:tabOptimumWidth];
+        _tabBarControl.styleNamed = @"Yosemite";
+        _tabBarControl.cellMinWidth = [NSUserDefaults.standardUserDefaults integerForKey:MMTabMinWidthKey];
+        _tabBarControl.cellMaxWidth = tabMaxWidth;
+        _tabBarControl.cellOptimumWidth = tabOptimumWidth;
     } else {
-        [tabBarControl setCellMinWidth:[ud integerForKey:MMTabMinWidthKey]];
-        [tabBarControl setCellMaxWidth:[ud integerForKey:MMTabMaxWidthKey]];
-        [tabBarControl setCellOptimumWidth:
-                                     [ud integerForKey:MMTabOptimumWidthKey]];
+        _tabBarControl.cellMinWidth = [NSUserDefaults.standardUserDefaults integerForKey:MMTabMinWidthKey];
+        _tabBarControl.cellMaxWidth = [NSUserDefaults.standardUserDefaults integerForKey:MMTabMaxWidthKey];
+        _tabBarControl.cellOptimumWidth = [NSUserDefaults.standardUserDefaults integerForKey:MMTabOptimumWidthKey];
     }
 
-    [tabBarControl setShowAddTabButton:[ud boolForKey:MMShowAddTabButtonKey]];
-    [[tabBarControl addTabButton] setTarget:self];
-    [[tabBarControl addTabButton] setAction:@selector(addNewTab:)];
-    [tabBarControl setAllowsDragBetweenWindows:NO];
-    [tabBarControl registerForDraggedTypes:
-                            [NSArray arrayWithObject:NSFilenamesPboardType]];
-
-    [tabBarControl setAutoresizingMask:NSViewWidthSizable|NSViewMinYMargin];
+    _tabBarControl.showAddTabButton = [NSUserDefaults.standardUserDefaults boolForKey:MMShowAddTabButtonKey];
+    [(id)[_tabBarControl addTabButton] setTarget:self];
+    [(id)[_tabBarControl addTabButton] setAction:@selector(addNewTab:)];
+    _tabBarControl.allowsDragBetweenWindows = NO;
+    [_tabBarControl registerForDraggedTypes:@[NSFilenamesPboardType]];
+    _tabBarControl.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
     
-    //[tabBarControl setPartnerView:textView];
+    //[_tabBarControl setPartnerView:textView];
     
     // tab bar resizing only works if awakeFromNib is called (that's where
     // the NSViewFrameDidChangeNotification callback is installed). Sounds like
     // a PSMTabBarControl bug, let's live with it for now.
-    [tabBarControl awakeFromNib];
+    [_tabBarControl awakeFromNib];
 
-    [self addSubview:tabBarControl];
+    [self addSubview:_tabBarControl];
 
     return self;
-}
-
-- (void)dealloc
-{
-    ASLogDebug(@"");
-
-    [tabBarControl release];  tabBarControl = nil;
-    [tabView release];  tabView = nil;
-    [scrollbars release];  scrollbars = nil;
-
-    // HACK! The text storage is the principal owner of the text system, but we
-    // keep only a reference to the text view, so release the text storage
-    // first (unless we are using the CoreText renderer).
-    if ([textView isKindOfClass:[MMTextView class]])
-        [[textView textStorage] release];
-
-    [textView release];  textView = nil;
-
-    [super dealloc];
 }
 
 - (BOOL)isOpaque
@@ -196,21 +177,19 @@ enum {
     // looking tabs. However, the textured window background looks really
     // weird behind the window resize throbber, so emulate the look of an
     // NSScrollView in the bottom right corner.
-    if (![[self window] showsResizeIndicator]  // XXX: make this a flag
-            || !([[self window] styleMask] & NSWindowStyleMaskTexturedBackground))
+    if (!self.window.showsResizeIndicator || !(self.window.styleMask & NSWindowStyleMaskTexturedBackground))
         return;
 
 #if (MAC_OS_X_VERSION_MIN_REQUIRED >= MAC_OS_X_VERSION_10_7)
     int sw = [NSScroller scrollerWidthForControlSize:NSControlSizeRegular scrollerStyle:NSScrollerStyleLegacy];
 #else
-    int sw = [NSScroller scrollerWidth];
+    int sw = NSScroller.scrollerWidth;
 #endif
 
     // add .5 to the pixel locations to put the lines on a pixel boundary.
     // the top and right edges of the rect will be outside of the bounds rect
     // and clipped away.
-    NSRect sizerRect = NSMakeRect([self bounds].size.width - sw + .5, -.5,
-            sw, sw);
+    NSRect sizerRect = NSMakeRect(self.bounds.size.width - sw + .5, -.5, sw, sw);
     //NSBezierPath* path = [NSBezierPath bezierPath];
     NSBezierPath* path = [NSBezierPath bezierPathWithRect:sizerRect];
 
@@ -219,140 +198,119 @@ enum {
     // general). Terminal.app on Leopard has #FFFFFF background and #D9D9D9 as
     // stroke. The colors below are #FFFFFF and #D4D4D4, which is close enough
     // for me.
-    [[NSColor controlBackgroundColor] set];
+    [NSColor.controlBackgroundColor set];
     [path fill];
 
-    [[NSColor secondarySelectedControlColor] set];
+    [NSColor.secondarySelectedControlColor set];
     [path stroke];
 
-    if ([self leftScrollbarVisible]) {
+    if (self.leftScrollbarVisible) {
         // If the left scrollbar is visible there is an empty square under it.
         // Fill it in just like on the right hand corner.  The half pixel
         // offset ensures the outline goes on the top and right side of the
         // square; the left and bottom parts of the outline are clipped.
-        sizerRect = NSMakeRect(-.5,-.5,sw,sw);
+        sizerRect = NSMakeRect(-.5, -.5, sw, sw);
         path = [NSBezierPath bezierPathWithRect:sizerRect];
-        [[NSColor controlBackgroundColor] set];
+        [NSColor.controlBackgroundColor set];
         [path fill];
-        [[NSColor secondarySelectedControlColor] set];
+        [NSColor.secondarySelectedControlColor set];
         [path stroke];
     }
 }
 
-- (MMTextView *)textView
-{
-    return textView;
-}
-
-- (PSMTabBarControl *)tabBarControl
-{
-    return tabBarControl;
-}
-
 - (void)cleanup
 {
-    vimController = nil;
+    _vimController = nil;
     
     // NOTE! There is a bug in PSMTabBarControl in that it retains the delegate
     // so reset the delegate here, otherwise the delegate may never get
     // released.
-    [tabView setDelegate:nil];
-    [tabBarControl setDelegate:nil];
-    [tabBarControl setTabView:nil];
-    [[self window] setDelegate:nil];
+    _tabView.delegate = nil;
+    _tabBarControl.delegate = nil;
+    _tabBarControl.tabView = nil;
+    self.window.delegate = nil;
 
     // NOTE! There is another bug in PSMTabBarControl where the control is not
     // removed as an observer, so remove it here (failing to remove an observer
     // may lead to very strange bugs).
-    [[NSNotificationCenter defaultCenter] removeObserver:tabBarControl];
+    [NSNotificationCenter.defaultCenter removeObserver:_tabBarControl];
 
-    [tabBarControl removeFromSuperviewWithoutNeedingDisplay];
-    [textView removeFromSuperviewWithoutNeedingDisplay];
+    [_tabBarControl removeFromSuperviewWithoutNeedingDisplay];
+    [_textView removeFromSuperviewWithoutNeedingDisplay];
 
-    unsigned i, count = [scrollbars count];
-    for (i = 0; i < count; ++i) {
-        MMScroller *sb = [scrollbars objectAtIndex:i];
-        [sb removeFromSuperviewWithoutNeedingDisplay];
+    for (MMScroller *scroller in _scrollbars) {
+        [scroller removeFromSuperviewWithoutNeedingDisplay];
     }
 
-    [tabView removeAllTabViewItems];
+    [_tabView removeAllTabViewItems];
 }
 
 - (NSSize)desiredSize
 {
-    return [self vimViewSizeForTextViewSize:[textView desiredSize]];
+    return [self vimViewSizeForTextViewSize:_textView.desiredSize];
 }
 
 - (NSSize)minSize
 {
-    return [self vimViewSizeForTextViewSize:[textView minSize]];
+    return [self vimViewSizeForTextViewSize:_textView.minSize];
 }
 
 - (NSSize)constrainRows:(int *)r columns:(int *)c toSize:(NSSize)size
 {
-    NSSize textViewSize = [self textViewRectForVimViewSize:size].size;
-    textViewSize = [textView constrainRows:r columns:c toSize:textViewSize];
-    return [self vimViewSizeForTextViewSize:textViewSize];
+    size = [self textViewRectForVimViewSize:size].size;
+    size = [_textView constrainRows:r columns:c toSize:size];
+    return [self vimViewSizeForTextViewSize:size];
 }
 
 - (void)setDesiredRows:(int)r columns:(int)c
 {
-    [textView setMaxRows:r columns:c];
+    [_textView setMaxRows:r columns:c];
 }
 
 - (IBAction)addNewTab:(id)sender
 {
-    [vimController sendMessage:AddNewTabMsgID data:nil];
+    [_vimController sendMessage:AddNewTabMsgID data:nil];
 }
 
 - (void)updateTabsWithData:(NSData *)data
 {
-    const void *p = [data bytes];
-    const void *end = p + [data length];
-    int tabIdx = 0;
+    const void *p = data.bytes;
+    const void *end = p + data.length;
+    int tabIndex = 0;
 
     // HACK!  Current tab is first in the message.  This way it is not
     // necessary to guess which tab should be the selected one (this can be
     // problematic for instance when new tabs are created).
-    int curtabIdx = *((int*)p);  p += sizeof(int);
+    int curtabIdx = *((int *)p);  p += sizeof(int);
 
-    NSArray *tabViewItems = [[self tabBarControl] representedTabViewItems];
+    NSArray *tabViewItems = _tabBarControl.representedTabViewItems;
 
     while (p < end) {
         NSTabViewItem *tvi = nil;
 
-        //int wincount = *((int*)p);  p += sizeof(int);
-        int infoCount = *((int*)p); p += sizeof(int);
-        unsigned i;
-        for (i = 0; i < infoCount; ++i) {
-            int length = *((int*)p);  p += sizeof(int);
+        const int infoCount = *((int *)p); p += sizeof(int);
+        for (int i = 0; i < infoCount; ++i) {
+            const int length = *((int *)p);  p += sizeof(int);
             if (length <= 0)
                 continue;
 
-            NSString *val = [[NSString alloc]
-                    initWithBytes:(void*)p length:length
-                         encoding:NSUTF8StringEncoding];
+            NSString *val = [[NSString alloc] initWithBytes:(void *)p length:length encoding:NSUTF8StringEncoding];
             p += length;
 
             switch (i) {
                 case MMTabLabel:
                     // Set the label of the tab, adding a new tab when needed.
-                    tvi = [[self tabView] numberOfTabViewItems] <= tabIdx
-                            ? [self addNewTabViewItem]
-                            : [tabViewItems objectAtIndex:tabIdx];
-                    [tvi setLabel:val];
-                    ++tabIdx;
+                    tvi = _tabView.numberOfTabViewItems <= tabIndex ? [self addNewTabViewItem] : tabViewItems[tabIndex];
+                    tvi.label = val;
+                    ++tabIndex;
                     break;
                 case MMTabToolTip:
-                    if (tvi)
-                        [[self tabBarControl] setToolTip:val
-                                          forTabViewItem:tvi];
+                    if (tvi) [_tabBarControl setToolTip:val forTabViewItem:tvi];
                     break;
                 default:
                     ASLogWarn(@"Unknown tab info for index: %d", i);
+                    break;
             }
-
-            [val release];
         }
     }
 
@@ -360,31 +318,29 @@ enum {
     // the NSTabView will automatically select another tab, but we want Vim to
     // take care of which tab to select so set the vimTaskSelectedTab flag to
     // prevent the tab selection message to be passed on to the VimTask.
-    vimTaskSelectedTab = YES;
-    int i, count = [[self tabView] numberOfTabViewItems];
-    for (i = count-1; i >= tabIdx; --i) {
-        id tvi = [tabViewItems objectAtIndex:i];
-        [[self tabView] removeTabViewItem:tvi];
+    _vimTaskSelectedTab = YES;
+    for (int i = _tabView.numberOfTabViewItems - 1; i >= tabIndex; --i) {
+        [_tabView removeTabViewItem:tabViewItems[i]];
     }
-    vimTaskSelectedTab = NO;
+    _vimTaskSelectedTab = NO;
 
     [self selectTabWithIndex:curtabIdx];
 }
 
-- (void)selectTabWithIndex:(int)idx
+- (void)selectTabWithIndex:(int)index
 {
-    NSArray *tabViewItems = [[self tabBarControl] representedTabViewItems];
-    if (idx < 0 || idx >= [tabViewItems count]) {
-        ASLogWarn(@"No tab with index %d exists.", idx);
+    NSArray *tabViewItems = _tabBarControl.representedTabViewItems;
+    if (index < 0 || index >= tabViewItems.count) {
+        ASLogWarn(@"No tab with index %d exists.", index);
         return;
     }
 
     // Do not try to select a tab if already selected.
-    NSTabViewItem *tvi = [tabViewItems objectAtIndex:idx];
-    if (tvi != [[self tabView] selectedTabViewItem]) {
-        vimTaskSelectedTab = YES;
-        [[self tabView] selectTabViewItem:tvi];
-        vimTaskSelectedTab = NO;
+    NSTabViewItem *item = tabViewItems[index];
+    if (item != _tabView.selectedTabViewItem) {
+        _vimTaskSelectedTab = YES;
+        [_tabView selectTabViewItem:item];
+        _vimTaskSelectedTab = NO;
 
         // We might need to change the scrollbars that are visible.
         [self placeScrollbars];
@@ -399,88 +355,82 @@ enum {
 
     // The documentation claims initWithIdentifier can be given a nil identifier, but the API itself
     // is decorated such that doing so produces a warning, so the tab count is used as identifier.
-    NSInteger identifier = [[self tabView] numberOfTabViewItems];
-    NSTabViewItem *tvi = [[NSTabViewItem alloc] initWithIdentifier:[NSNumber numberWithInt:identifier]];
+    const NSInteger n = _tabView.numberOfTabViewItems;
+    NSTabViewItem *item = [[NSTabViewItem alloc] initWithIdentifier:@(n)];
 
     // NOTE: If this is the first tab it will be automatically selected.
-    vimTaskSelectedTab = YES;
-    [[self tabView] addTabViewItem:tvi];
-    vimTaskSelectedTab = NO;
+    _vimTaskSelectedTab = YES;
+    [_tabView addTabViewItem:item];
+    _vimTaskSelectedTab = NO;
 
-    [tvi autorelease];
-
-    return tvi;
+    return item;
 }
 
-- (void)createScrollbarWithIdentifier:(int32_t)ident type:(int)type
+- (void)createScrollbarWithIdentifier:(int32_t)identifier type:(int)type
 {
-    MMScroller *scroller = [[MMScroller alloc] initWithIdentifier:ident
-                                                             type:type];
-    [scroller setTarget:self];
-    [scroller setAction:@selector(scroll:)];
+    MMScroller *scroller = [[MMScroller alloc] initWithIdentifier:identifier type:type];
+    scroller.target = self;
+    scroller.action = @selector(scroll:);
 
     [self addSubview:scroller];
-    [scrollbars addObject:scroller];
-    [scroller release];
+    [_scrollbars addObject:scroller];
 }
 
-- (BOOL)destroyScrollbarWithIdentifier:(int32_t)ident
+- (BOOL)destroyScrollbarWithIdentifier:(int32_t)identifier
 {
-    unsigned idx = 0;
-    MMScroller *scroller = [self scrollbarForIdentifier:ident index:&idx];
+    unsigned index = 0;
+    MMScroller *scroller = [self scrollbarForIdentifier:identifier index:&index];
     if (!scroller) return NO;
 
     [scroller removeFromSuperview];
-    [scrollbars removeObjectAtIndex:idx];
+    [_scrollbars removeObjectAtIndex:index];
 
     // If a visible scroller was removed then the vim view must resize.  This
     // is handled by the window controller (the vim view never resizes itself).
-    return ![scroller isHidden];
+    return !scroller.isHidden;
 }
 
-- (BOOL)showScrollbarWithIdentifier:(int32_t)ident state:(BOOL)visible
+- (BOOL)showScrollbarWithIdentifier:(int32_t)identifier state:(BOOL)visible
 {
-    MMScroller *scroller = [self scrollbarForIdentifier:ident index:NULL];
+    MMScroller *scroller = [self scrollbarForIdentifier:identifier index:nil];
     if (!scroller) return NO;
 
-    BOOL wasVisible = ![scroller isHidden];
-    [scroller setHidden:!visible];
+    const BOOL wasVisible = !scroller.isHidden;
+    scroller.hidden = !visible;
 
     // If a scroller was hidden or shown then the vim view must resize.  This
     // is handled by the window controller (the vim view never resizes itself).
     return wasVisible != visible;
 }
 
-- (void)setScrollbarThumbValue:(float)val proportion:(float)prop
-                    identifier:(int32_t)ident
+- (void)setScrollbarThumbValue:(float)value proportion:(float)proportion identifier:(int32_t)identifier
 {
-    MMScroller *scroller = [self scrollbarForIdentifier:ident index:NULL];
-    [scroller setDoubleValue:val];
-    [scroller setKnobProportion:prop];
-    [scroller setEnabled:prop != 1.f];
+    MMScroller *scroller = [self scrollbarForIdentifier:identifier index:NULL];
+    scroller.doubleValue = value;
+    scroller.knobProportion = proportion;
+    scroller.enabled = (proportion != 1);
 }
 
-
-- (void)scroll:(id)sender
+- (void)scroll:(MMScroller *)sender
 {
-    NSMutableData *data = [NSMutableData data];
-    int32_t ident = [(MMScroller*)sender scrollerId];
-    int hitPart = [sender hitPart];
-    float value = [sender floatValue];
+    const int32_t identifier = sender.scrollerId;
+    const int hitPart = sender.hitPart;
+    const float value = sender.floatValue;
 
-    [data appendBytes:&ident length:sizeof(int32_t)];
-    [data appendBytes:&hitPart length:sizeof(int)];
-    [data appendBytes:&value length:sizeof(float)];
+    NSMutableData *data = NSMutableData.new;
+    [data appendBytes:&identifier length:sizeof(identifier)];
+    [data appendBytes:&hitPart length:sizeof(hitPart)];
+    [data appendBytes:&value length:sizeof(value)];
 
-    [vimController sendMessage:ScrollbarEventMsgID data:data];
+    [_vimController sendMessage:ScrollbarEventMsgID data:data];
 }
 
-- (void)setScrollbarPosition:(int)pos length:(int)len identifier:(int32_t)ident
+- (void)setScrollbarPosition:(int)position length:(int)length identifier:(int32_t)identifier
 {
-    MMScroller *scroller = [self scrollbarForIdentifier:ident index:NULL];
-    NSRange range = NSMakeRange(pos, len);
-    if (!NSEqualRanges(range, [scroller range])) {
-        [scroller setRange:range];
+    MMScroller *scroller = [self scrollbarForIdentifier:identifier index:nil];
+    const NSRange range = NSMakeRange(position, length);
+    if (!NSEqualRanges(range, scroller.range)) {
+        scroller.range = range;
         // TODO!  Should only do this once per update.
 
         // This could be sent because a text window was created or closed, so
@@ -491,15 +441,12 @@ enum {
 
 - (void)setDefaultColorsBackground:(NSColor *)back foreground:(NSColor *)fore
 {
-    [textView setDefaultColorsBackground:back foreground:fore];
+    [_textView setDefaultColorsBackground:back foreground:fore];
 }
-
 
 // -- PSMTabBarControl delegate ----------------------------------------------
 
-
-- (BOOL)tabView:(NSTabView *)theTabView shouldSelectTabViewItem:
-    (NSTabViewItem *)tabViewItem
+- (BOOL)tabView:(NSTabView *)theTabView shouldSelectTabViewItem:(NSTabViewItem *)tabViewItem
 {
     // NOTE: It would be reasonable to think that 'shouldSelect...' implies
     // that this message only gets sent when the user clicks the tab.
@@ -510,77 +457,65 @@ enum {
     // selected the tab (e.g. as opposed the user clicking the tab).  The
     // delegate method has no way of knowing who initiated the selection so a
     // flag is set when Vim initiated the selection.
-    if (!vimTaskSelectedTab) {
+    if (!_vimTaskSelectedTab) {
         // Propagate the selection message to Vim.
-        NSUInteger idx = [self representedIndexOfTabViewItem:tabViewItem];
-        if (NSNotFound != idx) {
-            int i = (int)idx;   // HACK! Never more than MAXINT tabs?!
+        const NSUInteger index = [self representedIndexOfTabViewItem:tabViewItem];
+        if (NSNotFound != index) {
+            int i = (int)index;   // HACK! Never more than MAXINT tabs?!
             NSData *data = [NSData dataWithBytes:&i length:sizeof(int)];
-            [vimController sendMessage:SelectTabMsgID data:data];
+            [_vimController sendMessage:SelectTabMsgID data:data];
         }
     }
 
     // Unless Vim selected the tab, return NO, and let Vim decide if the tab
     // should get selected or not.
-    return vimTaskSelectedTab;
+    return _vimTaskSelectedTab;
 }
 
-- (BOOL)tabView:(NSTabView *)theTabView shouldCloseTabViewItem:
-        (NSTabViewItem *)tabViewItem
+- (BOOL)tabView:(NSTabView *)theTabView shouldCloseTabViewItem: (NSTabViewItem *)tabViewItem
 {
     // HACK!  This method is only called when the user clicks the close button
     // on the tab.  Instead of letting the tab bar close the tab, we return NO
     // and pass a message on to Vim to let it handle the closing.
-    NSUInteger idx = [self representedIndexOfTabViewItem:tabViewItem];
-    int i = (int)idx;   // HACK! Never more than MAXINT tabs?!
+    NSUInteger index = [self representedIndexOfTabViewItem:tabViewItem];
+    int i = (int)index;   // HACK! Never more than MAXINT tabs?!
     NSData *data = [NSData dataWithBytes:&i length:sizeof(int)];
-    [vimController sendMessage:CloseTabMsgID data:data];
+    [_vimController sendMessage:CloseTabMsgID data:data];
 
     return NO;
 }
 
-- (void)tabView:(NSTabView *)theTabView didDragTabViewItem:
-        (NSTabViewItem *)tabViewItem toIndex:(int)idx
+- (void)tabView:(NSTabView *)theTabView didDragTabViewItem: (NSTabViewItem *)tabViewItem toIndex:(int)index
 {
-    NSMutableData *data = [NSMutableData data];
-    [data appendBytes:&idx length:sizeof(int)];
-
-    [vimController sendMessage:DraggedTabMsgID data:data];
+    NSMutableData *data = NSMutableData.new;
+    [data appendBytes:&index length:sizeof(int)];
+    [_vimController sendMessage:DraggedTabMsgID data:data];
 }
 
-- (NSDragOperation)tabBarControl:(PSMTabBarControl *)theTabBarControl
-        draggingEntered:(id <NSDraggingInfo>)sender
-        forTabAtIndex:(NSUInteger)tabIndex
+- (NSDragOperation)tabBarControl:(PSMTabBarControl *)theTabBarControl draggingEntered:(id <NSDraggingInfo>)sender forTabAtIndex:(NSUInteger)tabIndex
 {
     NSPasteboard *pb = [sender draggingPasteboard];
-    return [[pb types] containsObject:NSFilenamesPboardType]
-            ? NSDragOperationCopy
-            : NSDragOperationNone;
+    return [pb.types containsObject:NSFilenamesPboardType] ? NSDragOperationCopy : NSDragOperationNone;
 }
 
-- (BOOL)tabBarControl:(PSMTabBarControl *)theTabBarControl
-        performDragOperation:(id <NSDraggingInfo>)sender
-        forTabAtIndex:(NSUInteger)tabIndex
+- (BOOL)tabBarControl:(PSMTabBarControl *)theTabBarControl performDragOperation:(id <NSDraggingInfo>)sender forTabAtIndex:(NSUInteger)tabIndex
 {
     NSPasteboard *pb = [sender draggingPasteboard];
-    if ([[pb types] containsObject:NSFilenamesPboardType]) {
+    if ([pb.types containsObject:NSFilenamesPboardType]) {
         NSArray *filenames = [pb propertyListForType:NSFilenamesPboardType];
-        if ([filenames count] == 0)
+        if (filenames.count == 0)
             return NO;
         if (tabIndex != NSNotFound) {
             // If dropping on a specific tab, only open one file
-            [vimController file:[filenames objectAtIndex:0]
-                draggedToTabAtIndex:tabIndex];
+            [_vimController file:filenames[0] draggedToTabAtIndex:tabIndex];
         } else {
             // Files were dropped on empty part of tab bar; open them all
-            [vimController filesDraggedToTabBar:filenames];
+            [_vimController filesDraggedToTabBar:filenames];
         }
         return YES;
-    } else {
-        return NO;
     }
+    return NO;
 }
-
 
 
 // -- NSView customization ---------------------------------------------------
@@ -588,17 +523,13 @@ enum {
 
 - (void)viewWillStartLiveResize
 {
-    id windowController = [[self window] windowController];
-    [windowController liveResizeWillStart];
-
+    [self.window.windowController liveResizeWillStart];
     [super viewWillStartLiveResize];
 }
 
 - (void)viewDidEndLiveResize
 {
-    id windowController = [[self window] windowController];
-    [windowController liveResizeDidEnd];
-
+    [self.window.windowController liveResizeDidEnd];
     [super viewDidEndLiveResize];
 }
 
@@ -620,52 +551,36 @@ enum {
     [self frameSizeMayHaveChanged];
 }
 
-@end // MMVimView
-
-
-
-
-@implementation MMVimView (Private)
-
 - (BOOL)bottomScrollbarVisible
 {
-    unsigned i, count = [scrollbars count];
-    for (i = 0; i < count; ++i) {
-        MMScroller *scroller = [scrollbars objectAtIndex:i];
-        if ([scroller type] == MMScrollerTypeBottom && ![scroller isHidden])
+    for (MMScroller *scroller in _scrollbars) {
+        if (scroller.type == MMScrollerTypeBottom && !scroller.isHidden)
             return YES;
     }
-
     return NO;
 }
 
 - (BOOL)leftScrollbarVisible
 {
-    unsigned i, count = [scrollbars count];
-    for (i = 0; i < count; ++i) {
-        MMScroller *scroller = [scrollbars objectAtIndex:i];
-        if ([scroller type] == MMScrollerTypeLeft && ![scroller isHidden])
+    for (MMScroller *scroller in _scrollbars) {
+        if (scroller.type == MMScrollerTypeLeft && !scroller.isHidden)
             return YES;
     }
-
     return NO;
 }
 
 - (BOOL)rightScrollbarVisible
 {
-    unsigned i, count = [scrollbars count];
-    for (i = 0; i < count; ++i) {
-        MMScroller *scroller = [scrollbars objectAtIndex:i];
-        if ([scroller type] == MMScrollerTypeRight && ![scroller isHidden])
+    for (MMScroller *scroller in _scrollbars) {
+        if (scroller.type == MMScrollerTypeRight && !scroller.isHidden)
             return YES;
     }
-
     return NO;
 }
 
 - (void)placeScrollbars
 {
-    NSRect textViewFrame = [textView frame];
+    NSRect textViewFrame = _textView.frame;
     BOOL leftSbVisible = NO;
     BOOL rightSbVisible = NO;
     BOOL botSbVisible = NO;
@@ -675,51 +590,45 @@ enum {
     unsigned lowestLeftSbIdx = (unsigned)-1;
     unsigned lowestRightSbIdx = (unsigned)-1;
     unsigned rowMaxLeft = 0, rowMaxRight = 0;
-    unsigned i, count = [scrollbars count];
-    for (i = 0; i < count; ++i) {
-        MMScroller *scroller = [scrollbars objectAtIndex:i];
-        if (![scroller isHidden]) {
-            NSRange range = [scroller range];
-            if ([scroller type] == MMScrollerTypeLeft
-                    && range.location >= rowMaxLeft) {
+    unsigned i = 0;
+    for (MMScroller *scroller in _scrollbars) {
+        if (!scroller.isHidden) {
+            NSRange range = scroller.range;
+            if (scroller.type == MMScrollerTypeLeft && range.location >= rowMaxLeft) {
                 rowMaxLeft = range.location;
                 lowestLeftSbIdx = i;
                 leftSbVisible = YES;
-            } else if ([scroller type] == MMScrollerTypeRight
-                    && range.location >= rowMaxRight) {
+            } else if (scroller.type == MMScrollerTypeRight && range.location >= rowMaxRight) {
                 rowMaxRight = range.location;
                 lowestRightSbIdx = i;
                 rightSbVisible = YES;
-            } else if ([scroller type] == MMScrollerTypeBottom) {
+            } else if (scroller.type == MMScrollerTypeBottom) {
                 botSbVisible = YES;
             }
         }
+        i++;
     }
 
     // Place the scrollbars.
-    for (i = 0; i < count; ++i) {
-        MMScroller *scroller = [scrollbars objectAtIndex:i];
-        if ([scroller isHidden])
-            continue;
+    for (MMScroller *scroller in _scrollbars) {
+        if (scroller.isHidden) continue;
 
         NSRect rect;
 #if (MAC_OS_X_VERSION_MIN_REQUIRED >= MAC_OS_X_VERSION_10_7)
         CGFloat scrollerWidth = [NSScroller scrollerWidthForControlSize:NSControlSizeRegular scrollerStyle:NSScrollerStyleLegacy];
 #else
-        CGFloat scrollerWidth = [NSScroller scrollerWidth];
+        CGFloat scrollerWidth = NSScroller.scrollerWidth;
 #endif
-        if ([scroller type] == MMScrollerTypeBottom) {
-            rect = [textView rectForColumnsInRange:[scroller range]];
+        if (scroller.type == MMScrollerTypeBottom) {
+            rect = [_textView rectForColumnsInRange:scroller.range];
             rect.size.height = scrollerWidth;
-            if (leftSbVisible)
-                rect.origin.x += scrollerWidth;
+            if (leftSbVisible) rect.origin.x += scrollerWidth;
 
             // HACK!  Make sure the horizontal scrollbar covers the text view
             // all the way to the right, otherwise it looks ugly when the user
             // drags the window to resize.
             float w = NSMaxX(textViewFrame) - NSMaxX(rect);
-            if (w > 0)
-                rect.size.width += w;
+            if (w > 0) rect.size.width += w;
 
             // Make sure scrollbar rect is bounded by the text view frame.
             // Also leave some room for the resize indicator on the right in
@@ -735,13 +644,11 @@ enum {
             if (rect.size.width < 0)
                 rect.size.width = 0;
         } else {
-            rect = [textView rectForRowsInRange:[scroller range]];
+            rect = [_textView rectForRowsInRange:scroller.range];
             // Adjust for the fact that text layout is flipped.
-            rect.origin.y = NSMaxY(textViewFrame) - rect.origin.y
-                    - rect.size.height;
+            rect.origin.y = NSMaxY(textViewFrame) - rect.origin.y - rect.size.height;
             rect.size.width = scrollerWidth;
-            if ([scroller type] == MMScrollerTypeRight)
-                rect.origin.x = NSMaxX(textViewFrame);
+            if (scroller.type == MMScrollerTypeRight) rect.origin.x = NSMaxX(textViewFrame);
 
             // HACK!  Make sure the lowest vertical scrollbar covers the text
             // view all the way to the bottom.  This is done because Vim only
@@ -750,8 +657,7 @@ enum {
             // region next to the command line.
             // TODO!  Find a nicer way to do this.
             if (i == lowestLeftSbIdx || i == lowestRightSbIdx) {
-                float h = rect.origin.y + rect.size.height
-                          - textViewFrame.origin.y;
+                float h = rect.origin.y + rect.size.height - textViewFrame.origin.y;
                 if (rect.size.height < h) {
                     rect.origin.y = textViewFrame.origin.y;
                     rect.size.height = h;
@@ -760,8 +666,7 @@ enum {
 
             // Vertical scrollers must not cover the resize box in the
             // bottom-right corner of the window.
-            if ([[self window] showsResizeIndicator]  // XXX: make this a flag
-                && rect.origin.y < scrollerWidth) {
+            if (self.window.showsResizeIndicator && rect.origin.y < scrollerWidth) {
                 rect.size.height -= scrollerWidth - rect.origin.y;
                 rect.origin.y = scrollerWidth;
             }
@@ -778,39 +683,37 @@ enum {
                 rect.size.height = 0;
         }
 
-        NSRect oldRect = [scroller frame];
+        const NSRect oldRect = scroller.frame;
         if (!NSEqualRects(oldRect, rect)) {
-            [scroller setFrame:rect];
+            scroller.frame = rect;
             // Clear behind the old scroller frame, or parts of the old
             // scroller might still be visible after setFrame:.
-            [[[self window] contentView] setNeedsDisplayInRect:oldRect];
-            [scroller setNeedsDisplay:YES];
+            self.window.contentView.needsDisplayInRect = oldRect;
+            scroller.needsDisplay = YES;
         }
     }
 
     // HACK: If there is no bottom or right scrollbar the resize indicator will
     // cover the bottom-right corner of the text view so tell NSWindow not to
     // draw it in this situation.
-    [[self window] setShowsResizeIndicator:(rightSbVisible||botSbVisible)];
+    self.window.showsResizeIndicator = (rightSbVisible || botSbVisible);
 }
 
-- (NSUInteger)representedIndexOfTabViewItem:(NSTabViewItem *)tvi
+- (NSUInteger)representedIndexOfTabViewItem:(NSTabViewItem *)item
 {
-    NSArray *tabViewItems = [[self tabBarControl] representedTabViewItems];
-    return [tabViewItems indexOfObject:tvi];
+    return [_tabBarControl.representedTabViewItems indexOfObject:item];
 }
 
-- (MMScroller *)scrollbarForIdentifier:(int32_t)ident index:(unsigned *)idx
+- (MMScroller *)scrollbarForIdentifier:(int32_t)identifier index:(unsigned *)outIndex
 {
-    unsigned i, count = [scrollbars count];
-    for (i = 0; i < count; ++i) {
-        MMScroller *scroller = [scrollbars objectAtIndex:i];
-        if ([scroller scrollerId] == ident) {
-            if (idx) *idx = i;
+    unsigned i = 0;
+    for (MMScroller *scroller in _scrollbars) {
+        if (scroller.scrollerId == identifier) {
+            if (outIndex) *outIndex = i;
             return scroller;
         }
+        ++i;
     }
-
     return nil;
 }
 
@@ -820,11 +723,11 @@ enum {
 #if (MAC_OS_X_VERSION_MIN_REQUIRED >= MAC_OS_X_VERSION_10_7)
     CGFloat scrollerWidth = [NSScroller scrollerWidthForControlSize:NSControlSizeRegular scrollerStyle:NSScrollerStyleLegacy];
 #else
-    CGFloat scrollerWidth = [NSScroller scrollerWidth];
+    CGFloat scrollerWidth = NSScroller.scrollerWidth;
 #endif
 
-    if (![[self tabBarControl] isHidden])
-        size.height += [[self tabBarControl] frame].size.height;
+    if (!_tabBarControl.isHidden)
+        size.height += _tabBarControl.frame.size.height;
 
     if ([self bottomScrollbarVisible])
         size.height += scrollerWidth;
@@ -838,15 +741,15 @@ enum {
 
 - (NSRect)textViewRectForVimViewSize:(NSSize)contentSize
 {
-    NSRect rect = { {0, 0}, {contentSize.width, contentSize.height} };
+    NSRect rect = {NSZeroPoint, contentSize};
 #if (MAC_OS_X_VERSION_MIN_REQUIRED >= MAC_OS_X_VERSION_10_7)
     CGFloat scrollerWidth = [NSScroller scrollerWidthForControlSize:NSControlSizeRegular scrollerStyle:NSScrollerStyleLegacy];
 #else
-    CGFloat scrollerWidth = [NSScroller scrollerWidth];
+    CGFloat scrollerWidth = NSScroller.scrollerWidth;
 #endif
 
-    if (![[self tabBarControl] isHidden])
-        rect.size.height -= [[self tabBarControl] frame].size.height;
+    if (!_tabBarControl.isHidden)
+        rect.size.height -= _tabBarControl.frame.size.height;
 
     if ([self bottomScrollbarVisible]) {
         rect.size.height -= scrollerWidth;
@@ -862,11 +765,6 @@ enum {
     return rect;
 }
 
-- (NSTabView *)tabView
-{
-    return tabView;
-}
-
 - (void)frameSizeMayHaveChanged
 {
     // NOTE: Whenever a call is made that may have changed the frame size we
@@ -877,8 +775,7 @@ enum {
 
     // Give all superfluous space to the text view. It might be smaller or
     // larger than it wants to be, but this is needed during live resizing.
-    NSRect textViewRect = [self textViewRectForVimViewSize:[self frame].size];
-    [textView setFrame:textViewRect];
+    _textView.frame = [self textViewRectForVimViewSize:self.frame.size];
 
     [self placeScrollbars];
 
@@ -893,57 +790,48 @@ enum {
     // a live resize or not -- this is necessary to avoid the window jittering
     // when the user drags to resize.
     int constrained[2];
-    NSSize textViewSize = [textView frame].size;
-    [textView constrainRows:&constrained[0] columns:&constrained[1]
-                     toSize:textViewSize];
+    [_textView constrainRows:&constrained[0] columns:&constrained[1] toSize:_textView.frame.size];
 
     int rows, cols;
-    [textView getMaxRows:&rows columns:&cols];
+    [_textView getMaxRows:&rows columns:&cols];
 
     if (constrained[0] != rows || constrained[1] != cols) {
-        NSData *data = [NSData dataWithBytes:constrained length:2*sizeof(int)];
-        int msgid = [self inLiveResize] ? LiveResizeMsgID
-                                        : SetTextDimensionsMsgID;
+        NSData *data = [NSData dataWithBytes:constrained length:2 * sizeof(int)];
+        int msgid = self.inLiveResize ? LiveResizeMsgID : SetTextDimensionsMsgID;
 
-        ASLogDebug(@"Notify Vim that text dimensions changed from %dx%d to "
-                   "%dx%d (%s)", cols, rows, constrained[1], constrained[0],
-                   MessageStrings[msgid]);
+        ASLogDebug(@"Notify Vim that text dimensions changed from %dx%d to %dx%d (%s)", cols, rows, constrained[1], constrained[0], MessageStrings[msgid]);
 
-        [vimController sendMessage:msgid data:data];
+        [_vimController sendMessage:msgid data:data];
 
         // We only want to set the window title if this resize came from
         // a live-resize, not (for example) setting 'columns' or 'lines'.
-        if ([self inLiveResize]) {
-            [[self window] setTitle:[NSString stringWithFormat:@"%dx%d",
-                    constrained[1], constrained[0]]];
+        if (self.inLiveResize) {
+            self.window.title = [NSString stringWithFormat:@"%dx%d", constrained[1], constrained[0]];
         }
     }
 }
 
 @end // MMVimView (Private)
 
-
-
-
+/**
+ */
 @implementation MMScroller
 
-- (id)initWithIdentifier:(int32_t)ident type:(int)theType
+- (instancetype)initWithIdentifier:(int32_t)ident type:(int)theType
 {
     // HACK! NSScroller creates a horizontal scroller if it is init'ed with a
     // frame whose with exceeds its height; so create a bogus rect and pass it
     // to initWithFrame.
-    NSRect frame = theType == MMScrollerTypeBottom
-            ? NSMakeRect(0, 0, 1, 0)
-            : NSMakeRect(0, 0, 0, 1);
+    NSRect frame = theType == MMScrollerTypeBottom ? NSMakeRect(0, 0, 1, 0) : NSMakeRect(0, 0, 0, 1);
 
     self = [super initWithFrame:frame];
     if (!self) return nil;
 
     identifier = ident;
     type = theType;
-    [self setHidden:YES];
-    [self setEnabled:YES];
-    [self setAutoresizingMask:NSViewNotSizable];
+    self.hidden = YES;
+    self.enabled = YES;
+    self.autoresizingMask = NSViewNotSizable;
 
     return self;
 }

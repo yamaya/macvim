@@ -10,51 +10,35 @@
 
 #import <Cocoa/Cocoa.h>
 
-
-
 @class PSMTabBarControl;
 @class MMTextView;
 @class MMScroller;
 @class MMVimController;
 
+/**
+ */
+@interface MMVimView : NSView
 
-@interface MMVimView : NSView {
-    PSMTabBarControl    *tabBarControl;
-    NSTabView           *tabView;
-    MMVimController     *vimController;
-    BOOL                vimTaskSelectedTab;
-    MMTextView          *textView;
-    NSMutableArray      *scrollbars;
-}
+@property (nonatomic, readonly) MMTextView *textView;
+@property (nonatomic, readonly) NSSize desiredSize;
+@property (nonatomic, readonly) NSSize minSize;
+@property (nonatomic, readonly) PSMTabBarControl *tabBarControl;
 
-- (MMVimView *)initWithFrame:(NSRect)frame vimController:(MMVimController *)c;
-
-- (MMTextView *)textView;
+- (instancetype)initWithFrame:(NSRect)frame vimController:(MMVimController *)controller;
 - (void)cleanup;
-
-- (NSSize)desiredSize;
-- (NSSize)minSize;
 - (NSSize)constrainRows:(int *)r columns:(int *)c toSize:(NSSize)size;
 - (void)setDesiredRows:(int)r columns:(int)c;
-
-- (PSMTabBarControl *)tabBarControl;
 - (IBAction)addNewTab:(id)sender;
 - (void)updateTabsWithData:(NSData *)data;
 - (void)selectTabWithIndex:(int)idx;
 - (NSTabViewItem *)addNewTabViewItem;
-
 - (void)createScrollbarWithIdentifier:(int32_t)ident type:(int)type;
 - (BOOL)destroyScrollbarWithIdentifier:(int32_t)ident;
 - (BOOL)showScrollbarWithIdentifier:(int32_t)ident state:(BOOL)visible;
-- (void)setScrollbarThumbValue:(float)val proportion:(float)prop
-                    identifier:(int32_t)ident;
+- (void)setScrollbarThumbValue:(float)val proportion:(float)prop identifier:(int32_t)ident;
 - (void)setScrollbarPosition:(int)pos length:(int)len identifier:(int32_t)ident;
-
 - (void)setDefaultColorsBackground:(NSColor *)back foreground:(NSColor *)fore;
-
 - (void)viewWillStartLiveResize;
 - (void)viewDidEndLiveResize;
-- (void)setFrameSize:(NSSize)size;
-- (void)setFrame:(NSRect)frame;
 
 @end
