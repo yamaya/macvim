@@ -10,65 +10,37 @@
 
 #import "MacVim.h"
 
-
-
 @class MMWindow;
 @class MMFullScreenWindow;
 @class MMVimController;
 @class MMVimView;
 
+/**
+ */
 @interface MMWindowController : NSWindowController<NSWindowDelegate>
-{
-    MMVimController     *vimController;
-    MMVimView           *vimView;
-    BOOL                setupDone;
-    BOOL                windowPresented;
-    BOOL                shouldResizeVimView;
-    BOOL                shouldRestoreUserTopLeft;
-    BOOL                shouldMaximizeWindow;
-    int                 updateToolbarFlag;
-    BOOL                keepOnScreen;
-    NSString            *windowAutosaveKey;
-    BOOL                fullScreenEnabled;
-    MMFullScreenWindow  *fullScreenWindow;
-    int                 fullScreenOptions;
-    BOOL                delayEnterFullScreen;
-    NSRect              preFullScreenFrame;
-    MMWindow            *decoratedWindow;
-    NSString            *lastSetTitle;
-    int                 userRows;
-    int                 userCols;
-    NSPoint             userTopLeft;
-    NSPoint             defaultTopLeft;
-    NSToolbar           *toolbar;
-    BOOL                resizingDueToMove;
-    int                 blurRadius;
-    NSMutableArray      *afterWindowPresentedQueue;
-}
 
-- (id)initWithVimController:(MMVimController *)controller;
-- (MMVimController *)vimController;
-- (MMVimView *)vimView;
-- (NSString *)windowAutosaveKey;
-- (void)setWindowAutosaveKey:(NSString *)key;
+@property (nonatomic, readonly) MMVimController *vimController;
+@property (nonatomic, readonly) MMVimView *vimView;
+@property (nonatomic, copy) NSString *windowAutosaveKey;
+@property (nonatomic, retain) NSToolbar *toolbar;
+
+- (instancetype)initWithVimController:(MMVimController *)controller;
+
 - (void)cleanup;
 - (void)openWindow;
 - (BOOL)presentWindow:(id)unused;
 - (void)moveWindowAcrossScreens:(NSPoint)origin;
 - (void)updateTabsWithData:(NSData *)data;
-- (void)selectTabWithIndex:(int)idx;
-- (void)setTextDimensionsWithRows:(int)rows columns:(int)cols isLive:(BOOL)live
-                     keepOnScreen:(BOOL)onScreen;
+- (void)selectTabWithIndex:(int)index;
+- (void)setTextDimensionsWithRows:(int)rows columns:(int)cols isLive:(BOOL)live keepOnScreen:(BOOL)onScreen;
 - (void)zoomWithRows:(int)rows columns:(int)cols state:(int)state;
 - (void)setTitle:(NSString *)title;
 - (void)setDocumentFilename:(NSString *)filename;
-- (void)setToolbar:(NSToolbar *)toolbar;
 - (void)createScrollbarWithIdentifier:(int32_t)ident type:(int)type;
 - (BOOL)destroyScrollbarWithIdentifier:(int32_t)ident;
 - (BOOL)showScrollbarWithIdentifier:(int32_t)ident state:(BOOL)visible;
 - (void)setScrollbarPosition:(int)pos length:(int)len identifier:(int32_t)ident;
-- (void)setScrollbarThumbValue:(float)val proportion:(float)prop
-                    identifier:(int32_t)ident;
+- (void)setScrollbarThumbValue:(float)val proportion:(float)prop identifier:(int32_t)ident;
 - (void)setDefaultColorsBackground:(NSColor *)back foreground:(NSColor *)fore;
 - (void)setFont:(NSFont *)font;
 - (void)setWideFont:(NSFont *)font;
@@ -87,7 +59,7 @@
 - (void)setFullScreenBackgroundColor:(NSColor *)back;
 - (void)invFullScreen:(id)sender;
 
-- (void)setBufferModified:(BOOL)mod;
+- (void)setBufferModified:(BOOL)modified;
 - (void)setTopLeft:(NSPoint)pt;
 - (BOOL)getDefaultTopLeft:(NSPoint*)pt;
 - (void)runAfterWindowPresentedUsingBlock:(void (^)(void))block;
@@ -97,7 +69,7 @@
 - (IBAction)performClose:(id)sender;
 - (IBAction)findNext:(id)sender;
 - (IBAction)findPrevious:(id)sender;
-- (IBAction)vimMenuItemAction:(id)sender;
+- (IBAction)vimMenuItemAction:(NSMenuItem *)sender;
 - (IBAction)vimToolbarItemAction:(id)sender;
 - (IBAction)fontSizeUp:(id)sender;
 - (IBAction)fontSizeDown:(id)sender;
