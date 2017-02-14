@@ -146,7 +146,7 @@
     int                 _blurRadius;
     NSMutableArray      *_afterWindowPresentedQueue;
 }
-@synthesize windowAutosaveKey = _windowAutosaveKey, toolbar = _toolbar;
+@synthesize windowAutosaveKey = _windowAutosaveKey, toolbar = _toolbar, vimController = _vimController, vimView = _vimView;
 
 - (instancetype)initWithVimController:(MMVimController *)controller
 {
@@ -164,7 +164,7 @@
     // started (or rather, when ~/Library/Preferences/org.vim.MacVim.plist does
     // not exist).  The chosen values will put the window somewhere near the
     // top and in the middle of a 1024x768 screen.
-    MMWindow *win = [[MMWindow alloc] initWithContentRect:NSMakeRect(242,364,480,360) styleMask:styleMask backing:NSBackingStoreBuffered defer:YES];
+    MMWindow *win = [[MMWindow alloc] initWithContentRect:NSMakeRect(242, 364, 480, 360) styleMask:styleMask backing:NSBackingStoreBuffered defer:YES];
 
     self = [super initWithWindow:win];
     if (!self) return nil;
@@ -194,7 +194,8 @@
         // looking tabs. But the textured window look implies rounded
         // corners, which looks really weird -- disable them. This is a
         // private api, though.
-        if ([win respondsToSelector:@selector(setBottomCornerRounded:)]) win.bottomCornerRounded = NO;
+        if ([win respondsToSelector:@selector(setBottomCornerRounded:)])
+            win.bottomCornerRounded = NO;
 
         // When the tab bar is toggled, it changes color for the fraction
         // of a second, probably because vim sends us events in a strange
@@ -216,11 +217,11 @@
 
     // This puts the full-screen button in the top right of each window
     if ([win respondsToSelector:@selector(setCollectionBehavior:)])
-        [win setCollectionBehavior:NSWindowCollectionBehaviorFullScreenPrimary];
+        win.collectionBehavior = NSWindowCollectionBehaviorFullScreenPrimary;
 
     // This makes windows animate when opened
     if ([win respondsToSelector:@selector(setAnimationBehavior:)])
-        [win setAnimationBehavior:NSWindowAnimationBehaviorDocumentWindow];
+        win.animationBehavior = NSWindowAnimationBehaviorDocumentWindow;
 #endif
 
     [NSNotificationCenter.defaultCenter
