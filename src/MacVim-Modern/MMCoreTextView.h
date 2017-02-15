@@ -35,10 +35,3 @@
 - (void)doCommandBySelector:(SEL)selector;
 
 @end
-
-/*
- * This category is defined in MMCoreTextView+ToolTip.m
- */
-@interface MMCoreTextView (ToolTip)
-- (void)setToolTipAtMousePoint:(NSString *)string;
-@end

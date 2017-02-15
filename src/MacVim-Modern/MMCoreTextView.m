@@ -66,6 +66,11 @@
 #endif
 @end
 
+@interface MMCoreTextView (ToolTip)
+- (void)_sendToolTipMouseEntered;
+- (void)_sendToolTipMouseExited;
+@end
+
 static float
 defaultLineHeightForFont(NSFont *font)
 {
@@ -105,7 +110,8 @@ defaultAdvanceForFont(NSFont *font)
     font = _font, fontWide = _fontWide,
     linespace = _linespace, textContainerInset = _textContainerInset,
     antialias = _antialias, ligatures = _ligatures, thinStrokes = _thinStrokes,
-    CGLayerEnabled = _CGLayerEnabled;
+    CGLayerEnabled = _CGLayerEnabled,
+    IMActivated = _IMActivated, IMControlled = _IMControlled;
 @dynamic mouseShape;
 
 - (instancetype)initWithFrame:(NSRect)frame
@@ -309,13 +315,15 @@ defaultAdvanceForFont(NSFont *font)
     [_helper setMouseShape:shape];
 }
 
-- (void)setImControl:(BOOL)enable
+- (void)setIMControlled:(BOOL)enable
 {
+    _IMControlled = enable;
     [_helper setImControl:enable];
 }
 
-- (void)activateIm:(BOOL)enable
+- (void)setIMActivated:(BOOL)enable
 {
+    _IMActivated = enable;
     [_helper activateIm:enable];
 }
 
@@ -771,6 +779,36 @@ defaultAdvanceForFont(NSFont *font)
     self.fontWide = font;
 }
 
+// Sets the view's current tooltip, to be displayed at the current mouse
+// location. (This does not make the tooltip appear -- as usual, it only
+// appears after a delay.) Pass null to remove the tooltip.
+- (void)setToolTipAtMousePoint:(NSString *)string
+{
+    // If the mouse is outside the view, then clear the tooltip (otherwise the
+    // tooltip may appear outside the view which looks weird!).
+    const NSPoint pt = [self.window mouseLocationOutsideOfEventStream];
+    if (!NSMouseInRect([self convertPoint:pt fromView:nil], self.frame, NO))
+        string = nil;
+
+    NSString *toolTip = string.length == 0 ? nil : string;
+    NSString *oldToolTip = _toolTip;
+    if ((!toolTip || !oldToolTip) ? toolTip == oldToolTip : [toolTip isEqualToString:oldToolTip]) {
+        return;
+    }
+    if (oldToolTip) {
+        [self _sendToolTipMouseExited];
+    }
+    _toolTip = toolTip.copy;
+    if (toolTip) {
+        // See radar 3500217 for why we remove all tooltips
+        // rather than just the single one we created.
+        [self removeAllToolTips];
+        const NSRect wideOpenRect = NSMakeRect(-100000, -100000, 200000, 200000);
+        _lastToolTipTag = [self addToolTipRect:wideOpenRect owner:self userData:nil];
+        [self _sendToolTipMouseEntered];
+    }
+}
+
 @end
 
 /**
@@ -1179,3 +1217,116 @@ defaultAdvanceForFont(NSFont *font)
 }
 
 @end // MMCoreTextView (Drawing)
+
+// Any non-zero value will do, but using something recognizable might help us
+// debug some day.
+static const NSTrackingRectTag kTrackingRectTag = 0xBADFACE;
+
+
+@implementation MMCoreTextView (ToolTip)
+
+// Override of a public NSView method, replacing the inherited functionality.
+// See above for rationale.
+- (NSTrackingRectTag)addTrackingRect:(NSRect)rect owner:(id)owner userData:(void *)data assumeInside:(BOOL)assumeInside
+{
+    //DCHECK(_trackingRectOwner == nil);
+    _trackingRectOwner = owner;
+    _trackingRectUserData = data;
+    return kTrackingRectTag;
+}
+
+// Override of (apparently) a private NSView method(!) See above for rationale.
+- (NSTrackingRectTag)_addTrackingRect:(NSRect)rect owner:(id)owner userData:(void *)data assumeInside:(BOOL)assumeInside useTrackingNum:(int)tag
+{
+    //DCHECK(tag == 0 || tag == kTrackingRectTag);
+    //DCHECK(_trackingRectOwner == nil);
+    _trackingRectOwner = owner;
+    _trackingRectUserData = data;
+    return kTrackingRectTag;
+}
+
+// Override of (apparently) a private NSView method(!) See above for rationale.
+- (void)_addTrackingRects:(NSRect *)rects owner:(id)owner userDataList:(void **)userDataList assumeInsideList:(BOOL *)assumeInsideList trackingNums:(NSTrackingRectTag *)trackingNums count:(int)count
+{
+    //DCHECK(count == 1);
+    //DCHECK(trackingNums[0] == 0 || trackingNums[0] == kTrackingRectTag);
+    //DCHECK(_trackingRectOwner == nil);
+    _trackingRectOwner = owner;
+    _trackingRectUserData = userDataList[0];
+    trackingNums[0] = kTrackingRectTag;
+}
+
+// Override of a public NSView method, replacing the inherited functionality.
+// See above for rationale.
+- (void)removeTrackingRect:(NSTrackingRectTag)tag
+{
+    if (tag == 0)
+        return;
+
+    if (tag == kTrackingRectTag) {
+        _trackingRectOwner = nil;
+        return;
+    }
+
+    if (tag == _lastToolTipTag) {
+        [super removeTrackingRect:tag];
+        _lastToolTipTag = 0;
+        return;
+    }
+
+    // If any other tracking rect is being removed, we don't know how it was
+    // created and it's possible there's a leak involved (see Radar 3500217).
+    //NOTREACHED();
+}
+
+// Override of (apparently) a private NSView method(!)
+- (void)_removeTrackingRects:(NSTrackingRectTag *)tags count:(int)count
+{
+    for (int i = 0; i < count; ++i) {
+        const int tag = tags[i];
+        if (tag == 0)
+            continue;
+        //DCHECK(tag == kTrackingRectTag);
+        _trackingRectOwner = nil;
+    }
+}
+
+// Sends a fake NSEventTypeMouseExited event to the view for its current tracking rect.
+- (void)_sendToolTipMouseExited
+{
+    // Nothing matters except window, trackingNumber, and userData.
+    NSEvent *fakeEvent = [NSEvent enterExitEventWithType:NSEventTypeMouseExited
+                                                location:NSZeroPoint
+                                           modifierFlags:0
+                                               timestamp:0
+                                            windowNumber:self.window.windowNumber
+                                                 context:NULL
+                                             eventNumber:0
+                                          trackingNumber:kTrackingRectTag
+                                                userData:_trackingRectUserData];
+    [_trackingRectOwner mouseExited:fakeEvent];
+}
+
+// Sends a fake NSEventTypeMouseEntered event to the view for its current tracking rect.
+- (void)_sendToolTipMouseEntered
+{
+    // Nothing matters except window, trackingNumber, and userData.
+    NSEvent *fakeEvent = [NSEvent enterExitEventWithType:NSEventTypeMouseEntered
+                                                location:NSZeroPoint
+                                           modifierFlags:0
+                                               timestamp:0
+                                            windowNumber:self.window.windowNumber
+                                                 context:NULL
+                                             eventNumber:0
+                                          trackingNumber:kTrackingRectTag
+                                                userData:_trackingRectUserData];
+    [_trackingRectOwner mouseEntered:fakeEvent];
+}
+
+// NSView calls this to get the text when displaying the tooltip.
+- (NSString *)view:(NSView *)view stringForToolTip:(NSToolTipTag)tag point:(NSPoint)point userData:(void *)data
+{
+    return _toolTip.copy;
+}
+
+@end

@@ -30,6 +30,8 @@
 @property (nonatomic) BOOL ligatures;
 @property (nonatomic) BOOL thinStrokes;
 @property (nonatomic) BOOL CGLayerEnabled;
+@property (nonatomic) BOOL IMActivated;
+@property (nonatomic) BOOL IMControlled;
 
 - (void)getMaxRows:(int *)rows columns:(int *)cols;
 - (void)setMaxRows:(int)rows columns:(int)columns;
@@ -42,8 +44,7 @@
 - (void)deleteSign:(NSString *)signName;
 - (void)performBatchDrawWithData:(NSData *)data;
 - (void)setPreEditRow:(int)row column:(int)col;
-- (void)activateIm:(BOOL)enable;
-- (void)setImControl:(BOOL)enable;
 - (void)checkImState;
+- (void)setToolTipAtMousePoint:(NSString *)string;
 
 @end

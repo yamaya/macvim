@@ -69,40 +69,25 @@ static BOOL isUnsafeMessage(int msgid);
 }
 - (void)setTextFieldString:(NSString *)textFieldString;
 - (NSTextField *)textField;
-- (void)beginSheetModalForWindow:(NSWindow *)window
-                   modalDelegate:(id)delegate;
+- (void)beginSheetModalForWindow:(NSWindow *)window modalDelegate:(id)delegate;
 @end
 
 
 @interface MMVimController (Private)
 - (void)doProcessInputQueue:(NSArray *)queue;
 - (void)handleMessage:(int)msgid data:(NSData *)data;
-- (void)savePanelDidEnd:(NSSavePanel *)panel code:(int)code
-                context:(void *)context;
+- (void)savePanelDidEnd:(NSSavePanel *)panel code:(int)code context:(void *)context;
 - (void)alertDidEnd:(MMAlert *)alert code:(int)code context:(void *)context;
 - (NSMenuItem *)menuItemForDescriptor:(NSArray *)desc;
 - (NSMenu *)parentMenuForDescriptor:(NSArray *)desc;
 - (NSMenu *)topLevelMenuForTitle:(NSString *)title;
 - (void)addMenuWithDescriptor:(NSArray *)desc atIndex:(int)index;
-- (void)addMenuItemWithDescriptor:(NSArray *)desc
-                          atIndex:(int)index
-                              tip:(NSString *)tip
-                             icon:(NSString *)icon
-                    keyEquivalent:(NSString *)keyEquivalent
-                     modifierMask:(int)modifierMask
-                           action:(NSString *)action
-                      isAlternate:(BOOL)isAlternate;
+- (void)addMenuItemWithDescriptor:(NSArray *)desc atIndex:(int)index tip:(NSString *)tip icon:(NSString *)icon keyEquivalent:(NSString *)keyEquivalent modifierMask:(int)modifierMask action:(NSString *)action isAlternate:(BOOL)isAlternate;
 - (void)removeMenuItemWithDescriptor:(NSArray *)desc;
 - (void)enableMenuItemWithDescriptor:(NSArray *)desc state:(BOOL)on;
-- (void)addToolbarItemToDictionaryWithLabel:(NSString *)title
-        toolTip:(NSString *)tip icon:(NSString *)icon;
-- (void)addToolbarItemWithLabel:(NSString *)label
-                          tip:(NSString *)tip icon:(NSString *)icon
-                      atIndex:(int)idx;
-- (void)popupMenuWithDescriptor:(NSArray *)desc
-                          atRow:(NSNumber *)row
-                         column:(NSNumber *)col;
-- (void)popupMenuWithAttributes:(NSDictionary *)attrs;
+- (void)addToolbarItemToDictionaryWithLabel:(NSString *)title toolTip:(NSString *)tip icon:(NSString *)icon;
+- (void)addToolbarItemWithLabel:(NSString *)label tip:(NSString *)tip icon:(NSString *)icon atIndex:(int)idx;
+- (void)popupMenuWithDescriptor:(NSArray *)desc atRow:(NSNumber *)row column:(NSNumber *)col; - (void)popupMenuWithAttributes:(NSDictionary *)attrs;
 - (void)connectionDidDie:(NSNotification *)notification;
 - (void)scheduleClose;
 - (void)handleBrowseForFile:(NSDictionary *)attr;
@@ -111,142 +96,70 @@ static BOOL isUnsafeMessage(int msgid);
 - (void)setToolTipDelay:(NSTimeInterval)seconds;
 @end
 
+/**
+ */
+@implementation MMVimController {
+    unsigned            _identifier;
+    BOOL                _isInitialized;
+    NSMutableArray      *_popupMenuItems;
+    NSToolbar           *_toolbar; // TODO: Move all toolbar code to window controller?
+    NSMutableDictionary *_toolbarItemDict;
+}
+@synthesize windowController = _windowController, backendProxy = _backendProxy, mainMenu = _mainMenu;
+@synthesize pid = _pid, serverName = _serverName, vimState = _vimState;
+@synthesize isPreloading = _isPreloading, creationDate = _creationDate, hasModifiedBuffer = _hasModifiedBuffer;
+@dynamic vimControllerId;
 
-
-
-@implementation MMVimController
-
-- (id)initWithBackend:(id)backend pid:(int)processIdentifier
+- (instancetype)initWithBackend:(id)backend pid:(int)processIdentifier
 {
     if (!(self = [super init]))
         return nil;
 
     // TODO: Come up with a better way of creating an identifier.
-    identifier = identifierCounter++;
+    _identifier = identifierCounter++;
 
-    windowController =
-        [[MMWindowController alloc] initWithVimController:self];
-    backendProxy = [backend retain];
-    popupMenuItems = [[NSMutableArray alloc] init];
-    toolbarItemDict = [[NSMutableDictionary alloc] init];
-    pid = processIdentifier;
-    creationDate = [[NSDate alloc] init];
+    _windowController = [[MMWindowController alloc] initWithVimController:self];
+    _backendProxy = backend;
+    _popupMenuItems = NSMutableArray.new;
+    _toolbarItemDict = NSMutableDictionary.new;
+    _pid = processIdentifier;
+    _creationDate = NSDate.new;
 
-    NSConnection *connection = [backendProxy connectionForProxy];
+    NSConnection *connection = [_backendProxy connectionForProxy];
 
-    // TODO: Check that this will not set the timeout for the root proxy
-    // (in MMAppController).
-    [connection setRequestTimeout:MMBackendProxyRequestTimeout];
+    // TODO: Check that this will not set the timeout for the root proxy (in MMAppController).
+    connection.requestTimeout = MMBackendProxyRequestTimeout;
 
-    [[NSNotificationCenter defaultCenter] addObserver:self
+    [NSNotificationCenter.defaultCenter addObserver:self
             selector:@selector(connectionDidDie:)
                 name:NSConnectionDidDieNotification object:connection];
 
     // Set up a main menu with only a "MacVim" menu (copied from a template
     // which itself is set up in MainMenu.nib).  The main menu is populated
     // by Vim later on.
-    mainMenu = [[NSMenu alloc] initWithTitle:@"MainMenu"];
-    NSMenuItem *appMenuItem = MMAppController.shared.appMenuItemTemplate;
-    appMenuItem = [[appMenuItem copy] autorelease];
-
+    _mainMenu = [[NSMenu alloc] initWithTitle:@"MainMenu"];
+    NSMenuItem *appMenuItem = MMAppController.shared.appMenuItemTemplate.copy;
     // Note: If the title of the application menu is anything but what
     // CFBundleName says then the application menu will not be typeset in
     // boldface for some reason.  (It should already be set when we copy
     // from the default main menu, but this is not the case for some
     // reason.)
-    NSString *appName = [[NSBundle mainBundle]
-            objectForInfoDictionaryKey:@"CFBundleName"];
-    [appMenuItem setTitle:appName];
+    appMenuItem.title = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleName"];
+    [_mainMenu addItem:appMenuItem];
 
-    [mainMenu addItem:appMenuItem];
-
-    isInitialized = YES;
+    _isInitialized = YES;
 
     return self;
 }
 
-- (void)dealloc
-{
-    ASLogDebug(@"");
-
-    isInitialized = NO;
-
-    [serverName release];  serverName = nil;
-    [backendProxy release];  backendProxy = nil;
-
-    [toolbarItemDict release];  toolbarItemDict = nil;
-    [toolbar release];  toolbar = nil;
-    [popupMenuItems release];  popupMenuItems = nil;
-    [windowController release];  windowController = nil;
-
-    [vimState release];  vimState = nil;
-    [mainMenu release];  mainMenu = nil;
-    [creationDate release];  creationDate = nil;
-
-    [super dealloc];
-}
-
 - (unsigned)vimControllerId
 {
-    return identifier;
-}
-
-- (MMWindowController *)windowController
-{
-    return windowController;
-}
-
-- (NSDictionary *)vimState
-{
-    return vimState;
+    return _identifier;
 }
 
 - (id)objectForVimStateKey:(NSString *)key
 {
-    return [vimState objectForKey:key];
-}
-
-- (NSMenu *)mainMenu
-{
-    return mainMenu;
-}
-
-- (BOOL)isPreloading
-{
-    return isPreloading;
-}
-
-- (void)setIsPreloading:(BOOL)yn
-{
-    isPreloading = yn;
-}
-
-- (BOOL)hasModifiedBuffer
-{
-    return hasModifiedBuffer;
-}
-
-- (NSDate *)creationDate
-{
-    return creationDate;
-}
-
-- (void)setServerName:(NSString *)name
-{
-    if (name != serverName) {
-        [serverName release];
-        serverName = [name copy];
-    }
-}
-
-- (NSString *)serverName
-{
-    return serverName;
-}
-
-- (int)pid
-{
-    return pid;
+    return _vimState[key];
 }
 
 - (void)dropFiles:(NSArray *)filenames forceOpen:(BOOL)force
@@ -254,40 +167,27 @@ static BOOL isUnsafeMessage(int msgid);
     filenames = normalizeFilenames(filenames);
     ASLogInfo(@"filenames=%@ force=%d", filenames, force);
 
-    NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
-
     // Default to opening in tabs if layout is invalid or set to "windows".
-    int layout = [ud integerForKey:MMOpenLayoutKey];
-    if (layout < 0 || layout > MMLayoutTabs)
-        layout = MMLayoutTabs;
+    int layout = [NSUserDefaults.standardUserDefaults integerForKey:MMOpenLayoutKey];
+    if (layout < 0 || layout > MMLayoutTabs) layout = MMLayoutTabs;
 
-    BOOL splitVert = [ud boolForKey:MMVerticalSplitKey];
-    if (splitVert && MMLayoutHorizontalSplit == layout)
-        layout = MMLayoutVerticalSplit;
+    const BOOL vertSplit = [NSUserDefaults.standardUserDefaults boolForKey:MMVerticalSplitKey];
+    if (vertSplit && MMLayoutHorizontalSplit == layout) layout = MMLayoutVerticalSplit;
 
-    NSDictionary *args = [NSDictionary dictionaryWithObjectsAndKeys:
-            [NSNumber numberWithInt:layout],    @"layout",
-            filenames,                          @"filenames",
-            [NSNumber numberWithBool:force],    @"forceOpen",
-            nil];
-
-    [self sendMessage:DropFilesMsgID data:[args dictionaryAsData]];
+    NSDictionary *args = @{@"layout": @(layout), @"filenames": filenames, @"forceOpen": @(force)};
+    [self sendMessage:DropFilesMsgID data:args.dictionaryAsData];
 
     // Add dropped files to the "Recent Files" menu.
-    [[NSDocumentController sharedDocumentController]
-                                            noteNewRecentFilePaths:filenames];
+    [NSDocumentController.sharedDocumentController noteNewRecentFilePaths:filenames];
 }
 
-- (void)file:(NSString *)filename draggedToTabAtIndex:(NSUInteger)tabIndex
+- (void)file:(NSString *)filename draggedToTabAtIndex:(NSUInteger)index
 {
     filename = normalizeFilename(filename);
-    ASLogInfo(@"filename=%@ index=%ld", filename, tabIndex);
+    ASLogInfo(@"filename=%@ index=%ld", filename, index);
 
-    NSString *fnEsc = [filename stringByEscapingSpecialFilenameCharacters];
-    NSString *input = [NSString stringWithFormat:@"<C-\\><C-N>:silent "
-                       "tabnext %ld |"
-                       "edit! %@<CR>", tabIndex + 1, fnEsc];
-    [self addVimInput:input];
+    NSString *fn = filename.stringByEscapingSpecialFilenameCharacters;
+    [self addVimInput:[NSString stringWithFormat:@"<C-\\><C-N>:silent tabnext %ld |edit! %@<CR>", index + 1, fn]];
 }
 
 - (void)filesDraggedToTabBar:(NSArray *)filenames
@@ -295,13 +195,10 @@ static BOOL isUnsafeMessage(int msgid);
     filenames = normalizeFilenames(filenames);
     ASLogInfo(@"%@", filenames);
 
-    NSUInteger i, count = [filenames count];
-    NSMutableString *input = [NSMutableString stringWithString:@"<C-\\><C-N>"
-                              ":silent! tabnext 9999"];
-    for (i = 0; i < count; i++) {
-        NSString *fn = [filenames objectAtIndex:i];
-        NSString *fnEsc = [fn stringByEscapingSpecialFilenameCharacters];
-        [input appendFormat:@"|tabedit %@", fnEsc];
+    NSMutableString *input = [NSMutableString stringWithString:@"<C-\\><C-N>:silent! tabnext 9999"];
+    for (NSString *filename in filenames) {
+        NSString *fn = filename.stringByEscapingSpecialFilenameCharacters;
+        [input appendFormat:@"|tabedit %@", fn];
     }
     [input appendString:@"<CR>"];
     [self addVimInput:input];
@@ -310,13 +207,12 @@ static BOOL isUnsafeMessage(int msgid);
 - (void)dropString:(NSString *)string
 {
     ASLogInfo(@"%@", string);
-    int len = [string lengthOfBytesUsingEncoding:NSUTF8StringEncoding] + 1;
-    if (len > 0) {
-        NSMutableData *data = [NSMutableData data];
 
-        [data appendBytes:&len length:sizeof(int)];
-        [data appendBytes:[string UTF8String] length:len];
-
+    const int length = [string lengthOfBytesUsingEncoding:NSUTF8StringEncoding] + 1;
+    if (length > 0) {
+        NSMutableData *data = NSMutableData.new;
+        [data appendBytes:&length length:sizeof(int)];
+        [data appendBytes:string.UTF8String length:length];
         [self sendMessage:DropStringMsgID data:data];
     }
 }
@@ -327,57 +223,46 @@ static BOOL isUnsafeMessage(int msgid);
 
     ASLogDebug(@"args=%@", args);
 
-    [self sendMessage:OpenWithArgumentsMsgID data:[args dictionaryAsData]];
+    [self sendMessage:OpenWithArgumentsMsgID data:args.dictionaryAsData];
 }
 
 - (void)sendMessage:(int)msgid data:(NSData *)data
 {
-    ASLogDebug(@"msg=%s (isInitialized=%d)",
-               MessageStrings[msgid], isInitialized);
+    ASLogDebug(@"msg=%s (isInitialized=%d)", MessageStrings[msgid], _isInitialized);
 
-    if (!isInitialized) return;
+    if (!_isInitialized) return;
 
     @try {
-        [backendProxy processInput:msgid data:data];
-    }
-    @catch (NSException *ex) {
-        ASLogDebug(@"processInput:data: failed: pid=%d id=%d msg=%s reason=%@",
-                pid, identifier, MessageStrings[msgid], ex);
+        [_backendProxy processInput:msgid data:data];
+    } @catch (NSException *e) {
+        ASLogDebug(@"processInput:data: failed: pid=%d id=%d msg=%s reason=%@", _pid, _identifier, MessageStrings[msgid], e);
     }
 }
 
-- (BOOL)sendMessageNow:(int)msgid data:(NSData *)data
-               timeout:(NSTimeInterval)timeout
+- (BOOL)sendMessageNow:(int)msgid data:(NSData *)data timeout:(NSTimeInterval)timeout
 {
     // Send a message with a timeout.  USE WITH EXTREME CAUTION!  Sending
     // messages in rapid succession with a timeout may cause MacVim to beach
     // ball forever.  In almost all circumstances sendMessage:data: should be
     // used instead.
 
-    ASLogDebug(@"msg=%s (isInitialized=%d)",
-               MessageStrings[msgid], isInitialized);
+    ASLogDebug(@"msg=%s (isInitialized=%d)", MessageStrings[msgid], _isInitialized);
 
-    if (!isInitialized)
-        return NO;
-
-    if (timeout < 0) timeout = 0;
+    if (!_isInitialized) return NO;
 
     BOOL sendOk = YES;
-    NSConnection *conn = [backendProxy connectionForProxy];
-    NSTimeInterval oldTimeout = [conn requestTimeout];
-
-    [conn setRequestTimeout:timeout];
+    NSConnection *connection = [_backendProxy connectionForProxy];
+    const NSTimeInterval oldTimeout = connection.requestTimeout;
 
     @try {
-        [backendProxy processInput:msgid data:data];
-    }
-    @catch (NSException *ex) {
+        connection.requestTimeout = MAX(timeout, 0);
+
+        [_backendProxy processInput:msgid data:data];
+    } @catch (NSException *e) {
         sendOk = NO;
-        ASLogDebug(@"processInput:data: failed: pid=%d id=%d msg=%s reason=%@",
-                pid, identifier, MessageStrings[msgid], ex);
-    }
-    @finally {
-        [conn setRequestTimeout:oldTimeout];
+        ASLogDebug(@"processInput:data: failed: pid=%d id=%d msg=%s reason=%@", _pid, _identifier, MessageStrings[msgid], e);
+    } @finally {
+        connection.requestTimeout = oldTimeout;
     }
 
     return sendOk;
@@ -396,99 +281,80 @@ static BOOL isUnsafeMessage(int msgid);
     }
 }
 
-- (NSString *)evaluateVimExpression:(NSString *)expr
+- (NSString *)evaluateVimExpression:(NSString *)expression
 {
     NSString *eval = nil;
 
     @try {
-        eval = [backendProxy evaluateExpression:expr];
-        ASLogDebug(@"eval(%@)=%@", expr, eval);
-    }
-    @catch (NSException *ex) {
-        ASLogDebug(@"evaluateExpression: failed: pid=%d id=%d reason=%@",
-                pid, identifier, ex);
+        eval = [_backendProxy evaluateExpression:expression];
+        ASLogDebug(@"eval(%@)=%@", expression, eval);
+    } @catch (NSException *e) {
+        ASLogDebug(@"evaluateExpression: failed: pid=%d id=%d reason=%@", _pid, _identifier, e);
     }
 
     return eval;
 }
 
-- (id)evaluateVimExpressionCocoa:(NSString *)expr
-                     errorString:(NSString **)errstr
+- (id)evaluateVimExpressionCocoa:(NSString *)expression errorString:(NSString **)outErrorString
 {
     id eval = nil;
-
     @try {
-        eval = [backendProxy evaluateExpressionCocoa:expr
-                                         errorString:errstr];
-        ASLogDebug(@"eval(%@)=%@", expr, eval);
-    } @catch (NSException *ex) {
-        ASLogDebug(@"evaluateExpressionCocoa: failed: pid=%d id=%d reason=%@",
-                pid, identifier, ex);
-        *errstr = [ex reason];
+        eval = [_backendProxy evaluateExpressionCocoa:expression errorString:outErrorString];
+        ASLogDebug(@"eval(%@)=%@", expression, eval);
+    } @catch (NSException *e) {
+        ASLogDebug(@"evaluateExpressionCocoa: failed: pid=%d id=%d reason=%@", _pid, _identifier, e);
+        *outErrorString = e.reason;
     }
-
     return eval;
-}
-
-- (id)backendProxy
-{
-    return backendProxy;
 }
 
 - (void)cleanup
 {
-    if (!isInitialized) return;
+    if (!_isInitialized) return;
 
     // Remove any delayed calls made on this object.
     [NSObject cancelPreviousPerformRequestsWithTarget:self];
 
-    isInitialized = NO;
-    [toolbar setDelegate:nil];
-    [[NSNotificationCenter defaultCenter] removeObserver:self];
-    //[[backendProxy connectionForProxy] invalidate];
-    //[windowController close];
-    [windowController cleanup];
+    _isInitialized = NO;
+    _toolbar.delegate = nil;
+    [NSNotificationCenter.defaultCenter removeObserver:self];
+    [_windowController cleanup];
 }
 
 - (void)processInputQueue:(NSArray *)queue
 {
-    if (!isInitialized) return;
+    if (!_isInitialized) return;
 
     // NOTE: This method must not raise any exceptions (see comment in the
     // calling method).
     @try {
         [self doProcessInputQueue:queue];
-        [windowController processInputQueueDidFinish];
-    }
-    @catch (NSException *ex) {
-        ASLogDebug(@"Exception: pid=%d id=%d reason=%@", pid, identifier, ex);
+        [_windowController processInputQueueDidFinish];
+    } @catch (NSException *e) {
+        ASLogDebug(@"Exception: pid=%d id=%d reason=%@", _pid, _identifier, e);
     }
 }
 
-- (NSToolbarItem *)toolbar:(NSToolbar *)theToolbar
-    itemForItemIdentifier:(NSString *)itemId
-    willBeInsertedIntoToolbar:(BOOL)flag
+- (NSToolbarItem *)toolbar:(NSToolbar *)toolbar itemForItemIdentifier:(NSString *)identifier willBeInsertedIntoToolbar:(BOOL)flag
 {
-    NSToolbarItem *item = [toolbarItemDict objectForKey:itemId];
+    NSToolbarItem *item = _toolbarItemDict[identifier];
     if (!item) {
-        ASLogWarn(@"No toolbar item with id '%@'", itemId);
+        ASLogWarn(@"No toolbar item with id '%@'", identifier);
     }
-
     return item;
 }
 
-- (NSArray *)toolbarAllowedItemIdentifiers:(NSToolbar *)theToolbar
+- (NSArray *)toolbarAllowedItemIdentifiers:(NSToolbar *)toolbar
 {
     return nil;
 }
 
-- (NSArray *)toolbarDefaultItemIdentifiers:(NSToolbar *)theToolbar
+- (NSArray *)toolbarDefaultItemIdentifiers:(NSToolbar *)toolbar
 {
     return nil;
 }
 
 @end // MMVimController
-
 
 
 @implementation MMVimController (Private)
@@ -497,21 +363,18 @@ static BOOL isUnsafeMessage(int msgid);
 {
     NSMutableArray *delayQueue = nil;
 
-    unsigned i, count = [queue count];
+    const NSUInteger count = queue.count;
     if (count % 2) {
-        ASLogWarn(@"Uneven number of components (%d) in command queue.  "
-                  "Skipping...", count);
+        ASLogWarn(@"Uneven number of components (%d) in command queue.  Skipping...", (int)count);
         return;
     }
 
-    for (i = 0; i < count; i += 2) {
-        NSData *value = [queue objectAtIndex:i];
-        NSData *data = [queue objectAtIndex:i+1];
+    for (NSUInteger i = 0; i < count; i += 2) {
+        NSData *value = queue[i];
+        NSData *data = queue[i + 1];
 
-        int msgid = *((int*)[value bytes]);
-
-        BOOL inDefaultMode = [[[NSRunLoop currentRunLoop] currentMode]
-                                            isEqual:NSDefaultRunLoopMode];
+        const int msgid = *((int *)value.bytes);
+        const BOOL inDefaultMode = [NSRunLoop.currentRunLoop.currentMode isEqual:NSDefaultRunLoopMode];
         if (!inDefaultMode && isUnsafeMessage(msgid)) {
             // NOTE: Because we may be listening to DO messages in "event
             // tracking mode" we have to take extra care when doing things
@@ -526,12 +389,9 @@ static BOOL isUnsafeMessage(int msgid);
             //   Delaying messages may have undesired side-effects since it
             // means that messages may not be processed in the order Vim
             // sent them, so beware.
-            if (!delayQueue)
-                delayQueue = [NSMutableArray array];
+            if (!delayQueue) delayQueue = NSMutableArray.new;
 
-            ASLogDebug(@"Adding unsafe message '%s' to delay queue (mode=%@)",
-                       MessageStrings[msgid],
-                       [[NSRunLoop currentRunLoop] currentMode]);
+            ASLogDebug(@"Adding unsafe message '%s' to delay queue (mode=%@)", MessageStrings[msgid], NSRunLoop.currentRunLoop.currentMode);
             [delayQueue addObject:value];
             [delayQueue addObject:data];
         } else {
@@ -540,164 +400,137 @@ static BOOL isUnsafeMessage(int msgid);
     }
 
     if (delayQueue) {
-        ASLogDebug(@"    Flushing delay queue (%ld items)",
-                   [delayQueue count]/2);
-        [self performSelector:@selector(processInputQueue:)
-                   withObject:delayQueue
-                   afterDelay:0];
+        ASLogDebug(@"    Flushing delay queue (%ld items)", delayQueue.count / 2);
+        [self performSelector:@selector(processInputQueue:) withObject:delayQueue afterDelay:0];
     }
 }
 
 - (void)handleMessage:(int)msgid data:(NSData *)data
 {
     if (OpenWindowMsgID == msgid) {
-        [windowController openWindow];
+        [_windowController openWindow];
 
         // HACK: Delay actually presenting the window onscreen until after
         // processing the queue since it contains drawing commands that need to
         // be issued before presentation; otherwise the window may flash white
         // just as it opens.
-        if (!isPreloading)
-            [windowController performSelector:@selector(presentWindow:)
-                                   withObject:nil
-                                   afterDelay:0];
+        if (!_isPreloading)
+            [_windowController performSelector:@selector(presentWindow:) withObject:nil afterDelay:0];
     } else if (BatchDrawMsgID == msgid) {
-        [[[windowController vimView] textView] performBatchDrawWithData:data];
+        [_windowController.vimView.textView performBatchDrawWithData:data];
     } else if (SelectTabMsgID == msgid) {
 #if 0   // NOTE: Tab selection is done inside updateTabsWithData:.
         const void *bytes = [data bytes];
         int idx = *((int*)bytes);
-        [windowController selectTabWithIndex:idx];
+        [_windowController selectTabWithIndex:idx];
 #endif
     } else if (UpdateTabBarMsgID == msgid) {
-        [windowController updateTabsWithData:data];
+        [_windowController updateTabsWithData:data];
     } else if (ShowTabBarMsgID == msgid) {
-        [windowController showTabBar:YES];
+        [_windowController showTabBar:YES];
         [self sendMessage:BackingPropertiesChangedMsgID data:nil];
     } else if (HideTabBarMsgID == msgid) {
-        [windowController showTabBar:NO];
+        [_windowController showTabBar:NO];
         [self sendMessage:BackingPropertiesChangedMsgID data:nil];
-    } else if (SetTextDimensionsMsgID == msgid || LiveResizeMsgID == msgid ||
-            SetTextDimensionsReplyMsgID == msgid) {
-        const void *bytes = [data bytes];
-        int rows = *((int*)bytes);  bytes += sizeof(int);
-        int cols = *((int*)bytes);
+    } else if (SetTextDimensionsMsgID == msgid || LiveResizeMsgID == msgid || SetTextDimensionsReplyMsgID == msgid) {
+        const void *bytes = data.bytes;
+        int rows = *((int *)bytes);  bytes += sizeof(int);
+        int cols = *((int *)bytes);
 
         // NOTE: When a resize message originated in the frontend, Vim
         // acknowledges it with a reply message.  When this happens the window
         // should not move (the frontend would already have moved the window).
-        BOOL onScreen = SetTextDimensionsReplyMsgID!=msgid;
+        const BOOL onScreen = SetTextDimensionsReplyMsgID!=msgid;
 
-        [windowController setTextDimensionsWithRows:rows
-                                 columns:cols
-                                  isLive:(LiveResizeMsgID==msgid)
-                            keepOnScreen:onScreen];
+        [_windowController setTextDimensionsWithRows:rows columns:cols isLive:LiveResizeMsgID == msgid keepOnScreen:onScreen];
     } else if (SetWindowTitleMsgID == msgid) {
-        const void *bytes = [data bytes];
-        int len = *((int*)bytes);  bytes += sizeof(int);
+        const void *bytes = data.bytes;
+        int len = *((int *)bytes);  bytes += sizeof(int);
 
-        NSString *string = [[NSString alloc] initWithBytes:(void*)bytes
-                length:len encoding:NSUTF8StringEncoding];
+        NSString *string = [[NSString alloc] initWithBytes:(void *)bytes length:len encoding:NSUTF8StringEncoding];
 
         // While in live resize the window title displays the dimensions of the
         // window so don't clobber this with a spurious "set title" message
         // from Vim.
-        if (![[windowController vimView] inLiveResize])
-            [windowController setTitle:string];
-
-        [string release];
+        if (!_windowController.vimView.inLiveResize) _windowController.title = string;
     } else if (SetDocumentFilenameMsgID == msgid) {
-        const void *bytes = [data bytes];
-        int len = *((int*)bytes);  bytes += sizeof(int);
+        const void *bytes = data.bytes;
+        int len = *((int *)bytes);  bytes += sizeof(int);
 
         if (len > 0) {
-            NSString *filename = [[NSString alloc] initWithBytes:(void*)bytes
-                    length:len encoding:NSUTF8StringEncoding];
-
-            [windowController setDocumentFilename:filename];
-
-            [filename release];
+            NSString *filename = [[NSString alloc] initWithBytes:(void *)bytes length:len encoding:NSUTF8StringEncoding];
+            _windowController.documentFilename = filename;
         } else {
-            [windowController setDocumentFilename:@""];
+            _windowController.documentFilename = @"";
         }
     } else if (AddMenuMsgID == msgid) {
         NSDictionary *attrs = [NSDictionary dictionaryWithData:data];
-        [self addMenuWithDescriptor:[attrs objectForKey:@"descriptor"]
-                atIndex:[[attrs objectForKey:@"index"] intValue]];
+        [self addMenuWithDescriptor:attrs[@"descriptor"] atIndex:[attrs[@"index"] intValue]];
     } else if (AddMenuItemMsgID == msgid) {
         NSDictionary *attrs = [NSDictionary dictionaryWithData:data];
-        [self addMenuItemWithDescriptor:[attrs objectForKey:@"descriptor"]
-                      atIndex:[[attrs objectForKey:@"index"] intValue]
-                          tip:[attrs objectForKey:@"tip"]
-                         icon:[attrs objectForKey:@"icon"]
-                keyEquivalent:[attrs objectForKey:@"keyEquivalent"]
-                 modifierMask:[[attrs objectForKey:@"modifierMask"] intValue]
-                       action:[attrs objectForKey:@"action"]
-                  isAlternate:[[attrs objectForKey:@"isAlternate"] boolValue]];
+        [self addMenuItemWithDescriptor:attrs[@"descriptor"]
+                      atIndex:[attrs[@"index"] intValue]
+                          tip:attrs[@"tip"]
+                         icon:attrs[@"icon"]
+                keyEquivalent:attrs[@"keyEquivalent"]
+                 modifierMask:[attrs[@"modifierMask"] intValue]
+                       action:attrs[@"action"]
+                  isAlternate:[attrs[@"isAlternate"] boolValue]];
     } else if (RemoveMenuItemMsgID == msgid) {
         NSDictionary *attrs = [NSDictionary dictionaryWithData:data];
-        [self removeMenuItemWithDescriptor:[attrs objectForKey:@"descriptor"]];
+        [self removeMenuItemWithDescriptor:attrs[@"descriptor"]];
     } else if (EnableMenuItemMsgID == msgid) {
         NSDictionary *attrs = [NSDictionary dictionaryWithData:data];
-        [self enableMenuItemWithDescriptor:[attrs objectForKey:@"descriptor"]
-                state:[[attrs objectForKey:@"enable"] boolValue]];
+        [self enableMenuItemWithDescriptor:attrs[@"descriptor"] state:[attrs[@"enable"] boolValue]];
     } else if (ShowToolbarMsgID == msgid) {
-        const void *bytes = [data bytes];
-        int enable = *((int*)bytes);  bytes += sizeof(int);
-        int flags = *((int*)bytes);
+        const void *bytes = data.bytes;
+        const int enable = *((int*)bytes);  bytes += sizeof(int);
+        const int flags = *((int*)bytes);
 
         int mode = NSToolbarDisplayModeDefault;
         if (flags & ToolbarLabelFlag) {
-            mode = flags & ToolbarIconFlag ? NSToolbarDisplayModeIconAndLabel
-                    : NSToolbarDisplayModeLabelOnly;
+            mode = flags & ToolbarIconFlag ? NSToolbarDisplayModeIconAndLabel : NSToolbarDisplayModeLabelOnly;
         } else if (flags & ToolbarIconFlag) {
             mode = NSToolbarDisplayModeIconOnly;
         }
-
-        int size = flags & ToolbarSizeRegularFlag ? NSToolbarSizeModeRegular
-                : NSToolbarSizeModeSmall;
-
-        [windowController showToolbar:enable size:size mode:mode];
+        const int size = flags & ToolbarSizeRegularFlag ? NSToolbarSizeModeRegular : NSToolbarSizeModeSmall;
+        [_windowController showToolbar:enable size:size mode:mode];
     } else if (CreateScrollbarMsgID == msgid) {
-        const void *bytes = [data bytes];
-        int32_t ident = *((int32_t*)bytes);  bytes += sizeof(int32_t);
-        int type = *((int*)bytes);
+        const void *bytes = data.bytes;
+        int32_t ident = *((int32_t *)bytes);  bytes += sizeof(int32_t);
+        const int type = *((int *)bytes);
 
-        [windowController createScrollbarWithIdentifier:ident type:type];
+        [_windowController createScrollbarWithIdentifier:ident type:type];
     } else if (DestroyScrollbarMsgID == msgid) {
-        const void *bytes = [data bytes];
-        int32_t ident = *((int32_t*)bytes);
+        const void *bytes = data.bytes;
+        int32_t ident = *((int32_t *)bytes);
 
-        [windowController destroyScrollbarWithIdentifier:ident];
+        [_windowController destroyScrollbarWithIdentifier:ident];
     } else if (ShowScrollbarMsgID == msgid) {
-        const void *bytes = [data bytes];
-        int32_t ident = *((int32_t*)bytes);  bytes += sizeof(int32_t);
-        int visible = *((int*)bytes);
+        const void *bytes = data.bytes;
+        int32_t ident = *((int32_t *)bytes);  bytes += sizeof(int32_t);
+        int visible = *((int *)bytes);
 
-        [windowController showScrollbarWithIdentifier:ident state:visible];
+        [_windowController showScrollbarWithIdentifier:ident state:visible];
     } else if (SetScrollbarPositionMsgID == msgid) {
-        const void *bytes = [data bytes];
-        int32_t ident = *((int32_t*)bytes);  bytes += sizeof(int32_t);
-        int pos = *((int*)bytes);  bytes += sizeof(int);
-        int len = *((int*)bytes);
+        const void *bytes = data.bytes;
+        const int32_t ident = *((int32_t *)bytes);  bytes += sizeof(int32_t);
+        const int pos = *((int *)bytes);  bytes += sizeof(int);
+        const int len = *((int *)bytes);
 
-        [windowController setScrollbarPosition:pos length:len
-                                    identifier:ident];
+        [_windowController setScrollbarPosition:pos length:len identifier:ident];
     } else if (SetScrollbarThumbMsgID == msgid) {
-        const void *bytes = [data bytes];
-        int32_t ident = *((int32_t*)bytes);  bytes += sizeof(int32_t);
-        float val = *((float*)bytes);  bytes += sizeof(float);
-        float prop = *((float*)bytes);
+        const void *bytes = data.bytes;
+        const int32_t ident = *((int32_t *)bytes);  bytes += sizeof(int32_t);
+        const float val = *((float *)bytes);  bytes += sizeof(float);
+        const float prop = *((float *)bytes);
 
-        [windowController setScrollbarThumbValue:val proportion:prop
-                                      identifier:ident];
+        [_windowController setScrollbarThumbValue:val proportion:prop identifier:ident];
     } else if (SetFontMsgID == msgid) {
-        const void *bytes = [data bytes];
-        float size = *((float*)bytes);  bytes += sizeof(float);
-        int len = *((int*)bytes);  bytes += sizeof(int);
-        NSString *name = [[NSString alloc]
-                initWithBytes:(void*)bytes length:len
-                     encoding:NSUTF8StringEncoding];
+        const void *bytes = data.bytes;
+        float size = *((float *)bytes);  bytes += sizeof(float);
+        int len = *((int *)bytes);  bytes += sizeof(int);
+        NSString *name = [[NSString alloc] initWithBytes:(void*)bytes length:len encoding:NSUTF8StringEncoding];
         NSFont *font = [NSFont fontWithName:name size:size];
         if (!font) {
             // This should only happen if the system default font has changed
@@ -706,82 +539,65 @@ static BOOL isUnsafeMessage(int msgid);
             font = [NSFont userFixedPitchFontOfSize:size];
         }
 
-        [windowController setFont:font];
-        [name release];
+        _windowController.font = font;
     } else if (SetWideFontMsgID == msgid) {
-        const void *bytes = [data bytes];
-        float size = *((float*)bytes);  bytes += sizeof(float);
-        int len = *((int*)bytes);  bytes += sizeof(int);
+        const void *bytes = data.bytes;
+        const float size = *((float *)bytes);  bytes += sizeof(float);
+        const int len = *((int *)bytes);  bytes += sizeof(int);
         if (len > 0) {
-            NSString *name = [[NSString alloc]
-                    initWithBytes:(void*)bytes length:len
-                         encoding:NSUTF8StringEncoding];
-            NSFont *font = [NSFont fontWithName:name size:size];
-            [windowController setWideFont:font];
-
-            [name release];
+            NSString *name = [[NSString alloc] initWithBytes:(void *)bytes length:len encoding:NSUTF8StringEncoding];
+            _windowController.wideFont = [NSFont fontWithName:name size:size];
         } else {
-            [windowController setWideFont:nil];
+            _windowController.wideFont = nil;
         }
     } else if (SetDefaultColorsMsgID == msgid) {
-        const void *bytes = [data bytes];
-        unsigned bg = *((unsigned*)bytes);  bytes += sizeof(unsigned);
-        unsigned fg = *((unsigned*)bytes);
-        NSColor *back = [NSColor colorWithArgbInt:bg];
-        NSColor *fore = [NSColor colorWithRgbInt:fg];
+        const void *bytes = data.bytes;
+        const unsigned bg = *((unsigned *)bytes);  bytes += sizeof(unsigned);
+        const unsigned fg = *((unsigned *)bytes);
 
-        [windowController setDefaultColorsBackground:back foreground:fore];
+        [_windowController setDefaultColorsBackground:[NSColor colorWithArgbInt:bg]
+                                           foreground:[NSColor colorWithRgbInt:fg]];
     } else if (ExecuteActionMsgID == msgid) {
-        const void *bytes = [data bytes];
-        int len = *((int*)bytes);  bytes += sizeof(int);
-        NSString *actionName = [[NSString alloc]
-                initWithBytes:(void*)bytes length:len
-                     encoding:NSUTF8StringEncoding];
+        const void *bytes = data.bytes;
+        const int len = *((int *)bytes);  bytes += sizeof(int);
+        NSString *actionName = [[NSString alloc] initWithBytes:(void *)bytes length:len encoding:NSUTF8StringEncoding];
 
-        SEL sel = NSSelectorFromString(actionName);
-        [NSApp sendAction:sel to:nil from:self];
-
-        [actionName release];
+        [NSApp sendAction:NSSelectorFromString(actionName) to:nil from:self];
     } else if (ShowPopupMenuMsgID == msgid) {
         NSDictionary *attrs = [NSDictionary dictionaryWithData:data];
 
         // The popup menu enters a modal loop so delay this call so that we
         // don't block inside processInputQueue:.
-        [self performSelector:@selector(popupMenuWithAttributes:)
-                   withObject:attrs
-                   afterDelay:0];
+        [self performSelector:@selector(popupMenuWithAttributes:) withObject:attrs afterDelay:0];
     } else if (SetMouseShapeMsgID == msgid) {
-        const void *bytes = [data bytes];
-        int shape = *((int*)bytes);
+        const void *bytes = data.bytes;
+        const int shape = *((int*)bytes);
 
-        [windowController setMouseShape:shape];
+        _windowController.mouseShape = shape;
     } else if (AdjustLinespaceMsgID == msgid) {
-        const void *bytes = [data bytes];
-        int linespace = *((int*)bytes);
+        const void *bytes = data.bytes;
+        const int linespace = *((int*)bytes);
 
-        [windowController adjustLinespace:linespace];
+        [_windowController adjustLinespace:linespace];
     } else if (ActivateMsgID == msgid) {
         [NSApp activateIgnoringOtherApps:YES];
-        [[windowController window] makeKeyAndOrderFront:self];
+        [_windowController.window makeKeyAndOrderFront:self];
     } else if (SetServerNameMsgID == msgid) {
-        NSString *name = [[NSString alloc] initWithData:data
-                                               encoding:NSUTF8StringEncoding];
-        [self setServerName:name];
-        [name release];
+        _serverName = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
     } else if (EnterFullScreenMsgID == msgid) {
-        const void *bytes = [data bytes];
-        int fuoptions = *((int*)bytes); bytes += sizeof(int);
-        int bg = *((int*)bytes);
-        NSColor *back = [NSColor colorWithArgbInt:bg];
+        const void *bytes = data.bytes;
+        const int fuoptions = *((int *)bytes); bytes += sizeof(int);
+        const int bg = *((int *)bytes);
 
-        [windowController enterFullScreen:fuoptions backgroundColor:back];
+        NSColor *color = [NSColor colorWithArgbInt:bg];
+        [_windowController enterFullScreen:fuoptions backgroundColor:color];
     } else if (LeaveFullScreenMsgID == msgid) {
-        [windowController leaveFullScreen];
+        [_windowController leaveFullScreen];
     } else if (SetBuffersModifiedMsgID == msgid) {
-        const void *bytes = [data bytes];
+        const void *bytes = data.bytes;
         // state < 0  <->  some buffer modified
         // state > 0  <->  current buffer modified
-        int state = *((int*)bytes);
+        int state = *((int *)bytes);
 
         // NOTE: The window controller tracks whether current buffer is
         // modified or not (and greys out the proxy icon as well as putting a
@@ -790,108 +606,89 @@ static BOOL isUnsafeMessage(int msgid);
         // to show a warning or not when quitting).
         //
         // TODO: Make 'hasModifiedBuffer' part of the Vim state?
-        [windowController setBufferModified:(state > 0)];
-        hasModifiedBuffer = (state != 0);
+        _windowController.bufferModified = state > 0;
+        _hasModifiedBuffer = state != 0;
     } else if (SetPreEditPositionMsgID == msgid) {
-        const int *dim = (const int*)[data bytes];
-        [[[windowController vimView] textView] setPreEditRow:dim[0]
-                                                      column:dim[1]];
+        const int *dim = (const int *)data.bytes;
+        [_windowController.vimView.textView setPreEditRow:dim[0] column:dim[1]];
     } else if (EnableAntialiasMsgID == msgid) {
-        [[[windowController vimView] textView] setAntialias:YES];
+        _windowController.vimView.textView.antialias = YES;
     } else if (DisableAntialiasMsgID == msgid) {
-        [[[windowController vimView] textView] setAntialias:NO];
+        _windowController.vimView.textView.antialias = NO;
     } else if (EnableLigaturesMsgID == msgid) {
-        [[[windowController vimView] textView] setLigatures:YES];
+        _windowController.vimView.textView.ligatures = YES;
     } else if (DisableLigaturesMsgID == msgid) {
-        [[[windowController vimView] textView] setLigatures:NO];
+        _windowController.vimView.textView.ligatures = NO;
     } else if (EnableThinStrokesMsgID == msgid) {
-        [[[windowController vimView] textView] setThinStrokes:YES];
+        _windowController.vimView.textView.thinStrokes = YES;
     } else if (DisableThinStrokesMsgID == msgid) {
-        [[[windowController vimView] textView] setThinStrokes:NO];
+        _windowController.vimView.textView.thinStrokes = NO;
     } else if (SetVimStateMsgID == msgid) {
         NSDictionary *dict = [NSDictionary dictionaryWithData:data];
-        if (dict) {
-            [vimState release];
-            vimState = [dict retain];
-        }
+        if (dict) _vimState = dict;
     } else if (CloseWindowMsgID == msgid) {
         [self scheduleClose];
     } else if (SetFullScreenColorMsgID == msgid) {
-        const int *bg = (const int*)[data bytes];
-        NSColor *color = [NSColor colorWithRgbInt:*bg];
+        const int *bg = (const int *)data.bytes;
 
-        [windowController setFullScreenBackgroundColor:color];
+        [_windowController setFullScreenBackgroundColor:[NSColor colorWithRgbInt:*bg]];
     } else if (ShowFindReplaceDialogMsgID == msgid) {
         NSDictionary *dict = [NSDictionary dictionaryWithData:data];
-        if (dict) {
-            [[MMFindReplaceController sharedInstance]
-                showWithText:[dict objectForKey:@"text"]
-                       flags:[[dict objectForKey:@"flags"] intValue]];
-        }
+        if (dict) [MMFindReplaceController.sharedInstance showWithText:dict[@"text"] flags:[dict[@"flags"] intValue]];
     } else if (ActivateKeyScriptMsgID == msgid) {
-        [[[windowController vimView] textView] activateIm:YES];
+        _windowController.vimView.textView.IMActivated = YES;
     } else if (DeactivateKeyScriptMsgID == msgid) {
-        [[[windowController vimView] textView] activateIm:NO];
+        _windowController.vimView.textView.IMActivated = NO;
     } else if (EnableImControlMsgID == msgid) {
-        [[[windowController vimView] textView] setImControl:YES];
+        _windowController.vimView.textView.IMControlled = YES;
     } else if (DisableImControlMsgID == msgid) {
-        [[[windowController vimView] textView] setImControl:NO];
+        _windowController.vimView.textView.IMControlled = NO;
     } else if (BrowseForFileMsgID == msgid) {
         NSDictionary *dict = [NSDictionary dictionaryWithData:data];
-        if (dict)
-            [self handleBrowseForFile:dict];
+        if (dict) [self handleBrowseForFile:dict];
     } else if (ShowDialogMsgID == msgid) {
-        [windowController runAfterWindowPresentedUsingBlock:^{
+        [_windowController runAfterWindowPresentedUsingBlock:^{
             NSDictionary *dict = [NSDictionary dictionaryWithData:data];
-            if (dict)
-                [self handleShowDialog:dict];
+            if (dict) [self handleShowDialog:dict];
         }];
     } else if (DeleteSignMsgID == msgid) {
         NSDictionary *dict = [NSDictionary dictionaryWithData:data];
-        if (dict)
-            [self handleDeleteSign:dict];
+        if (dict) [self handleDeleteSign:dict];
     } else if (ZoomMsgID == msgid) {
-        const void *bytes = [data bytes];
-        int rows = *((int*)bytes);  bytes += sizeof(int);
-        int cols = *((int*)bytes);  bytes += sizeof(int);
-        int state = *((int*)bytes);
+        const void *bytes = data.bytes;
+        const int rows = *((int *)bytes);  bytes += sizeof(int);
+        const int cols = *((int *)bytes);  bytes += sizeof(int);
+        const int state = *((int *)bytes);
 
-        [windowController zoomWithRows:rows
-                               columns:cols
-                                 state:state];
+        [_windowController zoomWithRows:rows columns:cols state:state];
     } else if (SetWindowPositionMsgID == msgid) {
-        const void *bytes = [data bytes];
-        int x = *((int*)bytes);  bytes += sizeof(int);
-        int y = *((int*)bytes);
+        const void *bytes = data.bytes;
+        const int x = *((int *)bytes);  bytes += sizeof(int);
+        int y = *((int *)bytes);
 
         // NOTE: Vim measures Y-coordinates from top of screen.
-        NSRect frame = [[[windowController window] screen] frame];
-        y = NSMaxY(frame) - y;
+        y = NSMaxY(_windowController.window.screen.frame) - y;
 
-        [windowController setTopLeft:NSMakePoint(x,y)];
+        _windowController.topLeft = NSMakePoint(x, y);
     } else if (SetTooltipMsgID == msgid) {
-        id textView = [[windowController vimView] textView];
+        NSView<MMTextView> *textView = _windowController.vimView.textView;
         NSDictionary *dict = [NSDictionary dictionaryWithData:data];
-        NSString *toolTip = dict ? [dict objectForKey:@"toolTip"] : nil;
-        if (toolTip && [toolTip length] > 0)
+        NSString *toolTip = dict[@"toolTip"];
+        if (toolTip && toolTip.length != 0)
             [textView setToolTipAtMousePoint:toolTip];
         else
             [textView setToolTipAtMousePoint:nil];
     } else if (SetTooltipDelayMsgID == msgid) {
         NSDictionary *dict = [NSDictionary dictionaryWithData:data];
-        NSNumber *delay = dict ? [dict objectForKey:@"delay"] : nil;
-        if (delay)
-            [self setToolTipDelay:[delay floatValue]];
+        if (dict[@"delay"]) [self setToolTipDelay:[dict[@"delay"] floatValue]];
     } else if (AddToMRUMsgID == msgid) {
         NSDictionary *dict = [NSDictionary dictionaryWithData:data];
-        NSArray *filenames = dict ? [dict objectForKey:@"filenames"] : nil;
-        if (filenames)
-            [[NSDocumentController sharedDocumentController]
-                                            noteNewRecentFilePaths:filenames];
+        NSArray *filenames = dict ? dict[@"filenames"] : nil;
+        if (filenames) [NSDocumentController.sharedDocumentController noteNewRecentFilePaths:filenames];
     } else if (SetBlurRadiusMsgID == msgid) {
-        const void *bytes = [data bytes];
-        int radius = *((int*)bytes);
-        [windowController setBlurRadius:radius];
+        const void *bytes = data.bytes;
+        const int radius = *((int *)bytes);
+        _windowController.blurRadius = radius;
 
     // IMPORTANT: When adding a new message, make sure to update
     // isUnsafeMessage() if necessary!
@@ -900,18 +697,16 @@ static BOOL isUnsafeMessage(int msgid);
     }
 }
 
-- (void)savePanelDidEnd:(NSSavePanel *)panel code:(int)code
-                context:(void *)context
+- (void)savePanelDidEnd:(NSSavePanel *)panel code:(int)code context:(void *)context
 {
     NSString *path = nil;
 #if (MAC_OS_X_VERSION_MIN_REQUIRED >= MAC_OS_X_VERSION_10_10)
-    if (code == NSModalResponseOK) {
+    #define OKButton NSModalResponseOK
 #else
-    if (code == NSOKButton) {
+    #define OKButton NSOKButton
 #endif
-        NSURL *url = [panel URL];
-        if ([url isFileURL])
-            path = [url path];
+    if (code == OKButton && panel.URL.isFileURL) {
+        path = panel.URL.path;
     }
     ASLogDebug(@"Open/save panel path=%@", path);
 
@@ -926,80 +721,72 @@ static BOOL isUnsafeMessage(int msgid);
     // avoid waiting forever for it to finish.  We make this a synchronous call
     // so that we can be fairly certain that Vim doesn't think the dialog box
     // is still showing when MacVim has in fact already dismissed it.
-    NSConnection *conn = [backendProxy connectionForProxy];
-    NSTimeInterval oldTimeout = [conn requestTimeout];
-    [conn setRequestTimeout:MMSetDialogReturnTimeout];
+    NSConnection *connection = [_backendProxy connectionForProxy];
+    const NSTimeInterval oldTimeout = connection.requestTimeout;
 
     @try {
-        [backendProxy setDialogReturn:path];
+        connection.requestTimeout = MMSetDialogReturnTimeout;
+
+        [_backendProxy setDialogReturn:path];
 
         // Add file to the "Recent Files" menu (this ensures that files that
         // are opened/saved from a :browse command are added to this menu).
-        if (path)
-            [[NSDocumentController sharedDocumentController]
-                                                noteNewRecentFilePath:path];
-    }
-    @catch (NSException *ex) {
-        ASLogDebug(@"Exception: pid=%d id=%d reason=%@", pid, identifier, ex);
-    }
-    @finally {
-        [conn setRequestTimeout:oldTimeout];
+        if (path) [NSDocumentController.sharedDocumentController noteNewRecentFilePath:path];
+    } @catch (NSException *e) {
+        ASLogDebug(@"Exception: pid=%d id=%d reason=%@", _pid, _identifier, e);
+    } @finally {
+        connection.requestTimeout = oldTimeout;
     }
 }
 
 - (void)alertDidEnd:(MMAlert *)alert code:(int)code context:(void *)context
 {
-    NSArray *ret = nil;
+    NSArray *dialogReturn = nil;
 
     code = code - NSAlertFirstButtonReturn + 1;
 
-    if ([alert isKindOfClass:[MMAlert class]] && [alert textField]) {
-        ret = [NSArray arrayWithObjects:[NSNumber numberWithInt:code],
-            [[alert textField] stringValue], nil];
+    if ([alert isKindOfClass:MMAlert.class] && alert.textField) {
+        dialogReturn = @[@(code), alert.textField.stringValue];
     } else {
-        ret = [NSArray arrayWithObject:[NSNumber numberWithInt:code]];
+        dialogReturn = @[@(code)];
     }
 
-    ASLogDebug(@"Alert return=%@", ret);
+    ASLogDebug(@"Alert return=%@", dialogReturn);
 
     // NOTE!  This causes the sheet animation to run its course BEFORE the rest
     // of this function is executed.  If we do not wait for the sheet to
     // disappear before continuing it can happen that the controller is
     // released from under us (i.e. we'll crash and burn) because this
     // animation is otherwise performed in the default run loop mode!
-    [[alert window] orderOut:self];
+    [alert.window orderOut:self];
 
     @try {
-        [backendProxy setDialogReturn:ret];
-    }
-    @catch (NSException *ex) {
-        ASLogDebug(@"setDialogReturn: failed: pid=%d id=%d reason=%@",
-                pid, identifier, ex);
+        [_backendProxy setDialogReturn:dialogReturn];
+    } @catch (NSException *e) {
+        ASLogDebug(@"setDialogReturn: failed: pid=%d id=%d reason=%@", _pid, _identifier, e);
     }
 }
 
 - (NSMenuItem *)menuItemForDescriptor:(NSArray *)desc
 {
-    if (!(desc && [desc count] > 0)) return nil;
+    if (desc.count == 0) return nil;
 
-    NSString *rootName = [desc objectAtIndex:0];
-    NSArray *rootItems = [rootName hasPrefix:@"PopUp"] ? popupMenuItems
-                                                       : [mainMenu itemArray];
+    NSString *rootName = desc.firstObject;
+    NSArray *rootItems = [rootName hasPrefix:@"PopUp"] ? _popupMenuItems : _mainMenu.itemArray;
 
     NSMenuItem *item = nil;
-    int i, count = [rootItems count];
-    for (i = 0; i < count; ++i) {
-        item = [rootItems objectAtIndex:i];
-        if ([[item title] isEqual:rootName])
+    NSUInteger i;
+    for (i = 0; i < rootItems.count; ++i) {
+        item = rootItems[i];
+        if ([item.title isEqual:rootName])
             break;
     }
 
-    if (i == count) return nil;
+    if (i == rootItems.count) return nil;
 
-    count = [desc count];
-    for (i = 1; i < count; ++i) {
-        item = [[item submenu] itemWithTitle:[desc objectAtIndex:i]];
-        if (!item) return nil;
+    for (i = 1; i < desc.count; ++i) {
+        item = [item.submenu itemWithTitle:desc[i]];
+        if (!item) break;
     }
 
     return item;
@@ -1007,29 +794,28 @@ static BOOL isUnsafeMessage(int msgid);
 
 - (NSMenu *)parentMenuForDescriptor:(NSArray *)desc
 {
-    if (!(desc && [desc count] > 0)) return nil;
+    if (desc.count == 0) return nil;
 
-    NSString *rootName = [desc objectAtIndex:0];
-    NSArray *rootItems = [rootName hasPrefix:@"PopUp"] ? popupMenuItems
-                                                       : [mainMenu itemArray];
+    NSString *rootName = desc.firstObject;
+    NSArray *rootItems = [rootName hasPrefix:@"PopUp"] ? _popupMenuItems : _mainMenu.itemArray;
 
     NSMenu *menu = nil;
-    int i, count = [rootItems count];
-    for (i = 0; i < count; ++i) {
-        NSMenuItem *item = [rootItems objectAtIndex:i];
-        if ([[item title] isEqual:rootName]) {
-            menu = [item submenu];
+    NSUInteger i;
+    for (i = 0; i < rootItems.count; ++i) {
+        NSMenuItem *item = rootItems[i];
+        if ([item.title isEqual:rootName]) {
+            menu = item.submenu;
             break;
         }
     }
 
     if (!menu) return nil;
 
-    count = [desc count] - 1;
+    const NSUInteger count = desc.count - 1;
     for (i = 1; i < count; ++i) {
-        NSMenuItem *item = [menu itemWithTitle:[desc objectAtIndex:i]];
-        menu = [item submenu];
-        if (!menu) return nil;
+        NSMenuItem *item = [menu itemWithTitle:desc[i]];
+        menu = item.submenu;
+        if (!menu) break;
     }
 
     return menu;
@@ -1037,159 +823,130 @@ static BOOL isUnsafeMessage(int msgid);
 
 - (NSMenu *)topLevelMenuForTitle:(NSString *)title
 {
-    // Search only the top-level menus.
-
-    unsigned i, count = [popupMenuItems count];
-    for (i = 0; i < count; ++i) {
-        NSMenuItem *item = [popupMenuItems objectAtIndex:i];
-        if ([title isEqual:[item title]])
-            return [item submenu];
+    for (NSMenuItem *item in _popupMenuItems)
+        if ([title isEqual:item.title]) return item.submenu;
+    for (NSUInteger i = 0; i < _mainMenu.numberOfItems; ++i) {
+        NSMenuItem *item = [_mainMenu itemAtIndex:i];
+        if ([title isEqual:item.title]) return item.submenu;
     }
-
-    count = [mainMenu numberOfItems];
-    for (i = 0; i < count; ++i) {
-        NSMenuItem *item = [mainMenu itemAtIndex:i];
-        if ([title isEqual:[item title]])
-            return [item submenu];
-    }
-
     return nil;
 }
 
-- (void)addMenuWithDescriptor:(NSArray *)desc atIndex:(int)idx
+- (void)addMenuWithDescriptor:(NSArray *)desc atIndex:(int)index
 {
-    if (!(desc && [desc count] > 0 && idx >= 0)) return;
+    if (!(desc.count != 0 && index >= 0)) return;
 
-    NSString *rootName = [desc objectAtIndex:0];
+    NSString *rootName = desc.firstObject;
     if ([rootName isEqual:@"ToolBar"]) {
         // The toolbar only has one menu, we take this as a hint to create a
         // toolbar, then we return.
-        if (!toolbar) {
+        if (!_toolbar) {
             // NOTE! Each toolbar must have a unique identifier, else each
             // window will have the same toolbar.
-            NSString *ident = [NSString stringWithFormat:@"%d", identifier];
-            toolbar = [[NSToolbar alloc] initWithIdentifier:ident];
-
-            [toolbar setShowsBaselineSeparator:NO];
-            [toolbar setDelegate:self];
-            [toolbar setDisplayMode:NSToolbarDisplayModeIconOnly];
-            [toolbar setSizeMode:NSToolbarSizeModeSmall];
-
-            [windowController setToolbar:toolbar];
+            _toolbar = [[NSToolbar alloc] initWithIdentifier:@(_identifier).stringValue];
+            _toolbar.showsBaselineSeparator = NO;
+            _toolbar.delegate = self;
+            _toolbar.displayMode = NSToolbarDisplayModeIconOnly;
+            _toolbar.sizeMode = NSToolbarSizeModeSmall;
+            _windowController.toolbar = _toolbar;
         }
-
         return;
     }
 
     // This is either a main menu item or a popup menu item.
-    NSString *title = [desc lastObject];
-    NSMenuItem *item = [[NSMenuItem alloc] init];
-    NSMenu *menu = [[NSMenu alloc] initWithTitle:title];
-
-    [item setTitle:title];
-    [item setSubmenu:menu];
+    NSString *title = desc.lastObject;
+    NSMenuItem *item = NSMenuItem.new;
+    item.title = title;
+    item.submenu = [[NSMenu alloc] initWithTitle:title];
 
     NSMenu *parent = [self parentMenuForDescriptor:desc];
     if (!parent && [rootName hasPrefix:@"PopUp"]) {
-        if ([popupMenuItems count] <= idx) {
-            [popupMenuItems addObject:item];
+        if (_popupMenuItems.count <= index) {
+            [_popupMenuItems addObject:item];
         } else {
-            [popupMenuItems insertObject:item atIndex:idx];
+            [_popupMenuItems insertObject:item atIndex:index];
         }
     } else {
         // If descriptor has no parent and its not a popup (or toolbar) menu,
         // then it must belong to main menu.
-        if (!parent) parent = mainMenu;
+        if (!parent) parent = _mainMenu;
 
-        if ([parent numberOfItems] <= idx) {
+        if (parent.numberOfItems <= index) {
             [parent addItem:item];
         } else {
-            [parent insertItem:item atIndex:idx];
+            [parent insertItem:item atIndex:index];
         }
     }
-
-    [item release];
-    [menu release];
 }
 
-- (void)addMenuItemWithDescriptor:(NSArray *)desc
-                          atIndex:(int)idx
-                              tip:(NSString *)tip
-                             icon:(NSString *)icon
-                    keyEquivalent:(NSString *)keyEquivalent
-                     modifierMask:(int)modifierMask
-                           action:(NSString *)action
-                      isAlternate:(BOOL)isAlternate
+- (void)addMenuItemWithDescriptor:(NSArray *)desc atIndex:(int)index tip:(NSString *)tip icon:(NSString *)icon keyEquivalent:(NSString *)keyEquivalent modifierMask:(int)modifierMask action:(NSString *)action isAlternate:(BOOL)isAlternate
 {
-    if (!(desc && [desc count] > 1 && idx >= 0)) return;
+    if (!(desc.count > 1 && index >= 0)) return;
 
-    NSString *title = [desc lastObject];
-    NSString *rootName = [desc objectAtIndex:0];
+    NSString *title = desc.lastObject;
+    NSString *rootName = desc.firstObject;
 
     if ([rootName isEqual:@"ToolBar"]) {
-        if (toolbar && [desc count] == 2)
-            [self addToolbarItemWithLabel:title tip:tip icon:icon atIndex:idx];
+        if (_toolbar && desc.count == 2)
+            [self addToolbarItemWithLabel:title tip:tip icon:icon atIndex:index];
         return;
     }
 
     NSMenu *parent = [self parentMenuForDescriptor:desc];
     if (!parent) {
-        ASLogWarn(@"Menu item '%@' has no parent",
-                  [desc componentsJoinedByString:@"->"]);
+        ASLogWarn(@"Menu item '%@' has no parent", [desc componentsJoinedByString:@"->"]);
         return;
     }
 
     NSMenuItem *item = nil;
-    if (0 == [title length]
-            || ([title hasPrefix:@"-"] && [title hasSuffix:@"-"])) {
-        item = [NSMenuItem separatorItem];
-        [item setTitle:title];
+    if (0 == title.length || ([title hasPrefix:@"-"] && [title hasSuffix:@"-"])) {
+        item = NSMenuItem.separatorItem;
+        item.title = title;
     } else {
-        item = [[[NSMenuItem alloc] init] autorelease];
-        [item setTitle:title];
+        item = NSMenuItem.new;
+        item.title = title;
 
         // Note: It is possible to set the action to a message that "doesn't
         // exist" without problems.  We take advantage of this when adding
         // "dummy items" e.g. when dealing with the "Recent Files" menu (in
         // which case a recentFilesDummy: action is set, although it is never
         // used).
-        if ([action length] > 0)
-            [item setAction:NSSelectorFromString(action)];
+        if (action.length != 0)
+            item.action = NSSelectorFromString(action);
         else
-            [item setAction:@selector(vimMenuItemAction:)];
-        if ([tip length] > 0) [item setToolTip:tip];
-        if ([keyEquivalent length] > 0) {
-            [item setKeyEquivalent:keyEquivalent];
-            [item setKeyEquivalentModifierMask:modifierMask];
+            item.action = @selector(vimMenuItemAction:);
+        if (tip.length != 0) item.toolTip = tip;
+        if (keyEquivalent.length != 0) {
+            item.keyEquivalent = keyEquivalent;
+            item.keyEquivalentModifierMask = modifierMask;
         }
-        [item setAlternate:isAlternate];
+        item.alternate = isAlternate;
 
         // The tag is used to indicate whether Vim thinks a menu item should be
         // enabled or disabled.  By default Vim thinks menu items are enabled.
-        [item setTag:1];
+        item.tag = 1;
     }
 
-    if ([parent numberOfItems] <= idx) {
+    if (parent.numberOfItems <= index) {
         [parent addItem:item];
     } else {
-        [parent insertItem:item atIndex:idx];
+        [parent insertItem:item atIndex:index];
     }
 }
 
 - (void)removeMenuItemWithDescriptor:(NSArray *)desc
 {
-    if (!(desc && [desc count] > 0)) return;
+    if (desc.count == 0) return;
 
-    NSString *title = [desc lastObject];
-    NSString *rootName = [desc objectAtIndex:0];
+    NSString *title = desc.lastObject;
+    NSString *rootName = desc.firstObject;
     if ([rootName isEqual:@"ToolBar"]) {
-        if (toolbar) {
+        if (_toolbar) {
             // Only remove toolbar items, never actually remove the toolbar
             // itself or strange things may happen.
-            if ([desc count] == 2) {
-                NSUInteger idx = [toolbar indexOfItemWithItemIdentifier:title];
-                if (idx != NSNotFound)
-                    [toolbar removeItemAtIndex:idx];
+            if (desc.count == 2) {
+                const NSUInteger i = [_toolbar indexOfItemWithItemIdentifier:title];
+                if (i != NSNotFound) [_toolbar removeItemAtIndex:i];
             }
         }
         return;
@@ -1197,35 +954,28 @@ static BOOL isUnsafeMessage(int msgid);
 
     NSMenuItem *item = [self menuItemForDescriptor:desc];
     if (!item) {
-        ASLogWarn(@"Failed to remove menu item, descriptor not found: %@",
-                  [desc componentsJoinedByString:@"->"]);
+        ASLogWarn(@"Failed to remove menu item, descriptor not found: %@", [desc componentsJoinedByString:@"->"]);
         return;
     }
 
-    [item retain];
-
-    if ([item menu] == [NSApp mainMenu] || ![item menu]) {
+    if (item.menu == NSApp.mainMenu || !item.menu) {
         // NOTE: To be on the safe side we try to remove the item from
         // both arrays (it is ok to call removeObject: even if an array
         // does not contain the object to remove).
-        [popupMenuItems removeObject:item];
+        [_popupMenuItems removeObject:item];
     }
 
-    if ([item menu])
-        [[item menu] removeItem:item];
-
-    [item release];
+    if (item.menu) [item.menu removeItem:item];
 }
 
 - (void)enableMenuItemWithDescriptor:(NSArray *)desc state:(BOOL)on
 {
-    if (!(desc && [desc count] > 0)) return;
+    if (desc.count == 0) return;
 
-    NSString *rootName = [desc objectAtIndex:0];
+    NSString *rootName = desc.firstObject;
     if ([rootName isEqual:@"ToolBar"]) {
-        if (toolbar && [desc count] == 2) {
-            NSString *title = [desc lastObject];
-            [[toolbar itemWithItemIdentifier:title] setEnabled:on];
+        if (_toolbar && desc.count == 2) {
+            [[_toolbar itemWithItemIdentifier:desc.lastObject] setEnabled:on];
         }
     } else {
         // Use tag to set whether item is enabled or disabled instead of
@@ -1236,9 +986,7 @@ static BOOL isUnsafeMessage(int msgid);
     }
 }
 
-- (void)addToolbarItemToDictionaryWithLabel:(NSString *)title
-                                    toolTip:(NSString *)tip
-                                       icon:(NSString *)icon
+- (void)addToolbarItemToDictionaryWithLabel:(NSString *)title toolTip:(NSString *)tip icon:(NSString *)icon
 {
     // If the item corresponds to a separator then do nothing, since it is
     // already defined by Cocoa.
@@ -1255,24 +1003,19 @@ static BOOL isUnsafeMessage(int msgid);
 
     NSImage *img = [NSImage imageNamed:icon];
     if (!img) {
-        img = [[[NSImage alloc] initByReferencingFile:icon] autorelease];
+        img = [[NSImage alloc] initByReferencingFile:icon];
         if (!(img && [img isValid]))
             img = nil;
     }
     if (!img) {
-        ASLogNotice(@"Could not find image with name '%@' to use as toolbar"
-            " image for identifier '%@';"
-            " using default toolbar icon '%@' instead.",
-            icon, title, MMDefaultToolbarImageName);
+        ASLogNotice(@"Could not find image with name '%@' to use as toolbar image for identifier '%@'; using default toolbar icon '%@' instead.", icon, title, MMDefaultToolbarImageName);
 
         img = [NSImage imageNamed:MMDefaultToolbarImageName];
     }
 
-    [item setImage:img];
+    item.image = img;
 
-    [toolbarItemDict setObject:item forKey:title];
-
-    [item release];
+    _toolbarItemDict[title] = item;
 }
 
 - (void)addToolbarItemWithLabel:(NSString *)label
@@ -1280,7 +1023,7 @@ static BOOL isUnsafeMessage(int msgid);
                            icon:(NSString *)icon
                         atIndex:(int)idx
 {
-    if (!toolbar) return;
+    if (!_toolbar) return;
 
     // Check for separator items.
     if (!label) {
@@ -1300,10 +1043,10 @@ static BOOL isUnsafeMessage(int msgid);
 
     [self addToolbarItemToDictionaryWithLabel:label toolTip:tip icon:icon];
 
-    int maxIdx = [[toolbar items] count];
+    int maxIdx = [[_toolbar items] count];
     if (maxIdx < idx) idx = maxIdx;
 
-    [toolbar insertItemWithItemIdentifier:label atIndex:idx];
+    [_toolbar insertItemWithItemIdentifier:label atIndex:idx];
 }
 
 - (void)popupMenuWithDescriptor:(NSArray *)desc
@@ -1313,7 +1056,7 @@ static BOOL isUnsafeMessage(int msgid);
     NSMenu *menu = [[self menuItemForDescriptor:desc] submenu];
     if (!menu) return;
 
-    id textView = [[windowController vimView] textView];
+    id textView = [[_windowController vimView] textView];
     NSPoint pt;
     if (row && col) {
         // TODO: Let textView convert (row,col) to NSPoint.
@@ -1323,14 +1066,14 @@ static BOOL isUnsafeMessage(int msgid);
         pt = NSMakePoint((c+1)*cellSize.width, (r+1)*cellSize.height);
         pt = [textView convertPoint:pt toView:nil];
     } else {
-        pt = [[windowController window] mouseLocationOutsideOfEventStream];
+        pt = [[_windowController window] mouseLocationOutsideOfEventStream];
     }
 
     NSEvent *event = [NSEvent mouseEventWithType:NSEventTypeRightMouseDown
                            location:pt
                       modifierFlags:0
                           timestamp:0
-                       windowNumber:[[windowController window] windowNumber]
+                       windowNumber:[[_windowController window] windowNumber]
                             context:nil
                         eventNumber:0
                          clickCount:0
@@ -1356,7 +1099,7 @@ static BOOL isUnsafeMessage(int msgid);
 
 - (void)scheduleClose
 {
-    ASLogDebug(@"pid=%d id=%d", pid, identifier);
+    ASLogDebug(@"pid=%d id=%d", _pid, _identifier);
 
     // NOTE!  This message can arrive at pretty much anytime, e.g. while
     // the run loop is the 'event tracking' mode.  This means that Cocoa may
@@ -1390,150 +1133,117 @@ static BOOL isUnsafeMessage(int msgid);
 
 - (void)handleBrowseForFile:(NSDictionary *)attr
 {
-    if (!isInitialized) return;
+    if (!_isInitialized) return;
 
-    NSString *dir = [attr objectForKey:@"dir"];
-    BOOL saving = [[attr objectForKey:@"saving"] boolValue];
-    BOOL browsedir = [[attr objectForKey:@"browsedir"] boolValue];
+    NSString *dir = attr[@"dir"];
+    const BOOL saving = [attr[@"saving"] boolValue];
+    const BOOL browsedir = [attr[@"browsedir"] boolValue];
 
     if (!dir) {
         // 'dir == nil' means: set dir to the pwd of the Vim process, or let
         // open dialog decide (depending on the below user default).
-        BOOL trackPwd = [[NSUserDefaults standardUserDefaults]
-                boolForKey:MMDialogsTrackPwdKey];
-        if (trackPwd)
-            dir = [vimState objectForKey:@"pwd"];
+        if ([NSUserDefaults.standardUserDefaults boolForKey:MMDialogsTrackPwdKey]) dir = _vimState[@"pwd"];
     }
 
-    dir = [dir stringByExpandingTildeInPath];
+    dir = dir.stringByExpandingTildeInPath;
     NSURL *dirURL = dir ? [NSURL fileURLWithPath:dir isDirectory:YES] : nil;
 
     if (saving) {
-        NSSavePanel *panel = [NSSavePanel savePanel];
+        NSSavePanel *panel = NSSavePanel.savePanel;
 
         // The delegate will be notified when the panel is expanded at which
         // time we may hide/show the "show hidden files" button (this button is
         // always visible for the open panel since it is always expanded).
-        [panel setDelegate:self];
-        if ([panel isExpanded])
-            [panel setAccessoryView:showHiddenFilesView()];
-        if (dirURL)
-            [panel setDirectoryURL:dirURL];
+        panel.delegate = self;
+        if (panel.isExpanded) panel.accessoryView = showHiddenFilesView();
+        if (dirURL) panel.directoryURL = dirURL;
 
-        [panel beginSheetModalForWindow:[windowController window]
-                      completionHandler:^(NSInteger result) {
-            [self savePanelDidEnd:panel code:result context:nil];
+        [panel beginSheetModalForWindow:_windowController.window completionHandler:^(NSInteger code) {
+            [self savePanelDidEnd:panel code:code context:nil];
         }];
     } else {
-        NSOpenPanel *panel = [NSOpenPanel openPanel];
-        [panel setAllowsMultipleSelection:NO];
-        [panel setAccessoryView:showHiddenFilesView()];
+        NSOpenPanel *panel = NSOpenPanel.openPanel;
+        panel.allowsMultipleSelection = NO;
+        panel.accessoryView = showHiddenFilesView();
 
         if (browsedir) {
-            [panel setCanChooseDirectories:YES];
-            [panel setCanChooseFiles:NO];
+            panel.canChooseDirectories = YES;
+            panel.canChooseFiles = NO;
         }
 
-        if (dirURL)
-            [panel setDirectoryURL:dirURL];
+        if (dirURL) panel.directoryURL = dirURL;
 
-        [panel beginSheetModalForWindow:[windowController window]
-                      completionHandler:^(NSInteger result) {
-            [self savePanelDidEnd:panel code:result context:nil];
+        [panel beginSheetModalForWindow:_windowController.window completionHandler:^(NSInteger code) {
+            [self savePanelDidEnd:panel code:code context:nil];
         }];
     }
 }
 
 - (void)handleShowDialog:(NSDictionary *)attr
 {
-    if (!isInitialized) return;
+    if (!_isInitialized) return;
 
-    NSArray *buttonTitles = [attr objectForKey:@"buttonTitles"];
-    if (!(buttonTitles && [buttonTitles count])) return;
+    NSArray *buttonTitles = attr[@"buttonTitles"];
+    if (!buttonTitles || buttonTitles.count == 0) return;
 
-    int style = [[attr objectForKey:@"alertStyle"] intValue];
-    NSString *message = [attr objectForKey:@"messageText"];
-    NSString *text = [attr objectForKey:@"informativeText"];
-    NSString *textFieldString = [attr objectForKey:@"textFieldString"];
-    MMAlert *alert = [[MMAlert alloc] init];
+    NSString *field = attr[@"textFieldString"];
+    NSString *informative = attr[@"informativeText"];
 
-    // NOTE! This has to be done before setting the informative text.
-    if (textFieldString)
-        [alert setTextFieldString:textFieldString];
+    MMAlert *alert = MMAlert.new;
+    if (field) alert.textFieldString = field; // NOTE! This has to be done before setting the informative text.
+    alert.alertStyle = [attr[@"alertStyle"] intValue];
+    alert.messageText = attr[@"messageText"]? : @"";
+  if (informative) alert.informativeText = informative;
+    else if (field) alert.informativeText = @"";
 
-    [alert setAlertStyle:style];
-
-    if (message) {
-        [alert setMessageText:message];
-    } else {
-        // If no message text is specified 'Alert' is used, which we don't
-        // want, so set an empty string as message text.
-        [alert setMessageText:@""];
-    }
-
-    if (text) {
-        [alert setInformativeText:text];
-    } else if (textFieldString) {
-        // Make sure there is always room for the input text field.
-        [alert setInformativeText:@""];
-    }
-
-    unsigned i, count = [buttonTitles count];
-    for (i = 0; i < count; ++i) {
-        NSString *title = [buttonTitles objectAtIndex:i];
+    for (NSString *title in buttonTitles) {
+        NSString * t = title;
         // NOTE: The title of the button may contain the character '&' to
         // indicate that the following letter should be the key equivalent
         // associated with the button.  Extract this letter and lowercase it.
         NSString *keyEquivalent = nil;
-        NSRange hotkeyRange = [title rangeOfString:@"&"];
+        const NSRange hotkeyRange = [t rangeOfString:@"&"];
         if (NSNotFound != hotkeyRange.location) {
-            if ([title length] > NSMaxRange(hotkeyRange)) {
-                NSRange keyEquivRange = NSMakeRange(hotkeyRange.location+1, 1);
-                keyEquivalent = [[title substringWithRange:keyEquivRange]
-                    lowercaseString];
+            if (t.length > NSMaxRange(hotkeyRange)) {
+                const NSRange keyEquivRange = NSMakeRange(hotkeyRange.location + 1, 1);
+                keyEquivalent = [[t substringWithRange:keyEquivRange] lowercaseString];
             }
-
-            NSMutableString *string = [NSMutableString stringWithString:title];
+            NSMutableString *string = [NSMutableString stringWithString:t];
             [string deleteCharactersInRange:hotkeyRange];
-            title = string;
+            t = string;
         }
 
-        [alert addButtonWithTitle:title];
+        [alert addButtonWithTitle:t];
 
         // Set key equivalent for the button, but only if NSAlert hasn't
         // already done so.  (Check the documentation for
         // - [NSAlert addButtonWithTitle:] to see what key equivalents are
         // automatically assigned.)
-        NSButton *btn = [[alert buttons] lastObject];
-        if ([[btn keyEquivalent] length] == 0 && keyEquivalent) {
-            [btn setKeyEquivalent:keyEquivalent];
+        NSButton *button = alert.buttons.lastObject;
+        if (button.keyEquivalent.length == 0 && keyEquivalent) {
+            button.keyEquivalent = keyEquivalent;
         }
     }
 
-    [alert beginSheetModalForWindow:[windowController window]
-                      modalDelegate:self];
-
-    [alert release];
+    [alert beginSheetModalForWindow:_windowController.window modalDelegate:self];
 }
 
 - (void)handleDeleteSign:(NSDictionary *)attr
 {
-    NSView<MMTextView> *view = [[windowController vimView] textView];
-    [view deleteSign:[attr objectForKey:@"imgName"]];
+    NSView<MMTextView> *view = _windowController.vimView.textView;
+    [view deleteSign:attr[@"imgName"]];
 }
 
 - (void)setToolTipDelay:(NSTimeInterval)seconds
 {
     // HACK! NSToolTipManager is an AppKit private class.
     static Class TTM = nil;
-    if (!TTM)
-        TTM = NSClassFromString(@"NSToolTipManager");
+    if (!TTM) TTM = NSClassFromString(@"NSToolTipManager");
 
-    if (seconds < 0)
-        seconds = 0;
+    if (seconds < 0) seconds = 0;
 
     if (TTM) {
-        [[TTM sharedToolTipManager] setInitialToolTipDelay:seconds];
+        [TTM.sharedToolTipManager setInitialToolTipDelay:seconds];
     } else {
         ASLogNotice(@"Failed to get NSToolTipManager");
     }
@@ -1541,24 +1251,14 @@ static BOOL isUnsafeMessage(int msgid);
 
 @end // MMVimController (Private)
 
-
-
-
+/**
+ */
 @implementation MMAlert
 
-- (void)dealloc
+- (void)setTextFieldString:(NSString *)stringn
 {
-    ASLogDebug(@"");
-
-    [textField release];  textField = nil;
-    [super dealloc];
-}
-
-- (void)setTextFieldString:(NSString *)textFieldString
-{
-    [textField release];
-    textField = [[NSTextField alloc] init];
-    [textField setStringValue:textFieldString];
+    textField = NSTextField.new;
+    textField.stringValue = stringn;
 }
 
 - (NSTextField *)textField
@@ -1576,42 +1276,31 @@ static BOOL isUnsafeMessage(int msgid);
     }
 }
 
-- (void)beginSheetModalForWindow:(NSWindow *)window
-                   modalDelegate:(id)delegate
+- (void)beginSheetModalForWindow:(NSWindow *)window modalDelegate:(id)delegate
 {
-
 #if MAC_OS_X_VERSION_MIN_REQUIRED >= MAC_OS_X_VERSION_10_10
-    [super beginSheetModalForWindow:window
-                  completionHandler:^(NSModalResponse code) {
-                      [delegate alertDidEnd:self code:code context:NULL];
-                  }];
+    [super beginSheetModalForWindow:window completionHandler:^(NSModalResponse code) {
+        [delegate alertDidEnd:self code:code context:nil];
+    }];
 #else
-    [super beginSheetModalForWindow:window
-                      modalDelegate:delegate
-                     didEndSelector:@selector(alertDidEnd:code:context:)
-                        contextInfo:NULL];
+    [super beginSheetModalForWindow:window modalDelegate:delegate didEndSelector:@selector(alertDidEnd:code:context:) contextInfo:nil];
 #endif
-
     // HACK! Place the input text field at the bottom of the informative text
     // (which has been made a bit larger by adding newline characters).
-    NSView *contentView = [[self window] contentView];
-    NSRect rect = [contentView frame];
+    NSView *contentView = self.window.contentView;
+    NSRect rect = contentView.frame;
     rect.origin.y = rect.size.height;
 
-    NSArray *subviews = [contentView subviews];
-    unsigned i, count = [subviews count];
-    for (i = 0; i < count; ++i) {
-        NSView *view = [subviews objectAtIndex:i];
-        if ([view isKindOfClass:[NSTextField class]]
-                && [view frame].origin.y < rect.origin.y) {
+    for (NSView *view in contentView.subviews) {
+        if ([view isKindOfClass:NSTextField.class] && view.frame.origin.y < rect.origin.y) {
             // NOTE: The informative text field is the lowest NSTextField in
             // the alert dialog.
-            rect = [view frame];
+            rect = view.frame;
         }
     }
 
     rect.size.height = MMAlertTextFieldHeight;
-    [textField setFrame:rect];
+    textField.frame = rect;
     [contentView addSubview:textField];
     [textField becomeFirstResponder];
 }
@@ -1619,16 +1308,13 @@ static BOOL isUnsafeMessage(int msgid);
 @end // MMAlert
 
 
-
-
-    static BOOL
-isUnsafeMessage(int msgid)
+static BOOL isUnsafeMessage(int msgid)
 {
     // Messages that may release Cocoa objects must be added to this list.  For
     // example, UpdateTabBarMsgID may delete NSTabViewItem objects so it goes
     // on this list.
-    static int unsafeMessages[] = { // REASON MESSAGE IS ON THIS LIST:
-        //OpenWindowMsgID,            // Changes lots of state
+    static const int messages[] = { // REASON MESSAGE IS ON THIS LIST:
+        //OpenWindowMsgID,          // Changes lots of state
         UpdateTabBarMsgID,          // May delete NSTabViewItem
         RemoveMenuItemMsgID,        // Deletes NSMenuItem
         DestroyScrollbarMsgID,      // Deletes NSScroller
@@ -1649,10 +1335,8 @@ isUnsafeMessage(int msgid)
     // unsafe messages.  This is the _only_ reason it is on this list (since
     // all that happens in response to it is that we schedule another message
     // for later handling).
-
-    int i, count = sizeof(unsafeMessages)/sizeof(unsafeMessages[0]);
-    for (i = 0; i < count; ++i)
-        if (msgid == unsafeMessages[i])
+    for (size_t i = 0; i < sizeof(messages) / sizeof(messages[0]); ++i)
+        if (msgid == messages[i])
             return YES;
 
     return NO;

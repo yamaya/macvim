@@ -10,59 +10,37 @@
 
 #import "MacVim.h"
 
-
 @class MMWindowController;
 
+/**
+ */
+@interface MMVimController : NSObject<NSToolbarDelegate, NSOpenSavePanelDelegate>
 
+@property (nonatomic, readonly) MMWindowController *windowController;
+@property (nonatomic, readonly) id backendProxy;
+@property (nonatomic, readonly) NSMenu *mainMenu;
+@property (nonatomic, readonly) int pid;
+@property (nonatomic, copy) NSString *serverName;
+@property (nonatomic, readonly) NSDictionary *vimState;
+@property (nonatomic, assign) BOOL isPreloading;
+@property (nonatomic, readonly) NSDate *creationDate;
+@property (nonatomic, readonly) BOOL hasModifiedBuffer;
+@property (nonatomic, readonly) unsigned vimControllerId;
 
-@interface MMVimController : NSObject<NSToolbarDelegate,
-    NSOpenSavePanelDelegate>
-{
-    unsigned            identifier;
-    BOOL                isInitialized;
-    MMWindowController  *windowController;
-    id                  backendProxy;
-    NSMenu              *mainMenu;
-    NSMutableArray      *popupMenuItems;
+- (instancetype)initWithBackend:(id)backend pid:(int)processIdentifier;
 
-    // TODO: Move all toolbar code to window controller?
-    NSToolbar           *toolbar;
-    NSMutableDictionary *toolbarItemDict;
-
-    int                 pid;
-    NSString            *serverName;
-    NSDictionary        *vimState;
-    BOOL                isPreloading;
-    NSDate              *creationDate;
-    BOOL                hasModifiedBuffer;
-}
-
-- (id)initWithBackend:(id)backend pid:(int)processIdentifier;
-- (unsigned)vimControllerId;
-- (id)backendProxy;
-- (int)pid;
-- (void)setServerName:(NSString *)name;
-- (NSString *)serverName;
-- (MMWindowController *)windowController;
-- (NSDictionary *)vimState;
 - (id)objectForVimStateKey:(NSString *)key;
-- (NSMenu *)mainMenu;
-- (BOOL)isPreloading;
-- (void)setIsPreloading:(BOOL)yn;
-- (BOOL)hasModifiedBuffer;
-- (NSDate *)creationDate;
+
 - (void)cleanup;
 - (void)dropFiles:(NSArray *)filenames forceOpen:(BOOL)force;
-- (void)file:(NSString *)filename draggedToTabAtIndex:(NSUInteger)tabIndex;
+- (void)file:(NSString *)filename draggedToTabAtIndex:(NSUInteger)index;
 - (void)filesDraggedToTabBar:(NSArray *)filenames;
 - (void)dropString:(NSString *)string;
 - (void)passArguments:(NSDictionary *)args;
 - (void)sendMessage:(int)msgid data:(NSData *)data;
-- (BOOL)sendMessageNow:(int)msgid data:(NSData *)data
-               timeout:(NSTimeInterval)timeout;
+- (BOOL)sendMessageNow:(int)msgid data:(NSData *)data timeout:(NSTimeInterval)timeout;
 - (void)addVimInput:(NSString *)string;
-- (NSString *)evaluateVimExpression:(NSString *)expr;
-- (id)evaluateVimExpressionCocoa:(NSString *)expr
-                     errorString:(NSString **)errstr;
+- (NSString *)evaluateVimExpression:(NSString *)expression;
+- (id)evaluateVimExpressionCocoa:(NSString *)expression errorString:(NSString **)outErrorString;
 - (void)processInputQueue:(NSArray *)queue;
 @end
