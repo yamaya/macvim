@@ -12,6 +12,7 @@
 
 // Need Carbon for TIS...() functions
 #import <Carbon/Carbon.h>
+#import "MMPoint.h"
 
 
 #define BLUE(argb)      ((argb & 0xff)/255.0f)
@@ -19,42 +20,22 @@
 #define RED(argb)       (((argb>>16) & 0xff)/255.0f)
 #define ALPHA(argb)     (((argb>>24) & 0xff)/255.0f)
 
+@protocol MMTextView;
 
-@interface MMTextViewHelper : NSObject {
-    id                  textView;
-    BOOL                isDragging;
-    int                 dragRow;
-    int                 dragColumn;
-    int                 dragFlags;
-    NSPoint             dragPoint;
-    BOOL                isAutoscrolling;
-    int                 mouseShape;
-    NSColor             *insertionPointColor;
-    BOOL                interpretKeyEventsSwallowedKey;
-    NSEvent             *currentEvent;
-    NSMutableDictionary *signImages;
-    BOOL                useMouseTime;
-    NSDate              *mouseDownTime;
-    CGFloat             scrollingDeltaX;
-    CGFloat             scrollingDeltaY;
+@interface MMTextViewHelper : NSObject
 
-    // Input Manager
-    NSRange             imRange;
-    NSRange             markedRange;
-    NSDictionary        *markedTextAttributes;
-    NSMutableAttributedString   *markedText;
-    int                 preEditRow;
-    int                 preEditColumn;
-    BOOL                imControl;
-    BOOL                imState;
-    TISInputSourceRef   lastImSource;
-    TISInputSourceRef   asciiImSource;
-}
-
-- (id)init;
-- (void)setTextView:(id)view;
-- (void)setInsertionPointColor:(NSColor *)color;
-- (NSColor *)insertionPointColor;
+@property (nonatomic, retain) NSView<MMTextView> *textView;
+@property (nonatomic, assign) int mouseShape;
+@property (nonatomic, retain) NSDictionary *markedTextAttributes;
+@property (nonatomic, retain) NSColor *insertionPointColor;
+@property (nonatomic, assign) NSRange inputMethodRange;
+@property (nonatomic, assign) NSRange markedRange;
+@property (nonatomic, readonly) NSMutableAttributedString *markedText;
+@property (nonatomic, assign) MMPoint preeditPoint;
+@property (nonatomic, assign) BOOL inputMethodEnabled;
+@property (nonatomic, assign) BOOL inputSourceActivated;
+@property (nonatomic, readonly) BOOL inlineInputMethodUsed;
+@property (nonatomic, readonly) BOOL hasMarkedText;
 
 - (void)keyDown:(NSEvent *)event;
 - (void)insertText:(id)string;
@@ -68,29 +49,14 @@
 - (BOOL)performDragOperation:(id <NSDraggingInfo>)sender;
 - (NSDragOperation)draggingEntered:(id <NSDraggingInfo>)sender;
 - (NSDragOperation)draggingUpdated:(id <NSDraggingInfo>)sender;
-- (void)setMouseShape:(int)shape;
 - (void)changeFont:(id)sender;
 - (NSImage *)signImageForName:(NSString *)imgName;
 - (void)deleteImage:(NSString *)imgName;
 
 // Input Manager
-- (BOOL)hasMarkedText;
-- (NSRange)markedRange;
-- (NSDictionary *)markedTextAttributes;
-- (void)setMarkedTextAttributes:(NSDictionary *)attr;
 - (void)setMarkedText:(id)text selectedRange:(NSRange)range;
 - (void)unmarkText;
-- (NSMutableAttributedString *)markedText;
-- (void)setPreEditRow:(int)row column:(int)col;
-- (int)preEditRow;
-- (int)preEditColumn;
-- (void)setImRange:(NSRange)range;
-- (NSRange)imRange;
-- (void)setMarkedRange:(NSRange)range;
 - (NSRect)firstRectForCharacterRange:(NSRange)range;
-- (void)setImControl:(BOOL)enable;
-- (void)activateIm:(BOOL)enable;
-- (BOOL)useInlineIm;
-- (void)checkImState;
+- (void)normalizeInputMethodState;
 
 @end

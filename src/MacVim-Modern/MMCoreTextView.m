@@ -112,7 +112,7 @@ defaultAdvanceForFont(NSFont *font)
     antialias = _antialias, ligatures = _ligatures, thinStrokes = _thinStrokes,
     CGLayerEnabled = _CGLayerEnabled,
     IMActivated = _IMActivated, IMControlled = _IMControlled;
-@dynamic mouseShape;
+@dynamic mouseShape, markedTextAttributes;
 
 - (instancetype)initWithFrame:(NSRect)frame
 {
@@ -307,29 +307,29 @@ defaultAdvanceForFont(NSFont *font)
 
 - (void)setPreEditRow:(int)row column:(int)col
 {
-    [_helper setPreEditRow:row column:col];
+    _helper.preeditPoint = (MMPoint){row, col};
 }
 
 - (void)setMouseShape:(int)shape
 {
-    [_helper setMouseShape:shape];
+    _helper.mouseShape = shape;
 }
 
 - (void)setIMControlled:(BOOL)enable
 {
     _IMControlled = enable;
-    [_helper setImControl:enable];
+    _helper.inputMethodEnabled = enable;
 }
 
 - (void)setIMActivated:(BOOL)enable
 {
     _IMActivated = enable;
-    [_helper activateIm:enable];
+    _helper.inputSourceActivated = enable;
 }
 
 - (void)checkImState
 {
-    [_helper checkImState];
+    [_helper normalizeInputMethodState];
 }
 
 - (BOOL)_wantsKeyDownForEvent:(id)event
@@ -753,7 +753,7 @@ defaultAdvanceForFont(NSFont *font)
 
 - (NSRange)selectedRange
 {
-    return _helper.imRange;
+    return _helper.inputMethodRange;
 }
 
 - (NSRect)firstRectForCharacterRange:(NSRange)range

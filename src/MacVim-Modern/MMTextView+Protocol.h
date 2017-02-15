@@ -32,6 +32,7 @@
 @property (nonatomic) BOOL CGLayerEnabled;
 @property (nonatomic) BOOL IMActivated;
 @property (nonatomic) BOOL IMControlled;
+@property (nonatomic, retain) NSDictionary *markedTextAttributes;
 
 - (void)getMaxRows:(int *)rows columns:(int *)cols;
 - (void)setMaxRows:(int)rows columns:(int)columns;
