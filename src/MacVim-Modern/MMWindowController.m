@@ -64,8 +64,6 @@
 #import "MMAppController.h"
 #import "MMFindReplaceController.h"
 #import "MMFullScreenWindow.h"
-#import "MMTextView.h"
-#import "MMTypesetter.h"
 #import "MMVimController.h"
 #import "MMVimView.h"
 #import "MMWindow.h"
@@ -503,7 +501,7 @@
 
 - (void)setWideFont:(NSFont *)font
 {
-    _vimView.textView.wideFont = font;
+    _vimView.textView.fontWide = font;
 }
 
 - (void)processInputQueueDidFinish

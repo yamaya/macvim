@@ -9,6 +9,7 @@
  */
 
 #import <Cocoa/Cocoa.h>
+#import "MMTextView+Protocol.h"
 
 @class PSMTabBarControl;
 @class MMTextView;
@@ -19,7 +20,7 @@
  */
 @interface MMVimView : NSView
 
-@property (nonatomic, readonly) MMTextView *textView;
+@property (nonatomic, readonly) NSView<MMTextView> *textView;
 @property (nonatomic, readonly) NSSize desiredSize;
 @property (nonatomic, readonly) NSSize minSize;
 @property (nonatomic, readonly) PSMTabBarControl *tabBarControl;

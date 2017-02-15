@@ -314,7 +314,6 @@ extern const NSString *MMNoWindowKey;
 
 extern const NSString *MMAutosaveRowsKey;
 extern const NSString *MMAutosaveColumnsKey;
-extern const NSString *MMRendererKey;
 
 enum {
     MMRendererDefault = 0,

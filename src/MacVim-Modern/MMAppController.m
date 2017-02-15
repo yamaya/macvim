@@ -41,9 +41,9 @@
 #import "MMPreferenceController.h"
 #import "MMVimController.h"
 #import "MMWindowController.h"
-#import "MMTextView.h"
 #import "MMVimView.h"
 #import "Miscellaneous.h"
+#import "MMTextView+Protocol.h"
 #import <unistd.h>
 #import <CoreServices/CoreServices.h>
 // Need Carbon for TIS...() functions
@@ -225,8 +225,6 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
         [NSNumber numberWithInt:0],       MMOpenInCurrentWindowKey,
         [NSNumber numberWithBool:NO],     MMNoFontSubstitutionKey,
         [NSNumber numberWithBool:YES],    MMLoginShellKey,
-        [NSNumber numberWithInt:MMRendererCoreText],
-                                          MMRendererKey,
         [NSNumber numberWithInt:MMUntitledWindowAlways],
                                           MMUntitledWindowKey,
         [NSNumber numberWithBool:NO],     MMZoomBothKey,
@@ -1116,26 +1114,7 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
 
 - (IBAction)coreTextButtonClicked:(id)sender
 {
-    ASLogDebug(@"Toggle CoreText renderer");
-
-    NSInteger renderer = MMRendererDefault;
-    if ([sender state] == NSOnState) {
-        renderer = MMRendererCoreText;
-    }
-
-    // Update the user default MMRenderer and synchronize the change so that
-    // any new Vim process will pick up on the changed setting.
-    CFPreferencesSetAppValue(
-            (CFStringRef)MMRendererKey,
-            (CFPropertyListRef)@(renderer),
-            kCFPreferencesCurrentApplication);
-    CFPreferencesAppSynchronize(kCFPreferencesCurrentApplication);
-
-    ASLogInfo(@"Use renderer=%ld", renderer);
-
-    // This action is called when the user clicks the "use CoreText renderer"
-    // button in the advanced preferences pane.
-    [self rebuildPreloadCache];
+    ASLogDebug(@"NOP. delete me");
 }
 
 - (IBAction)loginShellButtonClicked:(id)sender
@@ -2230,7 +2209,7 @@ fsEventCallback(ConstFSEventStreamRef streamRef,
 - (void)inputSourceChanged:(NSNotification *)notification
 {
     for (MMVimController *controller in _vimControllers) {
-        MMTextView *tv = (MMTextView *)[controller.windowController.vimView textView];
+        NSView<MMTextView> *tv = (NSView<MMTextView> *)[controller.windowController.vimView textView];
         [tv checkImState];
     }
 }

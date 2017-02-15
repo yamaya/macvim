@@ -24,7 +24,6 @@
  */
 
 #import "MMFullScreenWindow.h"
-#import "MMTextView.h"
 #import "MMVimController.h"
 #import "MMVimView.h"
 #import "MMWindowController.h"

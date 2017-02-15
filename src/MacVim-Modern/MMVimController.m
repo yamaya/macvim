@@ -28,7 +28,6 @@
 
 #import "MMAppController.h"
 #import "MMFindReplaceController.h"
-#import "MMTextView.h"
 #import "MMVimController.h"
 #import "MMVimView.h"
 #import "MMWindowController.h"
@@ -1519,7 +1518,7 @@ static BOOL isUnsafeMessage(int msgid);
 
 - (void)handleDeleteSign:(NSDictionary *)attr
 {
-    MMTextView *view = [[windowController vimView] textView];
+    NSView<MMTextView> *view = [[windowController vimView] textView];
     [view deleteSign:[attr objectForKey:@"imgName"]];
 }
 

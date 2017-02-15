@@ -19,10 +19,8 @@
 #import <Foundation/Foundation.h>
 
 
-// HACK! Used in gui.c to determine which string drawing code to use.
-int use_gui_macvim_draw_string = 1;
-
-static int use_graphical_sign = 0;
+int use_gui_macvim_draw_string = 0; // FIXME: delete me
+static int use_graphical_sign = 1; // FIXME: delete me
 
 // Max number of files to add to MRU in one go (this matches the maximum that
 // Cocoa displays in the MRU -- if this changes in Cocoa then update this
@@ -168,35 +166,6 @@ gui_macvim_after_fork_init()
         // columns.
         gui.num_rows = Rows;
         gui.num_cols = Columns;
-    }
-
-    // Check which code path to take for string drawing.
-    CFIndex val;
-    Boolean keyValid;
-    val = CFPreferencesGetAppIntegerValue((CFStringRef)MMRendererKey,
-                                            kCFPreferencesCurrentApplication,
-                                            &keyValid);
-    if (!keyValid) {
-        // If MMRendererKey is not valid in the defaults, it means MacVim uses
-        // the Core Text Renderer.
-        keyValid = YES;
-        val = MMRendererCoreText;
-    }
-    if (val != MMRendererDefault && val != MMRendererCoreText) {
-        // Migrate from the old value to the Core Text Renderer.
-        val = MMRendererCoreText;
-        CFPreferencesSetAppValue((CFStringRef)MMRendererKey,
-                                (CFPropertyListRef)[NSNumber numberWithInt:val],
-                                kCFPreferencesCurrentApplication);
-        CFPreferencesAppSynchronize(kCFPreferencesCurrentApplication);
-    }
-    if (keyValid) {
-        ASLogInfo(@"Use renderer=%ld", val);
-        use_gui_macvim_draw_string = (val != MMRendererCoreText);
-
-        // For now only the Core Text renderer knows how to render graphical
-        // signs.
-        use_graphical_sign = (val == MMRendererCoreText);
     }
 }
 
