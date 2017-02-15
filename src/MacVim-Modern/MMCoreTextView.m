@@ -109,12 +109,13 @@ defaultAdvanceForFont(NSFont *font)
     NSMutableData       *_characters;
 }
 
-@synthesize maxRows = _maxRows, maxColumns = _maxColumns,
+@synthesize maxRows = _maxRows, maxColumns = _maxColumns, cellSize = _cellSize,
     defaultForegroundColor = _defaultForegroundColor, defaultBackgroundColor = _defaultBackgroundColor,
     font = _font, fontWide = _fontWide,
     linespace = _linespace, textContainerInset = _textContainerInset,
     antialias = _antialias, ligatures = _ligatures, thinStrokes = _thinStrokes,
     CGLayerEnabled = _CGLayerEnabled;
+@dynamic mouseShape;
 
 - (instancetype)initWithFrame:(NSRect)frame
 {

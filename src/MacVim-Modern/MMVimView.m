@@ -20,7 +20,6 @@
 
 #import "Miscellaneous.h"
 #import "MMCoreTextView.h"
-#import "MMTextView.h"
 #import "MMVimController.h"
 #import "MMVimView.h"
 #import "MMWindowController.h"
@@ -92,17 +91,7 @@ enum {
     // frameSizeMayHaveChanged.
     self.autoresizesSubviews = YES;
 
-    NSInteger renderer = [NSUserDefaults.standardUserDefaults integerForKey:(NSString *)MMRendererKey];
-    ASLogInfo(@"Use renderer=%ld", renderer);
-
-    if (MMRendererCoreText == renderer) {
-        // HACK! 'textView' has type MMTextView, but MMCoreTextView is not
-        // derived from MMTextView.
-        _textView = (MMTextView *)[[MMCoreTextView alloc] initWithFrame:frame];
-    } else {
-        // Use Cocoa text system for text rendering.
-        _textView = [[MMTextView alloc] initWithFrame:frame];
-    }
+    _textView = [[MMCoreTextView alloc] initWithFrame:frame];
 
     // Allow control of text view inset via MMTextInset* user defaults.
     [_textView setTextContainerInset:(NSSize){

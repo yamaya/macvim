@@ -112,7 +112,6 @@ const NSString *MMLogToStdErrKey        = @"MMLogToStdErr";
 const NSString *MMNoWindowKey           = @"MMNoWindow";
 const NSString *MMAutosaveRowsKey       = @"MMAutosaveRows";
 const NSString *MMAutosaveColumnsKey    = @"MMAutosaveColumns";
-const NSString *MMRendererKey	        = @"MMRenderer";
 const NSString *VimFindPboardType       = @"VimFindPboardType";
 
 int ASLogLevel = MM_ASL_LEVEL_DEFAULT;

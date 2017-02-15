@@ -9,13 +9,10 @@
 /* Begin PBXBuildFile section */
 		0395A8330D71ED7800881434 /* DBPrefsWindowController.m in Sources */ = {isa = PBXBuildFile; fileRef = 0395A8320D71ED7800881434 /* DBPrefsWindowController.m */; };
 		0395A8AA0D72D88B00881434 /* General.png in Resources */ = {isa = PBXBuildFile; fileRef = 0395A8A90D72D88B00881434 /* General.png */; };
-		1D09AB420C6A4D520045497E /* MMTypesetter.m in Sources */ = {isa = PBXBuildFile; fileRef = 1D09AB400C6A4D520045497E /* MMTypesetter.m */; };
 		1D0E051C0BA5F83800B6049E /* Colors.plist in Resources */ = {isa = PBXBuildFile; fileRef = 1D0E051B0BA5F83800B6049E /* Colors.plist */; };
 		1D145C7F0E5227CE00691AA0 /* MMTextViewHelper.m in Sources */ = {isa = PBXBuildFile; fileRef = 1D145C7E0E5227CE00691AA0 /* MMTextViewHelper.m */; };
 		1D1474980C56703C0038FA2B /* MacVim.m in Sources */ = {isa = PBXBuildFile; fileRef = 1D1474960C56703C0038FA2B /* MacVim.m */; settings = {COMPILER_FLAGS = "-fobjc-arc"; }; };
 		1D1474A00C5673AE0038FA2B /* MMAppController.m in Sources */ = {isa = PBXBuildFile; fileRef = 1D14749E0C5673AE0038FA2B /* MMAppController.m */; settings = {COMPILER_FLAGS = "-fobjc-arc"; }; };
-		1D1474AA0C5677450038FA2B /* MMTextStorage.m in Sources */ = {isa = PBXBuildFile; fileRef = 1D1474A80C5677450038FA2B /* MMTextStorage.m */; };
-		1D1474B00C5678370038FA2B /* MMTextView.m in Sources */ = {isa = PBXBuildFile; fileRef = 1D1474AE0C5678370038FA2B /* MMTextView.m */; };
 		1D1474B60C56796D0038FA2B /* MMVimController.m in Sources */ = {isa = PBXBuildFile; fileRef = 1D1474B40C56796D0038FA2B /* MMVimController.m */; };
 		1D1474BC0C567A910038FA2B /* MMWindowController.m in Sources */ = {isa = PBXBuildFile; fileRef = 1D1474BA0C567A910038FA2B /* MMWindowController.m */; settings = {COMPILER_FLAGS = "-fobjc-arc"; }; };
 		1D22374B0E45DF4800E6FFFF /* Advanced.png in Resources */ = {isa = PBXBuildFile; fileRef = 1D22374A0E45DF4800E6FFFF /* Advanced.png */; };
@@ -176,8 +173,6 @@
 		0395A8A90D72D88B00881434 /* General.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = General.png; sourceTree = "<group>"; };
 		089C165DFE840E0CC02AAC07 /* English */ = {isa = PBXFileReference; fileEncoding = 10; lastKnownFileType = text.plist.strings; name = English; path = English.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		1058C7A1FEA54F0111CA2CBB /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = /System/Library/Frameworks/Cocoa.framework; sourceTree = "<absolute>"; };
-		1D09AB3F0C6A4D520045497E /* MMTypesetter.h */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.c.h; path = MMTypesetter.h; sourceTree = "<group>"; };
-		1D09AB400C6A4D520045497E /* MMTypesetter.m */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.c.objc; path = MMTypesetter.m; sourceTree = "<group>"; };
 		1D0E051B0BA5F83800B6049E /* Colors.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Colors.plist; sourceTree = "<group>"; };
 		1D145C7D0E5227CE00691AA0 /* MMTextViewHelper.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = MMTextViewHelper.h; sourceTree = "<group>"; };
 		1D145C7E0E5227CE00691AA0 /* MMTextViewHelper.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = MMTextViewHelper.m; sourceTree = "<group>"; };
@@ -185,10 +180,6 @@
 		1D1474960C56703C0038FA2B /* MacVim.m */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.c.objc; path = MacVim.m; sourceTree = "<group>"; };
 		1D14749D0C5673AE0038FA2B /* MMAppController.h */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.c.h; path = MMAppController.h; sourceTree = "<group>"; };
 		1D14749E0C5673AE0038FA2B /* MMAppController.m */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.c.objc; path = MMAppController.m; sourceTree = "<group>"; };
-		1D1474A70C5677450038FA2B /* MMTextStorage.h */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.c.h; path = MMTextStorage.h; sourceTree = "<group>"; };
-		1D1474A80C5677450038FA2B /* MMTextStorage.m */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.c.objc; path = MMTextStorage.m; sourceTree = "<group>"; };
-		1D1474AD0C5678370038FA2B /* MMTextView.h */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.c.h; path = MMTextView.h; sourceTree = "<group>"; };
-		1D1474AE0C5678370038FA2B /* MMTextView.m */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.c.objc; path = MMTextView.m; sourceTree = "<group>"; };
 		1D1474B30C56796D0038FA2B /* MMVimController.h */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.c.h; path = MMVimController.h; sourceTree = "<group>"; };
 		1D1474B40C56796D0038FA2B /* MMVimController.m */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.c.objc; path = MMVimController.m; sourceTree = "<group>"; };
 		1D1474B90C567A910038FA2B /* MMWindowController.h */ = {isa = PBXFileReference; fileEncoding = 30; lastKnownFileType = sourcecode.c.h; path = MMWindowController.h; sourceTree = "<group>"; };
@@ -312,16 +303,10 @@
 				1D80FBD20CBBD3B700102A1C /* MMVimView.m */,
 				1DD66ECB0C803D3600EBDAB3 /* MMApplication.h */,
 				1DD66ECC0C803D3600EBDAB3 /* MMApplication.m */,
-				1D09AB3F0C6A4D520045497E /* MMTypesetter.h */,
-				1D09AB400C6A4D520045497E /* MMTypesetter.m */,
 				1D1474B90C567A910038FA2B /* MMWindowController.h */,
 				1D1474BA0C567A910038FA2B /* MMWindowController.m */,
 				1D1474B30C56796D0038FA2B /* MMVimController.h */,
 				1D1474B40C56796D0038FA2B /* MMVimController.m */,
-				1D1474AD0C5678370038FA2B /* MMTextView.h */,
-				1D1474AE0C5678370038FA2B /* MMTextView.m */,
-				1D1474A70C5677450038FA2B /* MMTextStorage.h */,
-				1D1474A80C5677450038FA2B /* MMTextStorage.m */,
 				1D14749D0C5673AE0038FA2B /* MMAppController.h */,
 				1D14749E0C5673AE0038FA2B /* MMAppController.m */,
 				1D1474950C56703C0038FA2B /* MacVim.h */,
@@ -639,11 +624,8 @@
 				8D11072D0486CEB800E47090 /* main.m in Sources */,
 				1D1474980C56703C0038FA2B /* MacVim.m in Sources */,
 				1D1474A00C5673AE0038FA2B /* MMAppController.m in Sources */,
-				1D1474AA0C5677450038FA2B /* MMTextStorage.m in Sources */,
-				1D1474B00C5678370038FA2B /* MMTextView.m in Sources */,
 				1D1474B60C56796D0038FA2B /* MMVimController.m in Sources */,
 				1D1474BC0C567A910038FA2B /* MMWindowController.m in Sources */,
-				1D09AB420C6A4D520045497E /* MMTypesetter.m in Sources */,
 				1DD66ECE0C803D3600EBDAB3 /* MMApplication.m in Sources */,
 				1D80FBD40CBBD3B700102A1C /* MMFullScreenWindow.m in Sources */,
 				1D80FBD60CBBD3B700102A1C /* MMVimView.m in Sources */,
