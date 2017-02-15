@@ -24,19 +24,15 @@
  * inset.  This distinction is particularly important when the view is being
  * resized.
  */
-#define USE_ATTRIBUTED_STRING_DRAWING
 #import "Miscellaneous.h"
 #import "MMAppController.h"
 #import "MMCoreTextView.h"
-#import "MMCoreTextRenderer.h"
 #import "MMCoreTextView+Compatibility.h"
 #import "MMFontSmoothing.h"
 #import "MMTextViewHelper.h"
 #import "MMVimController.h"
 #import "MMWindowController.h"
-#ifdef USE_ATTRIBUTED_STRING_DRAWING
 #import "NSAttributedString+CoreText.h"
-#endif
 
 // TODO: What does DRAW_TRANSP flag do?  If the background isn't drawn when
 // this flag is set, then sometimes the character after the cursor becomes
@@ -54,11 +50,7 @@
 - (NSRect)rectFromRow:(int)row1 column:(int)col1 toRow:(int)row2 column:(int)col2;
 - (NSSize)textAreaSize;
 - (void)batchDrawData:(NSData *)data;
-#ifdef USE_ATTRIBUTED_STRING_DRAWING
 - (void)drawAttributedString:(NSAttributedString *)attributedString atRow:(int)row column:(int)col cells:(int)cells withFlags:(int)flags foregroundColor:(int)fg backgroundColor:(int)bg specialColor:(int)sp;
-#else
-- (void)drawString:(const UniChar *)chars length:(UniCharCount)length atRow:(int)row column:(int)col cells:(int)cells withFlags:(int)flags foregroundColor:(int)fg backgroundColor:(int)bg specialColor:(int)sp;
-#endif
 - (void)deleteLinesFromRow:(int)row lineCount:(int)count scrollBottom:(int)bottom left:(int)left right:(int)right color:(int)color;
 - (void)insertLinesAtRow:(int)row lineCount:(int)count scrollBottom:(int)bottom left:(int)left right:(int)right color:(int)color;
 - (void)clearBlockFromRow:(int)row1 column:(int)col1 toRow:(int)row2 column:(int)col2 color:(int)color;
@@ -73,7 +65,6 @@
 #define ASLogNotice(format, ...)
 #endif
 @end
-
 
 static float
 defaultLineHeightForFont(NSFont *font)
@@ -934,7 +925,6 @@ defaultAdvanceForFont(NSFont *font)
 
 - (void)drawString:(NSString *)string row:(int)row column:(int)col cells:(int)cells flags:(int)flags fg:(int)fg bg:(int)bg sp:(int)sp
 {
-#ifdef USE_ATTRIBUTED_STRING_DRAWING
     NSMutableDictionary *attributes = @{
         NSFontAttributeName: [self fontWithFlags:flags],
         NSLigatureAttributeName: (_ligatures ? @1 : @0),
@@ -949,19 +939,8 @@ defaultAdvanceForFont(NSFont *font)
 
     NSAttributedString *attributedString = [[NSAttributedString alloc] initWithString:string attributes:attributes.copy];
     [self drawAttributedString:attributedString atRow:row column:col cells:cells withFlags:flags foregroundColor:fg backgroundColor:bg specialColor:sp];
-#else
-    const UniChar *ptr = CFStringGetCharactersPtr((__bridge CFStringRef)string);
-    if (!ptr) {
-        _characters.length = string.length * sizeof(UniChar);
-        CFStringGetCharacters((__bridge CFStringRef)string, (CFRange){0, string.length}, _characters.mutableBytes);
-        ptr = _characters.bytes;
-    }
-
-    [self drawString:ptr length:string.length atRow:row column:col cells:cells withFlags:flags foregroundColor:fg backgroundColor:bg specialColor:sp];
-#endif
 }
 
-#ifdef USE_ATTRIBUTED_STRING_DRAWING
 - (void)drawAttributedString:(NSAttributedString *)attributedString atRow:(int)row column:(int)col cells:(int)cells withFlags:(int)flags foregroundColor:(int)fg backgroundColor:(int)bg specialColor:(int)sp
 {
     CGContextRef context = [self getCGContext];
@@ -997,47 +976,6 @@ defaultAdvanceForFont(NSFont *font)
 
     [self setNeedsDisplayCGLayerInRect:clipRect];
 }
-#else
-- (void)drawString:(const UniChar *)chars length:(UniCharCount)length atRow:(int)row column:(int)col cells:(int)cells withFlags:(int)flags foregroundColor:(int)fg backgroundColor:(int)bg specialColor:(int)sp
-{
-    CGContextRef context = [self getCGContext];
-    const CGPoint origin = {
-        .x = col * _cellSize.width + _textContainerInset.width,
-        .y = self.bounds.size.height - _textContainerInset.height - (row + 1) * _cellSize.height,
-    };
-
-    // NOTE: It is assumed that either all characters in 'chars' are wide or
-    // all are normal width.
-    const CGFloat charWidth = _cellSize.width * (flags & DRAW_WIDE ? 2 : 1);
-
-    // NOTE!  'cells' is zero if we're drawing a composing character
-    const CGRect clipRect = {origin, {cells > 0 ? cells*_cellSize.width : charWidth, _cellSize.height}};
-
-    CGContextSaveGState(context);
-    {
-        MMFontSmoothing *fontSmoothing = [MMFontSmoothing fontSmoothingEnabled:_thinStrokes on:context];
-
-        CGContextClipToRect(context, clipRect);
-
-        if (!(flags & DRAW_TRANSP)) {
-            [self drawOn:context backgroundAt:origin stride:cells color:bg];
-        }
-        if (flags & DRAW_UNDERL) {
-            [self drawOn:context underlineAt:origin stride:cells color:sp];
-        } else if (flags & DRAW_UNDERC) {
-            [self drawOn:context curlyUnderlineAt:origin stride:cells color:sp];
-        }
-
-        [self prepareGlyphsWithCount:length charWidth:charWidth];
-        [self drawOn:context characters:chars count:length at:origin color:fg flags:flags];
-      
-        [fontSmoothing restore];
-    }
-    CGContextRestoreGState(context);
-
-    [self setNeedsDisplayCGLayerInRect:clipRect];
-}
-#endif
 
 - (void)drawOn:(CGContextRef)context backgroundAt:(CGPoint)point stride:(int)stride color:(int)color
 {
@@ -1094,19 +1032,6 @@ defaultAdvanceForFont(NSFont *font)
     }
 
     return (__bridge_transfer NSFont *)fontRef;
-}
-
-- (void)drawOn:(CGContextRef)context characters:(const UniChar *)characters count:(UniCharCount)count at:(CGPoint)at color:(int)color flags:(int)flags
-{
-    NSFont *font = [self fontWithFlags:flags];
-
-    CGContextSetTextMatrix(context, CGAffineTransformIdentity);
-    CGContextSetTextDrawingMode(context, kCGTextFill);
-    CGContextSetRGBFillColor(context, RED(color), GREEN(color), BLUE(color), ALPHA(color));
-    CGContextSetFontSize(context, _font.pointSize);
-    CGContextSetTextPosition(context, at.x, at.y + _fontDescent);
-
-    RecurseDraw(characters, _glyphs, _positions, count, context, (__bridge CTFontRef)font, _fontCache, _ligatures);
 }
 
 - (void)drawOn:(CGContextRef)context curlyUnderlineAt:(CGPoint)point stride:(int)stride color:(int)color
