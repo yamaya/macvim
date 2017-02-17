@@ -2940,7 +2940,7 @@ objects/.dirstamp:
 $(ALL_OBJ): objects/.dirstamp
 
 objects/MMBackend.o: MacVim-Modern/MMBackend.m
-	$(CCC) -fobjc-exceptions -o $@ MacVim-Modern/MMBackend.m
+	$(CCC) -fobjc-arc -fobjc-exceptions -o $@ MacVim-Modern/MMBackend.m
 
 objects/MacVim.o: MacVim-Modern/MacVim.m
 	$(CCC) -o $@ MacVim-Modern/MacVim.m
