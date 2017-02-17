@@ -33,6 +33,7 @@
 #import "MMVimController.h"
 #import "MMWindowController.h"
 #import "NSAttributedString+CoreText.h"
+#import "MMDrawCommand.h"
 
 // TODO: What does DRAW_TRANSP flag do?  If the background isn't drawn when
 // this flag is set, then sometimes the character after the cursor becomes
@@ -46,9 +47,7 @@
 #define DRAW_WIDE                 0x40    /* draw wide text */
 
 @interface MMCoreTextView (Drawing)
-- (NSPoint)pointForRow:(int)row column:(int)column;
 - (NSRect)rectFromRow:(int)row1 column:(int)col1 toRow:(int)row2 column:(int)col2;
-- (NSSize)textAreaSize;
 - (void)batchDrawData:(NSData *)data;
 - (void)drawAttributedString:(NSAttributedString *)attributedString atRow:(int)row column:(int)col cells:(int)cells withFlags:(int)flags foregroundColor:(int)fg backgroundColor:(int)bg specialColor:(int)sp;
 - (void)deleteLinesFromRow:(int)row lineCount:(int)count scrollBottom:(int)bottom left:(int)left right:(int)right color:(int)color;
@@ -57,6 +56,8 @@
 - (void)clearAll;
 - (void)drawInsertionPointAtRow:(int)row column:(int)col shape:(int)shape fraction:(int)percent color:(int)color;
 - (void)drawInvertedRectAtRow:(int)row column:(int)col numRows:(int)nrows numColumns:(int)ncols;
+- (void)clearBlockWithParams:(const MMDrawCommandClear *)params;
+- (void)deleteLinesWithParams:(const MMDrawCommandDeleteLines *)params;
 #if 0
 #undef ASLogNotice
 #define ASLogNotice(format, ...) NSLog(format, ##__VA_ARGS__)
@@ -814,14 +815,6 @@ defaultAdvanceForFont(NSFont *font)
  */
 @implementation MMCoreTextView (Drawing)
 
-- (NSPoint)pointForRow:(int)row column:(int)col
-{
-    return (NSPoint){
-        .x = col * _cellSize.width + _textContainerInset.width,
-        .y = self.bounds.size.height - (row + 1) * _cellSize.height - _textContainerInset.height
-    };
-}
-
 - (NSRect)rectFromRow:(int)row1 column:(int)col1 toRow:(int)row2 column:(int)col2
 {
     return (NSRect){
@@ -832,157 +825,28 @@ defaultAdvanceForFont(NSFont *font)
     };
 }
 
-- (NSSize)textAreaSize
-{
-    // Calculate the (desired) size of the text area, i.e. the text view area
-    // minus the inset area.
-    return (NSSize){_maxColumns * _cellSize.width, _maxRows * _cellSize.height};
-}
-
 - (void)batchDrawData:(NSData *)data
 {
     const void *bytes = data.bytes;
-    const void *end = bytes + data.length;
+    const void *const end = bytes + data.length;
 
     ASLogNotice(@"====> BEGIN");
-    // TODO: Sanity check input
 
     while (bytes < end) {
-#if 0
         MMDrawCommand *command = [[MMDrawCommand alloc] initWithBytes:bytes];
         switch (command.type) {
-        case ClearAllDrawType:
-            [self clearAll];
-            break;
-        case ClearBlockDrawType: {
-            const MMDrawCommandClear* p = command.
-            ASLogNotice(@"   Clear block (%d,%d) -> (%d,%d)", row1, col1, row2,col2);
-            [self clearBlockFromRow:row1 column:col1 toRow:row2 column:col2 color:color];
-            break;
+        case ClearAllDrawType: [self clearAll]; break;
+        case ClearBlockDrawType: [self clearBlockWithParams:command.parametersForClear]; break;
+        case DeleteLinesDrawType: [self deleteLinesWithParams:command.parametersForDeleteLines]; break;
+        case DrawStringDrawType: [self drawStringWithParams:command.parametersForDrawString]; break;
+        case InsertLinesDrawType: [self insertLinesWithParams:command.parametersForInsertLines]; break;
+        case DrawCursorDrawType: [self drawCursorWithParams:command.parametersForDrawCursor]; break;
+        case SetCursorPosDrawType: [self moveCursorWithParams:command.parametersForMoveCursor]; break;
+        case DrawInvertedRectDrawType: [self drawInvertedRectWithParams:command.parametersForInvertRect]; break;
+        case DrawSignDrawType: [self drawSignWithParams:command.parametersForDrawSign]; break;
+        default: ASLogWarn(@"Unknown draw type (type=%d)", command.type); break;
         }
-        case DeleteLinesDrawType:
-            break;
-        case DrawStringDrawType:
-            break;
-        case InsertLinesDrawType:
-            break;
-        case DrawCursorDrawType:
-            break;
-        case SetCursorPosDrawType:
-            break;
-        case DrawInvertedRectDrawType:
-            break;
-        case DrawSignDrawType:
-            break;
-        }
-#endif
-        int type = *((int*)bytes);
-        bytes += sizeof(int);
-
-        if (ClearAllDrawType == type) {
-            ASLogNotice(@"   Clear all");
-            [self clearAll];
-        } else if (ClearBlockDrawType == type) {
-            unsigned color = *((unsigned*)bytes);  bytes += sizeof(unsigned);
-            int row1 = *((int*)bytes);  bytes += sizeof(int);
-            int col1 = *((int*)bytes);  bytes += sizeof(int);
-            int row2 = *((int*)bytes);  bytes += sizeof(int);
-            int col2 = *((int*)bytes);  bytes += sizeof(int);
-
-            ASLogNotice(@"   Clear block (%d,%d) -> (%d,%d)", row1, col1, row2,col2);
-
-            [self clearBlockFromRow:row1 column:col1 toRow:row2 column:col2 color:color];
-        } else if (DeleteLinesDrawType == type) {
-            unsigned color = *((unsigned*)bytes);  bytes += sizeof(unsigned);
-            int row = *((int*)bytes);  bytes += sizeof(int);
-            int count = *((int*)bytes);  bytes += sizeof(int);
-            int bot = *((int*)bytes);  bytes += sizeof(int);
-            int left = *((int*)bytes);  bytes += sizeof(int);
-            int right = *((int*)bytes);  bytes += sizeof(int);
-
-            ASLogNotice(@"   Delete %d line(s) from %d", count, row);
-
-            [self deleteLinesFromRow:row lineCount:count scrollBottom:bot left:left right:right color:color];
-        } else if (DrawSignDrawType == type) {
-            int strSize = *((int*)bytes);  bytes += sizeof(int);
-            NSString *name = [NSString stringWithUTF8String:(const char*)bytes];
-            bytes += strSize;
-
-            int col = *((int*)bytes);  bytes += sizeof(int);
-            int row = *((int*)bytes);  bytes += sizeof(int);
-            int width = *((int*)bytes);  bytes += sizeof(int);
-            int height = *((int*)bytes);  bytes += sizeof(int);
-
-            NSImage *image = [_helper signImageForName:name];
-            NSRect rect = [self rectForRow:row column:col numRows:height numColumns:width];
-            if (_CGLayerEnabled) {
-                CGContextRef context = [self getCGContext];
-                CGImageRef imageRef = [image CGImageForProposedRect:&rect context:nil hints:nil];
-                CGContextDrawImage(context, rect, imageRef);
-            } else {
-                [image drawInRect:rect fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1];
-            }
-            [self setNeedsDisplayCGLayerInRect:rect];
-        } else if (DrawStringDrawType == type) {
-            const int bg = *((int *)bytes); bytes += sizeof(int);
-            const int fg = *((int *)bytes); bytes += sizeof(int);
-            const int sp = *((int *)bytes); bytes += sizeof(int);
-            const int row = *((int *)bytes); bytes += sizeof(int);
-            const int col = *((int *)bytes); bytes += sizeof(int);
-            const int cells = *((int *)bytes); bytes += sizeof(int);
-            const int flags = *((int *)bytes); bytes += sizeof(int);
-            const int length = *((int *)bytes); bytes += sizeof(int);
-            UInt8 *u8 = (UInt8 *)bytes; bytes += length;
-
-            ASLogNotice(@"   Draw string length=%d row=%d col=%d flags=%#x", length, row, col, flags);
-
-            // Convert UTF-8 chars to UTF-16
-            NSString *string = [[NSString alloc] initWithBytesNoCopy:u8 length:length encoding:NSUTF8StringEncoding freeWhenDone:NO];
-            [self drawString:string row:row column:col cells:cells flags:flags fg:fg bg:bg sp:sp];
-
-        } else if (InsertLinesDrawType == type) {
-            unsigned color = *((unsigned*)bytes);  bytes += sizeof(unsigned);
-            int row = *((int*)bytes);  bytes += sizeof(int);
-            int count = *((int*)bytes);  bytes += sizeof(int);
-            int bot = *((int*)bytes);  bytes += sizeof(int);
-            int left = *((int*)bytes);  bytes += sizeof(int);
-            int right = *((int*)bytes);  bytes += sizeof(int);
-
-            ASLogNotice(@"   Insert %d line(s) at row %d", count, row);
-
-            [self insertLinesAtRow:row lineCount:count scrollBottom:bot left:left right:right color:color];
-        } else if (DrawCursorDrawType == type) {
-            unsigned color = *((unsigned*)bytes);  bytes += sizeof(unsigned);
-            int row = *((int*)bytes);  bytes += sizeof(int);
-            int col = *((int*)bytes);  bytes += sizeof(int);
-            int shape = *((int*)bytes);  bytes += sizeof(int);
-            int percent = *((int*)bytes);  bytes += sizeof(int);
-
-            ASLogNotice(@"   Draw cursor at (%d,%d)", row, col);
-
-            [self drawInsertionPointAtRow:row column:col shape:shape fraction:percent color:color];
-        } else if (DrawInvertedRectDrawType == type) {
-            int row = *((int*)bytes);  bytes += sizeof(int);
-            int col = *((int*)bytes);  bytes += sizeof(int);
-            int nr = *((int*)bytes);  bytes += sizeof(int);
-            int nc = *((int*)bytes);  bytes += sizeof(int);
-            /*int invert = *((int*)bytes);*/  bytes += sizeof(int);
-
-            ASLogNotice(@"   Draw inverted rect: row=%d col=%d nrows=%d " "ncols=%d", row, col, nr, nc);
-
-            [self drawInvertedRectAtRow:row column:col numRows:nr numColumns:nc];
-        } else if (SetCursorPosDrawType == type) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunused-variable"
-            // TODO: This is used for Voice Over support in MMTextView,
-            // MMCoreTextView currently does not support Voice Over.
-            int row = *((int*)bytes);  bytes += sizeof(int);
-            int col = *((int*)bytes);  bytes += sizeof(int);
-#pragma clang diagnostic pop
-            ASLogNotice(@"   Set cursor row=%d col=%d", row, col);
-        } else {
-            ASLogWarn(@"Unknown draw type (type=%d)", type);
-        }
+        bytes += command.byteCount;
     }
 
     ASLogNotice(@"<==== END");
@@ -1138,9 +1002,15 @@ defaultAdvanceForFont(NSFont *font)
     }
 }
 
+- (void)deleteLinesWithParams:(const MMDrawCommandDeleteLines *)p
+{
+    ASLogNotice(@"   Delete %d line(s) from %d", p->count, p->row);
+    [self deleteLinesFromRow:p->row lineCount:p->count scrollBottom:p->scrollBottom left:p->left right:p->right color:p->color];
+}
+
 - (void)deleteLinesFromRow:(int)row lineCount:(int)count scrollBottom:(int)bottom left:(int)left right:(int)right color:(int)color
 {
-    NSRect rect = [self rectFromRow:row + count column:left toRow:bottom column:right];
+    const NSRect rect = [self rectFromRow:row + count column:left toRow:bottom column:right];
 
     // move rect up for count lines
     [self scrollRect:rect lineCount:-count];
@@ -1149,11 +1019,24 @@ defaultAdvanceForFont(NSFont *font)
 
 - (void)insertLinesAtRow:(int)row lineCount:(int)count scrollBottom:(int)bottom left:(int)left right:(int)right color:(int)color
 {
-    NSRect rect = [self rectFromRow:row column:left toRow:bottom - count column:right];
+    const NSRect rect = [self rectFromRow:row column:left toRow:bottom - count column:right];
 
     // move rect down for count lines
     [self scrollRect:rect lineCount:count];
     [self clearBlockFromRow:row column:left toRow:row + count - 1 column:right color:color];
+}
+
+- (void)insertLinesWithParams:(const MMDrawCommandInsertLines *)p
+{
+    ASLogNotice(@"   Insert %d line(s) at row %d", p->count, p->row);
+    [self insertLinesAtRow:p->row lineCount:p->count scrollBottom:p->scrollBottom left:p->left right:p->right color:p->color];
+}
+
+- (void)clearBlockWithParams:(const MMDrawCommandClear *)p
+{
+    ASLogNotice(@"   Clear block (%d,%d) -> (%d,%d)", p->row1, p->col1, p->row2, p->col2);
+
+    [self clearBlockFromRow:p->row1 column:p->col1 toRow:p->row2 column:p->col2 color:p->color];
 }
 
 - (void)clearBlockFromRow:(int)row1 column:(int)col1 toRow:(int)row2 column:(int)col2 color:(int)color
@@ -1182,6 +1065,13 @@ defaultAdvanceForFont(NSFont *font)
     CGContextSetBlendMode(context, kCGBlendModeNormal);
 
     [self setNeedsDisplayCGLayer:YES];
+}
+
+- (void)drawCursorWithParams:(const MMDrawCommandDrawCursor *)p
+{
+    ASLogNotice(@"   Draw cursor at (%d,%d)", p->row, p->col);
+
+    [self drawInsertionPointAtRow:p->row column:p->col shape:p->shape fraction:p->fraction color:p->color];
 }
 
 - (void)drawInsertionPointAtRow:(int)row column:(int)col shape:(int)shape fraction:(int)percent color:(int)color
@@ -1241,6 +1131,43 @@ defaultAdvanceForFont(NSFont *font)
 
     [self setNeedsDisplayCGLayerInRect:rect];
     CGContextRestoreGState(contextRef);
+}
+
+- (void)drawInvertedRectWithParams:(const MMDrawCommandInvertRect *)p
+{
+    ASLogNotice(@"   Draw inverted rect: row=%d col=%d nrows=%d " "ncols=%d", p->row, p->col, p->numRows, p->numCols);
+
+    [self drawInvertedRectAtRow:p->row column:p->col numRows:p->numRows numColumns:p->numCols];
+}
+
+- (void)drawStringWithParams:(const MMDrawCommandDrawString *)p
+{
+    ASLogNotice(@"   Draw string length=%d row=%d col=%d flags=%#x", p->length, p->row, p->col, p->flags);
+
+    NSString *string = [[NSString alloc] initWithBytesNoCopy:(void *)p->string length:p->length encoding:NSUTF8StringEncoding freeWhenDone:NO];
+    [self drawString:string row:p->row column:p->col cells:p->cells flags:p->flags fg:p->fg bg:p->bg sp:p->sp];
+}
+
+- (void)drawSignWithParams:(const MMDrawCommandDrawSign *)p
+{
+    NSString *name = [[NSString alloc] initWithBytesNoCopy:(void *)p->name length:p->length encoding:NSUTF8StringEncoding freeWhenDone:NO];
+    NSImage *image = [_helper signImageForName:name];
+    NSRect rect = [self rectForRow:p->row column:p->col numRows:p->height numColumns:p->width];
+    if (_CGLayerEnabled) {
+        CGContextRef context = [self getCGContext];
+        CGImageRef imageRef = [image CGImageForProposedRect:&rect context:nil hints:nil];
+        CGContextDrawImage(context, rect, imageRef);
+    } else {
+        [image drawInRect:rect fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1];
+    }
+    self.needsDisplayCGLayerInRect = rect;
+}
+
+- (void)moveCursorWithParams:(const MMDrawCommandMoveCursor *)p
+{
+    // TODO: This is used for Voice Over support in MMTextView,
+    // MMCoreTextView currently does not support Voice Over.
+    ASLogNotice(@"   Set cursor row=%d col=%d", p->row, p->col);
 }
 
 @end // MMCoreTextView (Drawing)

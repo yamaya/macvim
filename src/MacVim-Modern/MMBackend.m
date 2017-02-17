@@ -601,7 +601,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     [drawData appendBytes:&invert length:sizeof(int)];
 }
 
-- (void)drawSign:(NSString *)imgName
+- (void)drawSign:(NSString *)name
            atRow:(int)row
           column:(int)col
            width:(int)width
@@ -610,15 +610,15 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     int type = DrawSignDrawType;
     [drawData appendBytes:&type length:sizeof(int)];
 
-    const char* utf8String = [imgName UTF8String];
-    int strSize = (int)strlen(utf8String) + 1;
-    [drawData appendBytes:&strSize length:sizeof(int)];
-    [drawData appendBytes:utf8String length:strSize];
-
     [drawData appendBytes:&col length:sizeof(int)];
     [drawData appendBytes:&row length:sizeof(int)];
     [drawData appendBytes:&width length:sizeof(int)];
     [drawData appendBytes:&height length:sizeof(int)];
+
+    const char* u8 = name.UTF8String;
+    const int length = (int)strlen(u8) + 1;
+    [drawData appendBytes:&length length:sizeof(int)];
+    [drawData appendBytes:u8 length:length];
 }
 
 - (void)update

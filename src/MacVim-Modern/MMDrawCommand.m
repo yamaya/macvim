@@ -40,68 +40,85 @@
     return *((int *)_bytes);
 }
 
+- (NSUInteger)byteCount
+{
+    NSUInteger n = sizeof(int) + self.byteCountOfParams;
+    if (self.type == DrawStringDrawType) {
+        const MMDrawCommandDrawString *p = self.parametersForDrawString;
+        n += p->length;
+    }
+    else if (self.type == DrawSignDrawType) {
+        const MMDrawCommandDrawSign *p = self.parametersForDrawSign;
+        n += p->length;
+    }
+    return n;
+}
+
 - (const Byte *)pointerToCommand
 {
     return _bytes + sizeof(int);
 }
 
+- (NSUInteger)byteCountOfParams
+{
+    switch (self.type) {
+    case ClearAllDrawType: return sizeof(MMDrawCommandClearAll);
+    case ClearBlockDrawType: return sizeof(MMDrawCommandClear);
+    case DeleteLinesDrawType: return sizeof(MMDrawCommandDeleteLines);
+    case DrawStringDrawType: return sizeof(MMDrawCommandDrawString);
+    case InsertLinesDrawType: return sizeof(MMDrawCommandInsertLines);
+    case DrawCursorDrawType:return sizeof(MMDrawCommandDrawCursor);
+    case SetCursorPosDrawType:return sizeof(MMDrawCommandMoveCursor);
+    case DrawInvertedRectDrawType:return sizeof(MMDrawCommandInvertRect);
+    case DrawSignDrawType:return sizeof(MMDrawCommandDrawSign);
+    }
+    assert(false);
+}
+
 - (const MMDrawCommandClearAll *)parametersForClearAll
 {
-    return (const MMDrawCommandClearAll *) self.pointerToCommand;
+    return (const MMDrawCommandClearAll *)self.pointerToCommand;
 }
 
 - (const MMDrawCommandClear *)parametersForClear
 {
-    return (const MMDrawCommandClear *) self.pointerToCommand;
+    return (const MMDrawCommandClear *)self.pointerToCommand;
 }
 
-- (MMDrawCommandDeleteLines)parametersForDeleteLines
+- (const MMDrawCommandDeleteLines *)parametersForDeleteLines
 {
-    MMDrawCommandDeleteLines command;
-    memcpy(&command, self.pointerToCommand, sizeof(command));
-    return command;
+    return (const MMDrawCommandDeleteLines *)self.pointerToCommand;
 }
 
-- (MMDrawCommandDrawString)parametersForDrawString
+
+- (const MMDrawCommandDrawString *)parametersForDrawString
 {
-    MMDrawCommandDrawString command;
-    memcpy(&command, self.pointerToCommand, sizeof(command));
-    return command;
+    return (const MMDrawCommandDrawString *)self.pointerToCommand;
 }
 
-- (MMDrawCommandInsertLines)parametersForInsertLines
+- (const MMDrawCommandInsertLines *)parametersForInsertLines
 {
-    MMDrawCommandInsertLines command;
-    memcpy(&command, self.pointerToCommand, sizeof(command));
-    return command;
+    return (const MMDrawCommandInsertLines *)self.pointerToCommand;
 }
 
-- (MMDrawCommandDrawCursor)parametersForDrawCursor
+- (const MMDrawCommandDrawCursor *)parametersForDrawCursor
 {
-    MMDrawCommandDrawCursor command;
-    memcpy(&command, self.pointerToCommand, sizeof(command));
-    return command;
+    return (const MMDrawCommandDrawCursor *)self.pointerToCommand;
 }
 
-- (MMDrawCommandMoveCursor)parametersForMoveCursor
+- (const MMDrawCommandMoveCursor *)parametersForMoveCursor
 {
-    MMDrawCommandMoveCursor command;
-    memcpy(&command, self.pointerToCommand, sizeof(command));
-    return command;
+    return (const MMDrawCommandMoveCursor *)self.pointerToCommand;
 }
 
-- (MMDrawCommandInvertRect)parametersForInvertRect
+- (const MMDrawCommandInvertRect *)parametersForInvertRect
 {
-    MMDrawCommandInvertRect command;
-    memcpy(&command, self.pointerToCommand, sizeof(command));
-    return command;
+    return (const MMDrawCommandInvertRect *)self.pointerToCommand;
 }
 
-- (MMDrawCommandDrawSign)parametersForDrawSign
+- (const MMDrawCommandDrawSign *)parametersForDrawSign
 {
-    MMDrawCommandDrawSign command;
-    memcpy(&command, self.pointerToCommand, sizeof(command));
-    return command;
+    return (const MMDrawCommandDrawSign *)self.pointerToCommand;
 }
 
 + (instancetype)commandWithClearAll:(MMDrawCommandClearAll)params
@@ -161,13 +178,11 @@
 + (instancetype)commandWithDrawSign:(MMDrawCommandDrawSign)params
 {
     const int type = DrawSignDrawType;
-    const char* u8 = params.name.UTF8String;
-    const int length = (int)strlen(u8) + 1;
     NSMutableData *data = NSMutableData.new;
 
     [data appendBytes:&type length:sizeof(int)];
-    [data appendBytes:&length length:sizeof(int)];
-    [data appendBytes:u8 length:length];
+    [data appendBytes:&params.length length:sizeof(int)];
+    [data appendBytes:&params.name length:params.length];
     [data appendBytes:&params.col length:sizeof(int)];
     [data appendBytes:&params.row length:sizeof(int)];
     [data appendBytes:&params.width length:sizeof(int)];
