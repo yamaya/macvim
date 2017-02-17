@@ -436,7 +436,6 @@ static BOOL isUnsafeMessage(int msgid);
         const void *bytes = data.bytes;
         int rows = *((int *)bytes);  bytes += sizeof(int);
         int cols = *((int *)bytes);
-
         // NOTE: When a resize message originated in the frontend, Vim
         // acknowledges it with a reply message.  When this happens the window
         // should not move (the frontend would already have moved the window).
@@ -689,7 +688,6 @@ static BOOL isUnsafeMessage(int msgid);
         const void *bytes = data.bytes;
         const int radius = *((int *)bytes);
         _windowController.blurRadius = radius;
-
     // IMPORTANT: When adding a new message, make sure to update
     // isUnsafeMessage() if necessary!
     } else {
@@ -1073,7 +1071,7 @@ static BOOL isUnsafeMessage(int msgid);
                            location:pt
                       modifierFlags:0
                           timestamp:0
-                       windowNumber:[[_windowController window] windowNumber]
+                       windowNumber:_windowController.window.windowNumber
                             context:nil
                         eventNumber:0
                          clickCount:0
@@ -1150,7 +1148,6 @@ static BOOL isUnsafeMessage(int msgid);
 
     if (saving) {
         NSSavePanel *panel = NSSavePanel.savePanel;
-
         // The delegate will be notified when the panel is expanded at which
         // time we may hide/show the "show hidden files" button (this button is
         // always visible for the open panel since it is always expanded).

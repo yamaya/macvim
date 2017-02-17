@@ -641,7 +641,6 @@ KeyboardInputSourcesEqual(TISInputSourceRef a, TISInputSourceRef b)
     // enabled changes to the input method are detected and forwarded to the
     // backend. We do not forward changes to the input method, instead we let
     // Vim be in complete control.
-
     if (_inputSourceASCII) {
         CFRelease(_inputSourceASCII);
         _inputSourceASCII = NULL;

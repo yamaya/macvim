@@ -37,6 +37,7 @@
 @property (nonatomic, readonly) BOOL inlineInputMethodUsed;
 @property (nonatomic, readonly) BOOL hasMarkedText;
 
+- (void)setMarkedText:(id)text selectedRange:(NSRange)range;
 - (void)keyDown:(NSEvent *)event;
 - (void)insertText:(id)string;
 - (void)doCommandBySelector:(SEL)selector;
@@ -54,7 +55,6 @@
 - (void)deleteImage:(NSString *)imgName;
 
 // Input Manager
-- (void)setMarkedText:(id)text selectedRange:(NSRange)range;
 - (void)unmarkText;
 - (NSRect)firstRectForCharacterRange:(NSRange)range;
 - (void)normalizeInputMethodState;

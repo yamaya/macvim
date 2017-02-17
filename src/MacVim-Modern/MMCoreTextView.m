@@ -808,7 +808,6 @@ defaultAdvanceForFont(NSFont *font)
         [self _sendToolTipMouseEntered];
     }
 }
-
 @end
 
 /**
@@ -849,6 +848,34 @@ defaultAdvanceForFont(NSFont *font)
     // TODO: Sanity check input
 
     while (bytes < end) {
+#if 0
+        MMDrawCommand *command = [[MMDrawCommand alloc] initWithBytes:bytes];
+        switch (command.type) {
+        case ClearAllDrawType:
+            [self clearAll];
+            break;
+        case ClearBlockDrawType: {
+            const MMDrawCommandClear* p = command.
+            ASLogNotice(@"   Clear block (%d,%d) -> (%d,%d)", row1, col1, row2,col2);
+            [self clearBlockFromRow:row1 column:col1 toRow:row2 column:col2 color:color];
+            break;
+        }
+        case DeleteLinesDrawType:
+            break;
+        case DrawStringDrawType:
+            break;
+        case InsertLinesDrawType:
+            break;
+        case DrawCursorDrawType:
+            break;
+        case SetCursorPosDrawType:
+            break;
+        case DrawInvertedRectDrawType:
+            break;
+        case DrawSignDrawType:
+            break;
+        }
+#endif
         int type = *((int*)bytes);
         bytes += sizeof(int);
 
