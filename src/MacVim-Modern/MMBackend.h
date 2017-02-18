@@ -96,11 +96,6 @@
 #endif
 @end
 
-@interface NSString (VimStrings)
-+ (id)stringWithVimString:(char_u *)s;
-- (char_u *)vimStringSave;
-@end
-
 #ifdef FEAT_BEVAL
 // Seconds to delay balloon evaluation after mouse event (subtracted from
 // p_bdlay).
