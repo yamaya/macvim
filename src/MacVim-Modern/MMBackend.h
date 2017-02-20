@@ -23,7 +23,7 @@
 @property (nonatomic, readonly) NSConnection *connection;
 @property (nonatomic, readonly) NSDictionary *actions;
 @property (nonatomic, readonly) int initialWindowLayout;
-@property (nonatomic, readonly) MMPoint windowPosition;
+@property (nonatomic, assign) MMPoint windowPosition;
 @property (nonatomic, assign) BOOL waitForAck;
 @property (nonatomic, assign) BOOL tabBarVisible;
 @property (nonatomic, assign) BOOL imState;

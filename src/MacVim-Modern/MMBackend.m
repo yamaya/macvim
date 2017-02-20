@@ -29,7 +29,7 @@
 
 #import "MMBackend.h"
 #import "NSString+Vim.h"
-
+#import "MMEventUtils.h"
 
 // NOTE: Colors in MMBackend are stored as unsigned ints on the form 0xaarrggbb
 // whereas colors in Vim are int without the alpha component.  Also note that
@@ -46,11 +46,6 @@
 
 static unsigned MMServerMax = 1000;
 
-// TODO: Move to separate file.
-static int eventModifierFlagsToVimModMask(int modifierFlags);
-static int eventModifierFlagsToVimMouseModMask(int modifierFlags);
-static int eventButtonNumberToVimMouseButton(int buttonNumber);
-
 // In gui_macvim.m
 vimmenu_T *menu_for_descriptor(NSArray *desc);
 
@@ -59,7 +54,7 @@ static id evalExprCocoa(NSString * expr, NSString ** errstr);
 extern void im_preedit_start_macvim();
 extern void im_preedit_end_macvim();
 extern void im_preedit_abandon_macvim();
-extern void im_preedit_changed_macvim(char *preedit_string, int cursor_index);
+extern void im_preedit_changed_macvim(const char *preedit_string, int cursor_index);
 
 enum {
     MMBlinkStateNone = 0,
@@ -76,13 +71,11 @@ static NSString *MMSymlinkWarningString =
 
 // Keycodes recognized by Vim (struct taken from gui_x11.c and gui_w48.c)
 // (The key codes were taken from Carbon/HIToolbox/Events.)
-static struct specialkey
-{
-    unsigned    key_sym;
-    char_u      vim_code0;
-    char_u      vim_code1;
-} special_keys[] =
-{
+static struct _SpecialKey {
+    unsigned    keysym;
+    char_u      code0;
+    char_u      code1;
+} specialKeys[] = {
     {0x7e /*kVK_UpArrow*/,       'k', 'u'},
     {0x7d /*kVK_DownArrow*/,     'k', 'd'},
     {0x7b /*kVK_LeftArrow*/,     'k', 'l'},
@@ -147,7 +140,7 @@ static struct specialkey
     /* End of list marker: */
     {0, 0, 0}
 };
-
+typedef struct _SpecialKey SpecialKey;
 
 extern GuiFont gui_mch_retain_font(GuiFont font);
 
@@ -165,9 +158,9 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 - (void)insertVimStateMessage;
 - (void)processInputQueue;
 - (void)handleInputEvent:(int)msgid data:(NSData *)data;
-- (void)doKeyDown:(NSString *)key keyCode:(unsigned)code modifiers:(int)mods;
-- (BOOL)handleSpecialKey:(NSString *)key keyCode:(unsigned)code modifiers:(int)mods;
-- (BOOL)handleMacMetaKey:(int)ikey modifiers:(int)mods;
+- (void)doKeyDown:(NSString *)key keyCode:(unsigned)code modifiers:(int)modifiers;
+- (BOOL)handleSpecialKey:(NSString *)key keyCode:(unsigned)code modifiers:(int)modifiers;
+- (BOOL)handleMacMetaKey:(int)ikey modifiers:(int)modifiers;
 - (void)queueMessage:(int)msgid data:(NSData *)data;
 - (void)connectionDidDie:(NSNotification *)notification;
 - (void)blinkTimerFired:(NSTimer *)timer;
@@ -1061,8 +1054,8 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
 - (BOOL)hasSpecialKeyWithValue:(char_u *)value
 {
-    for (size_t i = 0; special_keys[i].key_sym != 0; i++) {
-        if (value[0] == special_keys[i].vim_code0 && value[1] == special_keys[i].vim_code1)
+    for (size_t i = 0; specialKeys[i].keysym != 0; i++) {
+        if (value[0] == specialKeys[i].code0 && value[1] == specialKeys[i].code1)
             return YES;
     }
     return NO;
@@ -1159,8 +1152,8 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
         if (!data) return;
         const void *bytes = [data bytes];
         unsigned mods = *((unsigned*)bytes);  bytes += sizeof(unsigned);
-        unsigned code = *((unsigned*)bytes);  bytes += sizeof(unsigned);
-        unsigned len  = *((unsigned*)bytes);  bytes += sizeof(unsigned);
+        const unsigned code = *((unsigned*)bytes);  bytes += sizeof(unsigned);
+        const unsigned len  = *((unsigned*)bytes);  bytes += sizeof(unsigned);
 
         if (ctrl_c_interrupts && 1 == len) {
             // NOTE: the flag ctrl_c_interrupts is 0 e.g. when the user has
@@ -1177,14 +1170,14 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
         }
 
         // The lowest bit of the modifiers is set if this key is a repeat.
-        BOOL isKeyRepeat = (mods & 1) != 0;
+        const BOOL isKeyRepeat = (mods & 1) != 0;
 
         // Ignore key press if the input buffer has something in it and this
         // key is a repeat (since this means Vim can't keep up with the speed
         // with which new input is being received).
         if (!isKeyRepeat || vim_is_input_buf_empty()) {
             NSString *key = [[NSString alloc] initWithBytes:bytes length:len encoding:NSUTF8StringEncoding];
-            mods = eventModifierFlagsToVimModMask(mods);
+            mods = EventModifierFlagsToVimModMask(mods);
             [self doKeyDown:key keyCode:code modifiers:mods];
         } else {
             ASLogDebug(@"Dropping repeated keyboard input");
@@ -1715,7 +1708,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
         else if (dx < 0) button = MOUSE_6;
         else if (dx > 0) button = MOUSE_7;
 
-        flags = eventModifierFlagsToVimMouseModMask(flags);
+        flags = EventModifierFlagsToVimMouseModMask(flags);
 
         int numLines = (dy != 0) ? (int)round(dy) : (int)round(dx);
         if (numLines < 0) numLines = -numLines;
@@ -1745,9 +1738,9 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
         int flags = *((int*)bytes);  bytes += sizeof(int);
         int repeat = *((int*)bytes);  bytes += sizeof(int);
 
-        button = eventButtonNumberToVimMouseButton(button);
+        button = EventButtonNumberToVimMouseButton(button);
         if (button >= 0) {
-            flags = eventModifierFlagsToVimMouseModMask(flags);
+            flags = EventModifierFlagsToVimMouseModMask(flags);
             gui_send_mouse_event(button, col, row, repeat, flags);
         }
     } else if (MouseUpMsgID == msgid) {
@@ -1758,7 +1751,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
         int col = *((int*)bytes);  bytes += sizeof(int);
         int flags = *((int*)bytes);  bytes += sizeof(int);
 
-        flags = eventModifierFlagsToVimMouseModMask(flags);
+        flags = EventModifierFlagsToVimMouseModMask(flags);
 
         gui_send_mouse_event(MOUSE_RELEASE, col, row, NO, flags);
     } else if (MouseDraggedMsgID == msgid) {
@@ -1769,7 +1762,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
         int col = *((int*)bytes);  bytes += sizeof(int);
         int flags = *((int*)bytes);  bytes += sizeof(int);
 
-        flags = eventModifierFlagsToVimMouseModMask(flags);
+        flags = EventModifierFlagsToVimMouseModMask(flags);
 
         gui_send_mouse_event(MOUSE_DRAG, col, row, NO, flags);
     } else if (MouseMovedMsgID == msgid) {
@@ -1919,30 +1912,25 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     }
 }
 
-- (void)doKeyDown:(NSString *)key
-          keyCode:(unsigned)code
-        modifiers:(int)mods
+- (void)doKeyDown:(NSString *)key keyCode:(unsigned)code modifiers:(int)modifiers
 {
-    ASLogDebug(@"key='%@' code=%#x mods=%#x length=%ld", key, code, mods,
-            [key length]);
+    ASLogDebug(@"key='%@' code=%#x modifiers=%#x length=%ld", key, code, modifiers, key.length);
     if (!key) return;
 
-    char_u *str = (char_u*)[key UTF8String];
-    int i, len = [key lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+    char_u *str = (char_u *)key.UTF8String;
+    int length = [key lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
 
-    if ([self handleSpecialKey:key keyCode:code modifiers:mods])
-        return;
+    if ([self handleSpecialKey:key keyCode:code modifiers:modifiers]) return;
 
 #ifdef FEAT_MBYTE
     char_u *conv_str = NULL;
     if (input_conv.vc_type != CONV_NONE) {
-        conv_str = string_convert(&input_conv, str, &len);
-        if (conv_str)
-            str = conv_str;
+        conv_str = string_convert(&input_conv, str, &length);
+        if (conv_str) str = conv_str;
     }
 #endif
 
-    if (mods & MOD_MASK_CMD) {
+    if (modifiers & MOD_MASK_CMD) {
         // NOTE: For normal input (non-special, 'macmeta' off) the modifier
         // flags are already included in the key event.  However, the Cmd key
         // flag is special and must always be added manually.
@@ -1951,37 +1939,34 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
         // 'macmeta' is set.  It is important that these flags are cleared
         // _after_ special keys have been handled, since they should never be
         // cleared for special keys.
-        mods &= ~MOD_MASK_SHIFT;
-        if (!(mods & MOD_MASK_CTRL)) {
-            BOOL mmta = curbuf ? curbuf->b_p_mmta : YES;
-            if (!mmta)
-                mods &= ~MOD_MASK_ALT;
+        modifiers &= ~MOD_MASK_SHIFT;
+        if (!(modifiers & MOD_MASK_CTRL)) {
+            const BOOL mmta = curbuf ? curbuf->b_p_mmta : YES;
+            if (!mmta) modifiers &= ~MOD_MASK_ALT;
         }
 
-        ASLogDebug(@"add mods=%#x", mods);
-        char_u modChars[3] = { CSI, KS_MODIFIER, mods };
-        add_to_input_buf(modChars, 3);
-    } else if (mods & MOD_MASK_ALT && 1 == len && str[0] < 0x80
-            && curbuf && curbuf->b_p_mmta) {
+        ASLogDebug(@"add modifiers=%#x", modifiers);
+        char_u chars[] = {CSI, KS_MODIFIER, modifiers};
+        add_to_input_buf(chars, sizeof(chars));
+    } else if (modifiers & MOD_MASK_ALT && 1 == length && str[0] < 0x80 && curbuf && curbuf->b_p_mmta) {
         // HACK! The 'macmeta' is set so we have to handle Alt key presses
         // separately.  Normally Alt key presses are interpreted by the
         // frontend but now we have to manually set the 8th bit and deal with
         // UTF-8 conversion.
-        if ([self handleMacMetaKey:str[0] modifiers:mods])
-            return;
+        if ([self handleMacMetaKey:str[0] modifiers:modifiers]) return;
     }
 
 
-    for (i = 0; i < len; ++i) {
-        ASLogDebug(@"add byte [%d/%d]: %#x", i, len, str[i]);
-        add_to_input_buf(str+i, 1);
+    for (int i = 0; i < length; ++i) {
+        ASLogDebug(@"add byte [%d/%d]: %#x", i, length, str[i]);
+        add_to_input_buf(str + i, 1);
         if (CSI == str[i]) {
             // NOTE: If the converted string contains the byte CSI, then it
             // must be followed by the bytes KS_EXTRA, KE_CSI or things
             // won't work.
-            static char_u extra[2] = { KS_EXTRA, KE_CSI };
+            static char_u extra[] = {KS_EXTRA, KE_CSI};
             ASLogDebug(@"add KS_EXTRA, KE_CSI");
-            add_to_input_buf(extra, 2);
+            add_to_input_buf(extra, sizeof(extra));
         }
     }
 
@@ -1991,25 +1976,21 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 #endif
 }
 
-- (BOOL)handleSpecialKey:(NSString *)key
-                 keyCode:(unsigned)code
-               modifiers:(int)mods
+- (BOOL)handleSpecialKey:(NSString *)key keyCode:(unsigned)code modifiers:(int)modifiers
 {
-    int i;
-    for (i = 0; special_keys[i].key_sym != 0; i++) {
-        if (special_keys[i].key_sym == code) {
+    SpecialKey *found = nil;
+    for (size_t i = 0; specialKeys[i].keysym != 0; i++) {
+        if (specialKeys[i].keysym == code) {
             ASLogDebug(@"Special key: %#x", code);
+            found = &specialKeys[i];
             break;
         }
     }
-    if (special_keys[i].key_sym == 0)
-        return NO;
+    if (!found) return NO;
 
-    int ikey = special_keys[i].vim_code1 == NUL ? special_keys[i].vim_code0 :
-            TO_SPECIAL(special_keys[i].vim_code0, special_keys[i].vim_code1);
-    ikey = simplify_key(ikey, &mods);
-    if (ikey == CSI)
-        ikey = K_CSI;
+    int ikey = found->code1 == NUL ? found->code0 : TO_SPECIAL(found->code0, found->code1);
+    ikey = simplify_key(ikey, &modifiers);
+    if (ikey == CSI) ikey = K_CSI;
 
     char_u chars[4];
     int len = 0;
@@ -2019,18 +2000,18 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
         chars[1] = K_SECOND(ikey);
         chars[2] = K_THIRD(ikey);
         len = 3;
-    } else if (mods & MOD_MASK_ALT && special_keys[i].vim_code1 == 0
+    } else if (modifiers & MOD_MASK_ALT && found->code1 == 0
 #ifdef FEAT_MBYTE
             && !enc_dbcs    // TODO: ?  (taken from gui_gtk_x11.c)
 #endif
             ) {
         ASLogDebug(@"Alt special=%d", ikey);
 
-        // NOTE: The last entries in the special_keys struct when pressed
+        // NOTE: The last entries in the specialKeys struct when pressed
         // together with Alt need to be handled separately or they will not
         // work.
         // The following code was gleaned from gui_gtk_x11.c.
-        mods &= ~MOD_MASK_ALT;
+        modifiers &= ~MOD_MASK_ALT;
         int mkey = 0x80 | ikey;
 #ifdef FEAT_MBYTE
         if (enc_utf8) {  // TODO: What about other encodings?
@@ -2058,43 +2039,39 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     }
 
     if (len > 0) {
-        if (mods) {
-            ASLogDebug(@"Adding mods to special: %d", mods);
-            char_u modChars[3] = { CSI, KS_MODIFIER, (char_u)mods };
-            add_to_input_buf(modChars, 3);
+        if (modifiers) {
+            ASLogDebug(@"Adding modifiers to special: %d", modifiers);
+            char_u chars[] = {CSI, KS_MODIFIER, (char_u)modifiers};
+            add_to_input_buf(chars, sizeof(chars));
         }
-
-        ASLogDebug(@"Adding special (%d): %x,%x,%x", len,
-                chars[0], chars[1], chars[2]);
+        ASLogDebug(@"Adding special (%d): %x,%x,%x", len, chars[0], chars[1], chars[2]);
         add_to_input_buf(chars, len);
     }
 
     return YES;
 }
 
-- (BOOL)handleMacMetaKey:(int)ikey modifiers:(int)mods
+- (BOOL)handleMacMetaKey:(int)ikey modifiers:(int)modifiers
 {
-    ASLogDebug(@"ikey=%d mods=%d", ikey, mods);
+    ASLogDebug(@"ikey=%d modifiers=%d", ikey, modifiers);
 
     // This code was taken from gui_w48.c and gui_gtk_x11.c.
     char_u string[7];
-    int ch = simplify_key(ikey, &mods);
+    int ch = simplify_key(ikey, &modifiers);
 
     // Remove the SHIFT modifier for keys where it's already included,
     // e.g., '(' and '*'
-    if (ch < 0x100 && !isalpha(ch) && isprint(ch))
-        mods &= ~MOD_MASK_SHIFT;
+    if (ch < 0x100 && !isalpha(ch) && isprint(ch)) modifiers &= ~MOD_MASK_SHIFT;
 
     // Interpret the ALT key as making the key META, include SHIFT, etc.
-    ch = extract_modifiers(ch, &mods);
-    if (ch == CSI)
-        ch = K_CSI;
+    ch = extract_modifiers(ch, &modifiers);
+    if (ch == CSI) ch = K_CSI;
 
     int len = 0;
-    if (mods) {
+    if (modifiers) {
         string[len++] = CSI;
         string[len++] = KS_MODIFIER;
-        string[len++] = mods;
+        string[len++] = modifiers;
     }
 
     string[len++] = ch;
@@ -2163,7 +2140,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 {
     // If 'go' contains 'T', then remove it, else add it.
 
-    char_u go[sizeof(GO_ALL)+2];
+    char_u go[sizeof(GO_ALL) + 2];
     char_u *p;
     int len;
 
@@ -2171,7 +2148,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     p = vim_strchr(go, GO_TOOLBAR);
     len = STRLEN(go);
 
-    if (p != NULL) {
+    if (p) {
         char_u *end = go + len;
         while (p < end) {
             p[0] = p[1];
@@ -2182,17 +2159,17 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
         go[len+1] = NUL;
     }
 
-    set_option_value((char_u*)"guioptions", 0, go, 0);
+    set_option_value((char_u *)"guioptions", 0, go, 0);
 }
 
 - (void)handleScrollbarEvent:(NSData *)data
 {
     if (!data) return;
 
-    const void *bytes = [data bytes];
-    int32_t ident = *((int32_t*)bytes);  bytes += sizeof(int32_t);
-    int hitPart = *((int*)bytes);  bytes += sizeof(int);
-    float fval = *((float*)bytes);  bytes += sizeof(float);
+    const void *bytes = data.bytes;
+    int32_t ident = *((int32_t *)bytes);  bytes += sizeof(int32_t);
+    int hitPart = *((int *)bytes);  bytes += sizeof(int);
+    float fval = *((float *)bytes);  bytes += sizeof(float);
     scrollbar_T *sb = gui_find_scrollbar(ident);
 
     if (sb) {
@@ -2259,7 +2236,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     bytes += len;
 
     [name appendString:[NSString stringWithFormat:@":h%d", pointSize]];
-    const char_u *cstring = (char_u *)name.UTF8String;
+    char_u *cstring = (char_u *)name.UTF8String;
 
     unsigned wlen = *((unsigned *)bytes);  bytes += sizeof(unsigned);
     char_u *ws = NULL;
@@ -2276,13 +2253,13 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     if (ws) ws = CONVERT_FROM_UTF8(ws);
 #endif
 
-    set_option_value((char_u*)"guifont", 0, cstring, 0);
+    set_option_value((char_u *)"guifont", 0, cstring, 0);
 
     if (ws && gui.wide_font != NOFONT) {
         // NOTE: This message is sent on Cmd-+/Cmd-- and as such should only
         // change the wide font if 'gfw' is non-empty (the frontend always has
         // some wide font set, even if 'gfw' is empty).
-        set_option_value((char_u*)"guifontwide", 0, ws, 0);
+        set_option_value((char_u *)"guifontwide", 0, ws, 0);
     }
 
 #ifdef FEAT_MBYTE
@@ -2304,13 +2281,11 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     NSMutableDictionary *args = [NSMutableDictionary dictionaryWithData:data];
     if (!args) return;
 
-    id obj = [args objectForKey:@"forceOpen"];
-    BOOL forceOpen = YES;
-    if (obj)
-        forceOpen = [obj boolValue];
+    const id obj = args[@"forceOpen"];
+    const BOOL forceOpen = obj ? [obj boolValue] : YES;
 
-    NSArray *filenames = [args objectForKey:@"filenames"];
-    if (!(filenames && [filenames count] > 0)) return;
+    NSArray *filenames = args[@"filenames"];
+    if (filenames.count == 0) return;
 
 #ifdef FEAT_DND
     if (!forceOpen && (State & CMDLINE)) {
@@ -2318,17 +2293,16 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
         // should be added to the command line, instead of opening the
         // files in tabs (unless forceOpen is set).  This is taken care of by
         // gui_handle_drop().
-        int n = [filenames count];
-        char_u **fnames = (char_u **)alloc(n * sizeof(char_u *));
+        const NSUInteger fileCount = filenames.count;
+        char_u **fnames = (char_u **)alloc(fileCount * sizeof(char_u *));
         if (fnames) {
-            int i = 0;
-            for (i = 0; i < n; ++i)
-                fnames[i] = [[filenames objectAtIndex:i] vimStringSave];
+            for (NSUInteger i = 0; i < fileCount; ++i)
+                fnames[i] = [filenames[i] vimStringSave];
 
             // NOTE!  This function will free 'fnames'.
             // HACK!  It is assumed that the 'x' and 'y' arguments are
             // unused when in command line mode.
-            gui_handle_drop(0, 0, 0, fnames, n);
+            gui_handle_drop(0, 0, 0, fnames, fileCount);
         }
     } else
 #endif // FEAT_DND
@@ -2342,9 +2316,9 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     if (!data) return;
 
 #ifdef FEAT_DND
-    const char_u dropkey[] = {CSI, KS_EXTRA, (char_u)KE_DROP};
+    char_u dropkey[] = {CSI, KS_EXTRA, (char_u)KE_DROP};
     const void *bytes = data.bytes;
-    const int ignore = *((int *)bytes);  bytes += sizeof(int);
+    const int ignore __attribute__((unused)) = *((int *)bytes);  bytes += sizeof(int);
     NSMutableString *string = [NSMutableString stringWithUTF8String:bytes];
 
     // Replace unrecognized end-of-line sequences with \x0a (line feed).
@@ -2354,8 +2328,8 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
         n = [string replaceOccurrencesOfString:@"\x0d" withString:@"\x0a" options:0 range:range];
     }
 
-    const int len = [string lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
-    const char_u *cstring = (const char_u *)string.UTF8String;
+    int len = [string lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+    char_u *cstring = (char_u *)string.UTF8String;
 #ifdef FEAT_MBYTE
     if (input_conv.vc_type != CONV_NONE) cstring = string_convert(&input_conv, cstring, &len);
 #endif
@@ -2432,7 +2406,6 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     ASLogDebug(@"args=%@ (starting=%d)", args, starting);
 
     NSArray *filenames = args[@"filenames"];
-    int i, numFiles = filenames.count;
     BOOL openFiles = ![args[@"dontOpen"] boolValue];
     int layout = [args[@"layout"] intValue];
 
@@ -2731,7 +2704,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     const void *bytes = data.bytes;
     const int flags = *((int *)bytes);  bytes += sizeof(int);
     const int gesture = *((int *)bytes);  bytes += sizeof(int);
-    const int modifiers = eventModifierFlagsToVimModMask(flags);
+    const int modifiers = EventModifierFlagsToVimModMask(flags);
 
     char_u string[6] = {CSI, KS_MODIFIER, modifiers, CSI, KS_EXTRA, 0};
     switch (gesture) {
@@ -2926,46 +2899,6 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     return [self compare:string options:NSCaseInsensitiveSearch | NSNumericSearch];
 }
 @end
-
-
-static int eventModifierFlagsToVimModMask(int modifierFlags)
-{
-    int modMask = 0;
-
-    if (modifierFlags & NSEventModifierFlagShift)
-        modMask |= MOD_MASK_SHIFT;
-    if (modifierFlags & NSEventModifierFlagControl)
-        modMask |= MOD_MASK_CTRL;
-    if (modifierFlags & NSEventModifierFlagOption)
-        modMask |= MOD_MASK_ALT;
-    if (modifierFlags & NSEventModifierFlagCommand)
-        modMask |= MOD_MASK_CMD;
-
-    return modMask;
-}
-
-static int eventModifierFlagsToVimMouseModMask(int modifierFlags)
-{
-    int modMask = 0;
-
-    if (modifierFlags & NSEventModifierFlagShift)
-        modMask |= MOUSE_SHIFT;
-    if (modifierFlags & NSEventModifierFlagControl)
-        modMask |= MOUSE_CTRL;
-    if (modifierFlags & NSEventModifierFlagOption)
-        modMask |= MOUSE_ALT;
-
-    return modMask;
-}
-
-static int eventButtonNumberToVimMouseButton(int buttonNumber)
-{
-    static int mouseButton[] = { MOUSE_LEFT, MOUSE_RIGHT, MOUSE_MIDDLE };
-
-    return (buttonNumber >= 0 && buttonNumber < 3)
-            ? mouseButton[buttonNumber] : -1;
-}
-
 
 
 // This function is modeled after the VimToPython function found in if_python.c
