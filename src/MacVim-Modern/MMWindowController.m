@@ -850,24 +850,21 @@
 
 - (IBAction)findAndReplace:(id)sender
 {
-    const int tag = [sender tag];
-    MMFindReplaceController *fr = MMFindReplaceController.sharedInstance;
+    MMFindReplaceController *controller = MMFindReplaceController.shared;
     int flags = 0;
 
     // NOTE: The 'flags' values must match the FRD_ defines in gui.h (except
     // for 0x100 which we use to indicate a backward search).
-    switch (tag) {
+    switch ([sender tag]) {
         case 1: flags = 0x100; break;
         case 2: flags = 3; break;
         case 3: flags = 4; break;
     }
 
-    if (fr.matchWord)
-        flags |= 0x08;
-    if (!fr.ignoreCase)
-        flags |= 0x10;
+    if (controller.matchWord) flags |= 0x08;
+    if (!controller.ignoreCase) flags |= 0x10;
 
-    NSDictionary *args = @{@"find": fr.findString, @"replace": fr.replaceString, @"flags" : @(flags)};
+    NSDictionary *args = @{@"find": controller.findString, @"replace": controller.replaceString, @"flags" : @(flags)};
     [_vimController sendMessage:FindReplaceMsgID data:args.dictionaryAsData];
 }
 

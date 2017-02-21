@@ -11,111 +11,99 @@
 #import "MacVim.h"
 #import "Miscellaneous.h"
 
-
-
 // NSUserDefaults keys
-NSString *MMTabMinWidthKey              = @"MMTabMinWidth";
-NSString *MMTabMaxWidthKey              = @"MMTabMaxWidth";
-NSString *MMTabOptimumWidthKey          = @"MMTabOptimumWidth";
-NSString *MMShowAddTabButtonKey         = @"MMShowAddTabButton";
-NSString *MMTextInsetLeftKey            = @"MMTextInsetLeft";
-NSString *MMTextInsetRightKey           = @"MMTextInsetRight";
-NSString *MMTextInsetTopKey             = @"MMTextInsetTop";
-NSString *MMTextInsetBottomKey          = @"MMTextInsetBottom";
-NSString *MMTypesetterKey               = @"MMTypesetter";
-NSString *MMCellWidthMultiplierKey      = @"MMCellWidthMultiplier";
-NSString *MMBaselineOffsetKey           = @"MMBaselineOffset";
-NSString *MMTranslateCtrlClickKey       = @"MMTranslateCtrlClick";
-NSString *MMTopLeftPointKey             = @"MMTopLeftPoint";
-NSString *MMOpenInCurrentWindowKey      = @"MMOpenInCurrentWindow";
-NSString *MMNoFontSubstitutionKey       = @"MMNoFontSubstitution";
-NSString *MMNoTitleBarWindowKey         = @"MMNoTitleBarWindow";
-NSString *MMLoginShellKey               = @"MMLoginShell";
-NSString *MMUntitledWindowKey           = @"MMUntitledWindow";
-NSString *MMZoomBothKey                 = @"MMZoomBoth";
-NSString *MMCurrentPreferencePaneKey    = @"MMCurrentPreferencePane";
-NSString *MMLoginShellCommandKey        = @"MMLoginShellCommand";
-NSString *MMLoginShellArgumentKey       = @"MMLoginShellArgument";
-NSString *MMDialogsTrackPwdKey          = @"MMDialogsTrackPwd";
-NSString *MMOpenLayoutKey               = @"MMOpenLayout";
-NSString *MMVerticalSplitKey            = @"MMVerticalSplit";
-NSString *MMPreloadCacheSizeKey         = @"MMPreloadCacheSize";
-NSString *MMLastWindowClosedBehaviorKey = @"MMLastWindowClosedBehavior";
+NSString *const MMTabMinWidthKey              = @"MMTabMinWidth";
+NSString *const MMTabMaxWidthKey              = @"MMTabMaxWidth";
+NSString *const MMTabOptimumWidthKey          = @"MMTabOptimumWidth";
+NSString *const MMShowAddTabButtonKey         = @"MMShowAddTabButton";
+NSString *const MMTextInsetLeftKey            = @"MMTextInsetLeft";
+NSString *const MMTextInsetRightKey           = @"MMTextInsetRight";
+NSString *const MMTextInsetTopKey             = @"MMTextInsetTop";
+NSString *const MMTextInsetBottomKey          = @"MMTextInsetBottom";
+NSString *const MMTypesetterKey               = @"MMTypesetter";
+NSString *const MMCellWidthMultiplierKey      = @"MMCellWidthMultiplier";
+NSString *const MMBaselineOffsetKey           = @"MMBaselineOffset";
+NSString *const MMTranslateCtrlClickKey       = @"MMTranslateCtrlClick";
+NSString *const MMTopLeftPointKey             = @"MMTopLeftPoint";
+NSString *const MMOpenInCurrentWindowKey      = @"MMOpenInCurrentWindow";
+NSString *const MMNoFontSubstitutionKey       = @"MMNoFontSubstitution";
+NSString *const MMNoTitleBarWindowKey         = @"MMNoTitleBarWindow";
+NSString *const MMLoginShellKey               = @"MMLoginShell";
+NSString *const MMUntitledWindowKey           = @"MMUntitledWindow";
+NSString *const MMZoomBothKey                 = @"MMZoomBoth";
+NSString *const MMCurrentPreferencePaneKey    = @"MMCurrentPreferencePane";
+NSString *const MMLoginShellCommandKey        = @"MMLoginShellCommand";
+NSString *const MMLoginShellArgumentKey       = @"MMLoginShellArgument";
+NSString *const MMDialogsTrackPwdKey          = @"MMDialogsTrackPwd";
+NSString *const MMOpenLayoutKey               = @"MMOpenLayout";
+NSString *const MMVerticalSplitKey            = @"MMVerticalSplit";
+NSString *const MMPreloadCacheSizeKey         = @"MMPreloadCacheSize";
+NSString *const MMLastWindowClosedBehaviorKey = @"MMLastWindowClosedBehavior";
 #ifdef INCLUDE_OLD_IM_CODE
-NSString *MMUseInlineImKey              = @"MMUseInlineIm";
+NSString *const MMUseInlineImKey              = @"MMUseInlineIm";
 #endif // INCLUDE_OLD_IM_CODE
-NSString *MMSuppressTerminationAlertKey = @"MMSuppressTerminationAlert";
-NSString *MMNativeFullScreenKey         = @"MMNativeFullScreen";
-NSString *MMUseMouseTimeKey             = @"MMUseMouseTime";
-NSString *MMFullScreenFadeTimeKey       = @"MMFullScreenFadeTime";
-NSString *MMUseCGLayerAlwaysKey         = @"MMUseCGLayerAlways";
+NSString *const MMSuppressTerminationAlertKey = @"MMSuppressTerminationAlert";
+NSString *const MMNativeFullScreenKey         = @"MMNativeFullScreen";
+NSString *const MMUseMouseTimeKey             = @"MMUseMouseTime";
+NSString *const MMFullScreenFadeTimeKey       = @"MMFullScreenFadeTime";
+NSString *const MMUseCGLayerAlwaysKey         = @"MMUseCGLayerAlways";
 
-
-
+/**
+ */
 @implementation NSIndexSet (MMExtras)
 
-+ (id)indexSetWithVimList:(NSString *)list
++ (instancetype)indexSetWithVimList:(NSString *)list
 {
-    NSMutableIndexSet *idxSet = [NSMutableIndexSet indexSet];
-    NSArray *array = [list componentsSeparatedByString:@"\n"];
-    unsigned i, count = [array count];
-
-    for (i = 0; i < count; ++i) {
-        NSString *entry = [array objectAtIndex:i];
-        if ([entry intValue] > 0)
-            [idxSet addIndex:i];
+    NSMutableIndexSet *set = NSMutableIndexSet.new;
+    NSArray *components = [list componentsSeparatedByString:@"\n"];
+    for (NSString *component in components) {
+        if (component.intValue > 0)
+            [set addIndex:[components indexOfObject:component]];
     }
-
-    return idxSet;
+    return set.copy;
 }
 
 @end // NSIndexSet (MMExtras)
 
-
-
-
+/**
+ */
 @implementation NSDocumentController (MMExtras)
 
 - (void)noteNewRecentFilePath:(NSString *)path
 {
     NSURL *url = [NSURL fileURLWithPath:path];
-    if (url)
-        [self noteNewRecentDocumentURL:url];
+    if (url) [self noteNewRecentDocumentURL:url];
 }
 
 - (void)noteNewRecentFilePaths:(NSArray *)paths
 {
-    NSEnumerator *e = [paths objectEnumerator];
-    NSString *path;
-    while ((path = [e nextObject]))
+    for (NSString *path in paths) {
         [self noteNewRecentFilePath:path];
+    }
 }
 
 @end // NSDocumentController (MMExtras)
 
-
-
-
+/**
+ */
 @implementation NSSavePanel (MMExtras)
 
 - (void)hiddenFilesButtonToggled:(id)sender
 {
-    [self setShowsHiddenFiles:[sender intValue]];
+    self.showsHiddenFiles = [sender intValue];
 }
 
 @end // NSSavePanel (MMExtras)
 
-
-
-
+/**
+ */
 @implementation NSMenu (MMExtras)
 
 - (int)indexOfItemWithAction:(SEL)action
 {
-    int i, count = [self numberOfItems];
-    for (i = 0; i < count; ++i) {
+    for (NSUInteger n = self.numberOfItems, i = 0; i < n; ++i) {
         NSMenuItem *item = [self itemAtIndex:i];
-        if ([item action] == action)
+        if (item.action == action)
             return i;
     }
 
@@ -143,8 +131,7 @@ NSString *MMUseCGLayerAlwaysKey         = @"MMUseCGLayerAlways";
 
 - (NSMenu *)findWindowsMenu
 {
-    return [self findMenuContainingItemWithAction:
-        @selector(performMiniaturize:)];
+    return [self findMenuContainingItemWithAction:@selector(performMiniaturize:)];
 }
 
 - (NSMenu *)findApplicationMenu
@@ -160,13 +147,13 @@ NSString *MMUseCGLayerAlwaysKey         = @"MMUseCGLayerAlways";
     // (The item before "Hide MacVim" should be a separator, but this is not
     // important as long as the item before that is the "Services" menu.)
 
-    NSMenu *appMenu = [self findApplicationMenu];
+    NSMenu *appMenu = self.findApplicationMenu;
     if (!appMenu) return nil;
 
-    int idx = [appMenu indexOfItemWithAction: @selector(hide:)];
-    if (idx-2 < 0) return nil;  // idx == -1, if selector not found
+    const int index = [appMenu indexOfItemWithAction:@selector(hide:)];
+    if (index - 2 < 0) return nil;  // index == -1, if selector not found
 
-    return [[appMenu itemAtIndex:idx-2] submenu];
+    return [[appMenu itemAtIndex:index - 2] submenu];
 }
 
 - (NSMenu *)findFileMenu
@@ -176,44 +163,37 @@ NSString *MMUseCGLayerAlwaysKey         = @"MMUseCGLayerAlways";
 
 @end // NSMenu (MMExtras)
 
-
-
-
+/**
+ */
 @implementation NSToolbar (MMExtras)
 
 - (NSUInteger)indexOfItemWithItemIdentifier:(NSString *)identifier
 {
-    NSArray *items = [self items];
-    NSUInteger i, count = [items count];
-    for (i = 0; i < count; ++i) {
-        id item = [items objectAtIndex:i];
-        if ([[item itemIdentifier] isEqual:identifier])
-            return i;
+    for (NSToolbarItem *item in self.items) {
+        if ([item.itemIdentifier isEqualToString:identifier]) {
+            return [self.items indexOfObject:item];
+        }
     }
-
     return NSNotFound;
 }
 
-- (NSToolbarItem *)itemAtIndex:(NSUInteger)idx
+- (NSToolbarItem *)itemAtIndex:(NSUInteger)index
 {
-    NSArray *items = [self items];
-    if (idx >= [items count])
-        return nil;
-
-    return [items objectAtIndex:idx];
+    NSArray *items = self.items;
+    if (index >= items.count) return nil;
+    return items[index];
 }
 
 - (NSToolbarItem *)itemWithItemIdentifier:(NSString *)identifier
 {
-    NSUInteger idx = [self indexOfItemWithItemIdentifier:identifier];
-    return idx != NSNotFound ? [self itemAtIndex:idx] : nil;
+    const NSUInteger i = [self indexOfItemWithItemIdentifier:identifier];
+    return i != NSNotFound ? [self itemAtIndex:i] : nil;
 }
 
 @end // NSToolbar (MMExtras)
 
-
-
-
+/**
+ */
 @implementation NSTabView (MMExtras)
 
 - (void)removeAllTabViewItems
@@ -228,80 +208,63 @@ NSString *MMUseCGLayerAlwaysKey         = @"MMUseCGLayerAlways";
 
 @end // NSTabView (MMExtras)
 
-
-
-
+/**
+ */
 @implementation NSNumber (MMExtras)
 
 // HACK to allow font size to be changed via menu (bound to Cmd+/Cmd-)
 - (NSInteger)tag
 {
-    return [self intValue];
+    return self.intValue;
 }
 
 @end // NSNumber (MMExtras)
 
-
-
-
-    NSView *
+NSView *
 showHiddenFilesView()
 {
     // Return a new button object for each NSOpenPanel -- several of them
     // could be displayed at once.
     // If the accessory view should get more complex, it should probably be
     // loaded from a nib file.
-    NSButton *button = [[[NSButton alloc]
-        initWithFrame:NSMakeRect(0, 0, 140, 18)] autorelease];
-    [button setTitle:
-        NSLocalizedString(@"Show Hidden Files", @"Show Hidden Files Checkbox")];
-    [button setButtonType:NSSwitchButton];
+    NSButton *button = [[NSButton alloc] initWithFrame:NSMakeRect(0, 0, 140, 18)];
+    button.title = NSLocalizedString(@"Show Hidden Files", @"Show Hidden Files Checkbox");
+    button.buttonType = NSSwitchButton;
 
-    [button setTarget:nil];
-    [button setAction:@selector(hiddenFilesButtonToggled:)];
+    button.target = nil;
+    button.action = @selector(hiddenFilesButtonToggled:);
 
     // Use the regular control size (checkbox is a bit smaller without this)
-    NSControlSize buttonSize = NSControlSizeRegular;
-    float fontSize = [NSFont systemFontSizeForControlSize:buttonSize];
-    NSCell *theCell = [button cell];
-    NSFont *theFont = [NSFont fontWithName:[[theCell font] fontName]
-                                      size:fontSize];
-    [theCell setFont:theFont];
-    [theCell setControlSize:buttonSize];
+    const NSControlSize buttonSize = NSControlSizeRegular;
+    const float fontSize = [NSFont systemFontSizeForControlSize:buttonSize];
+    NSCell *cell = button.cell;
+    cell.font = [NSFont fontWithName:cell.font.fontName size:fontSize];
+    cell.controlSize = buttonSize;
     [button sizeToFit];
 
     return button;
 }
 
-
-
-
-    NSString *
+NSString *
 normalizeFilename(NSString *filename)
 {
-    return [filename precomposedStringWithCanonicalMapping];
+    return filename.precomposedStringWithCanonicalMapping;
 }
 
-    NSArray *
+NSArray *
 normalizeFilenames(NSArray *filenames)
 {
-    NSMutableArray *outnames = [NSMutableArray array];
-    if (!filenames)
-        return outnames;
+    NSMutableArray *names = NSMutableArray.new;
+    if (!filenames) return names.copy;
 
-    unsigned i, count = [filenames count];
-    for (i = 0; i < count; ++i) {
-        NSString *nfkc = normalizeFilename([filenames objectAtIndex:i]);
-        [outnames addObject:nfkc];
+    for (NSString *filename in filenames) {
+        [names addObject:normalizeFilename(filename)];
     }
 
-    return outnames;
+    return names.copy;
 }
 
-
-
-
-    BOOL
+BOOL
 shouldUseYosemiteTabBarStyle()
 { 
     return floor(NSAppKitVersionNumber) >= NSAppKitVersionNumber10_10;

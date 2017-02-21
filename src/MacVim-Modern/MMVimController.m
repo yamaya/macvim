@@ -633,7 +633,7 @@ static BOOL isUnsafeMessage(int msgid);
         [_windowController setFullScreenBackgroundColor:[NSColor colorWithRgbInt:*bg]];
     } else if (ShowFindReplaceDialogMsgID == msgid) {
         NSDictionary *dict = [NSDictionary dictionaryWithData:data];
-        if (dict) [MMFindReplaceController.sharedInstance showWithText:dict[@"text"] flags:[dict[@"flags"] intValue]];
+        if (dict) [MMFindReplaceController.shared showWithText:dict[@"text"] flags:[dict[@"flags"] intValue]];
     } else if (ActivateKeyScriptMsgID == msgid) {
         _windowController.vimView.textView.IMActivated = YES;
     } else if (DeactivateKeyScriptMsgID == msgid) {

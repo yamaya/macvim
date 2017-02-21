@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		0395A8330D71ED7800881434 /* DBPrefsWindowController.m in Sources */ = {isa = PBXBuildFile; fileRef = 0395A8320D71ED7800881434 /* DBPrefsWindowController.m */; };
+		0395A8330D71ED7800881434 /* DBPrefsWindowController.m in Sources */ = {isa = PBXBuildFile; fileRef = 0395A8320D71ED7800881434 /* DBPrefsWindowController.m */; settings = {COMPILER_FLAGS = "-fobjc-arc"; }; };
 		0395A8AA0D72D88B00881434 /* General.png in Resources */ = {isa = PBXBuildFile; fileRef = 0395A8A90D72D88B00881434 /* General.png */; };
 		1D0E051C0BA5F83800B6049E /* Colors.plist in Resources */ = {isa = PBXBuildFile; fileRef = 1D0E051B0BA5F83800B6049E /* Colors.plist */; };
 		1D145C7F0E5227CE00691AA0 /* MMTextViewHelper.m in Sources */ = {isa = PBXBuildFile; fileRef = 1D145C7E0E5227CE00691AA0 /* MMTextViewHelper.m */; settings = {COMPILER_FLAGS = "-fobjc-arc"; }; };
@@ -19,7 +19,7 @@
 		1D384A0E100D671700D3C22F /* KeyBinding.plist in Resources */ = {isa = PBXBuildFile; fileRef = 1D384A0D100D671700D3C22F /* KeyBinding.plist */; };
 		1D493D580C5247BF00AB718C /* Vim in Copy Executables */ = {isa = PBXBuildFile; fileRef = 1D493D570C5247BF00AB718C /* Vim */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		1D493DBA0C52534300AB718C /* PSMTabBarControl.framework in Copy Frameworks */ = {isa = PBXBuildFile; fileRef = 1D493DB90C52533B00AB718C /* PSMTabBarControl.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		1D60088B0E96A0B2003763F0 /* MMFindReplaceController.m in Sources */ = {isa = PBXBuildFile; fileRef = 1D60088A0E96A0B2003763F0 /* MMFindReplaceController.m */; };
+		1D60088B0E96A0B2003763F0 /* MMFindReplaceController.m in Sources */ = {isa = PBXBuildFile; fileRef = 1D60088A0E96A0B2003763F0 /* MMFindReplaceController.m */; settings = {COMPILER_FLAGS = "-fobjc-arc"; }; };
 		1D80591F0E1185EA001699D1 /* Miscellaneous.m in Sources */ = {isa = PBXBuildFile; fileRef = 1D80591D0E1185EA001699D1 /* Miscellaneous.m */; };
 		1D80FBD40CBBD3B700102A1C /* MMFullScreenWindow.m in Sources */ = {isa = PBXBuildFile; fileRef = 1D80FBD00CBBD3B700102A1C /* MMFullScreenWindow.m */; };
 		1D80FBD60CBBD3B700102A1C /* MMVimView.m in Sources */ = {isa = PBXBuildFile; fileRef = 1D80FBD20CBBD3B700102A1C /* MMVimView.m */; settings = {COMPILER_FLAGS = "-fobjc-arc"; }; };
@@ -67,7 +67,7 @@
 		52B7ED9B1C4A4D6900AFFF15 /* dsa_pub.pem in Resources */ = {isa = PBXBuildFile; fileRef = 52B7ED9A1C4A4D6900AFFF15 /* dsa_pub.pem */; };
 		544DCE611E4F40C200E3C582 /* NSAttributedString+CoreText.m in Sources */ = {isa = PBXBuildFile; fileRef = 544DCE601E4F40C200E3C582 /* NSAttributedString+CoreText.m */; settings = {COMPILER_FLAGS = "-fobjc-arc"; }; };
 		5487106E1E4E014600D189F6 /* MMFontSmoothing.m in Sources */ = {isa = PBXBuildFile; fileRef = 5487106D1E4E014600D189F6 /* MMFontSmoothing.m */; settings = {COMPILER_FLAGS = "-fobjc-arc"; }; };
-		6279ED6C1E56DFBA000B0C79 /* MMDrawCommand.m in Sources */ = {isa = PBXBuildFile; fileRef = 6279ED6A1E56DFBA000B0C79 /* MMDrawCommand.m */; };
+		6279ED6C1E56DFBA000B0C79 /* MMDrawCommand.m in Sources */ = {isa = PBXBuildFile; fileRef = 6279ED6A1E56DFBA000B0C79 /* MMDrawCommand.m */; settings = {COMPILER_FLAGS = "-fobjc-arc"; }; };
 		8D11072A0486CEB800E47090 /* MainMenu.nib in Resources */ = {isa = PBXBuildFile; fileRef = 29B97318FDCFA39411CA2CEA /* MainMenu.nib */; };
 		8D11072B0486CEB800E47090 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 089C165CFE840E0CC02AAC07 /* InfoPlist.strings */; };
 		8D11072D0486CEB800E47090 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = 29B97316FDCFA39411CA2CEA /* main.m */; settings = {ATTRIBUTES = (); }; };

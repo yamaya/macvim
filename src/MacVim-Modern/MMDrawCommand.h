@@ -9,7 +9,7 @@ typedef struct { int row, count, scrollBottom, left, right; } MMDrawCommandInser
 typedef struct { int row, col, shape, fraction, color; } MMDrawCommandDrawCursor;
 typedef struct { int row, col; } MMDrawCommandMoveCursor;
 typedef struct { int row, col, numRows, numCols, invert; } MMDrawCommandInvertRect;
-typedef struct { NSString *name; int row, col; int width, height; } MMDrawCommandDrawSign;
+typedef struct { __unsafe_unretained NSString *name; int row, col; int width, height; } MMDrawCommandDrawSign;
 #pragma pack()
 
 @interface MMDrawCommand : NSObject

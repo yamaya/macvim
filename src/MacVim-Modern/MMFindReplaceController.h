@@ -10,20 +10,21 @@
 
 #import <Cocoa/Cocoa.h>
 
+/**
+ */
+@interface MMFindReplaceController : NSWindowController
 
+@property (nonatomic, retain) IBOutlet NSTextField  *findBox;
+@property (nonatomic, retain) IBOutlet NSTextField  *replaceBox;
+@property (nonatomic, retain) IBOutlet NSButton *ignoreCaseButton;
+@property (nonatomic, retain) IBOutlet NSButton *matchWordButton;
+@property (nonatomic, readonly) NSString    *findString;
+@property (nonatomic, readonly) NSString    *replaceString;
+@property (nonatomic, readonly) BOOL    ignoreCase;
+@property (nonatomic, readonly) BOOL    matchWord;
 
-@interface MMFindReplaceController : NSWindowController {
-    IBOutlet NSTextField    *findBox;
-    IBOutlet NSTextField    *replaceBox;
-    IBOutlet NSButton       *ignoreCaseButton;
-    IBOutlet NSButton       *matchWordButton;
-}
-
-+ (MMFindReplaceController *)sharedInstance;
++ (instancetype)shared;
 
 - (void)showWithText:(NSString *)text flags:(int)flags;
-- (NSString *)findString;
-- (NSString *)replaceString;
-- (BOOL)ignoreCase;
-- (BOOL)matchWord;
+
 @end

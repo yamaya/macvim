@@ -10,54 +10,53 @@
 
 #import "MMFindReplaceController.h"
 
-
 @implementation MMFindReplaceController
 
-+ (MMFindReplaceController *)sharedInstance
+@synthesize findBox = _findBox, replaceBox = _replaceBox, ignoreCaseButton = _ignoreCaseButton, matchWordButton = _matchWordButton;
+@dynamic findString, replaceString, ignoreCase, matchWord;
+
++ (instancetype)shared
 {
     static MMFindReplaceController *singleton = nil;
     if (!singleton) {
-        singleton = [[MMFindReplaceController alloc]
-                    initWithWindowNibName:@"FindAndReplace"];
-        [singleton setWindowFrameAutosaveName:@"FindAndReplace"];
+        singleton = [[MMFindReplaceController alloc] initWithWindowNibName:@"FindAndReplace"];
+        singleton.windowFrameAutosaveName = @"FindAndReplace";
     }
-
     return singleton;
 }
 
 - (void)showWithText:(NSString *)text flags:(int)flags
 {
     // Ensure that the window has been loaded by calling this first.
-    NSWindow *window = [self window];
+    NSWindow *window = self.window;
 
-    if (text && [text length] > 0)
-        [findBox setStringValue:text];
+    if (text.length != 0) self.findBox.stringValue = text;
 
     // NOTE: The 'flags' values must match the FRD_ defines in gui.h.
-    [matchWordButton setState:(flags & 0x08 ? NSOnState : NSOffState)];
-    [ignoreCaseButton setState:(flags & 0x10 ? NSOffState : NSOnState)];
+    self.matchWordButton.state = (flags & 0x08 ? NSOnState : NSOffState);
+    self.ignoreCaseButton.state = (flags & 0x10 ? NSOffState : NSOnState);
 
     [window makeKeyAndOrderFront:self];
 }
 
 - (NSString *)findString
 {
-    return [findBox stringValue];
+    return self.findBox.stringValue;
 }
 
 - (NSString *)replaceString
 {
-    return [replaceBox stringValue];
+    return self.replaceBox.stringValue;
 }
 
 - (BOOL)ignoreCase
 {
-    return [ignoreCaseButton state] == NSOnState;
+    return self.ignoreCaseButton.state == NSOnState;
 }
 
 - (BOOL)matchWord
 {
-    return [matchWordButton state] == NSOnState;
+    return self.matchWordButton.state == NSOnState;
 }
 
 @end // MMFindReplaceController

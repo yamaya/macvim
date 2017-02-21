@@ -8,51 +8,49 @@
  * See README.txt for an overview of the Vim source code.
  */
 
-
 #import <Cocoa/Cocoa.h>
 #import "MacVim.h"
-
 
 // TODO: Remove this when the inline IM code has been tested
 #define INCLUDE_OLD_IM_CODE
 
 
 // NSUserDefaults keys
-extern NSString *MMTabMinWidthKey;
-extern NSString *MMTabMaxWidthKey;
-extern NSString *MMTabOptimumWidthKey;
-extern NSString *MMShowAddTabButtonKey;
-extern NSString *MMTextInsetLeftKey;
-extern NSString *MMTextInsetRightKey;
-extern NSString *MMTextInsetTopKey;
-extern NSString *MMTextInsetBottomKey;
-extern NSString *MMTypesetterKey;
-extern NSString *MMCellWidthMultiplierKey;
-extern NSString *MMBaselineOffsetKey;
-extern NSString *MMTranslateCtrlClickKey;
-extern NSString *MMTopLeftPointKey;
-extern NSString *MMOpenInCurrentWindowKey;
-extern NSString *MMNoFontSubstitutionKey;
-extern NSString *MMNoTitleBarWindowKey;
-extern NSString *MMLoginShellKey;
-extern NSString *MMUntitledWindowKey;
-extern NSString *MMZoomBothKey;
-extern NSString *MMCurrentPreferencePaneKey;
-extern NSString *MMLoginShellCommandKey;
-extern NSString *MMLoginShellArgumentKey;
-extern NSString *MMDialogsTrackPwdKey;
-extern NSString *MMOpenLayoutKey;
-extern NSString *MMVerticalSplitKey;
-extern NSString *MMPreloadCacheSizeKey;
-extern NSString *MMLastWindowClosedBehaviorKey;
+extern NSString *const MMTabMinWidthKey;
+extern NSString *const MMTabMaxWidthKey;
+extern NSString *const MMTabOptimumWidthKey;
+extern NSString *const MMShowAddTabButtonKey;
+extern NSString *const MMTextInsetLeftKey;
+extern NSString *const MMTextInsetRightKey;
+extern NSString *const MMTextInsetTopKey;
+extern NSString *const MMTextInsetBottomKey;
+extern NSString *const MMTypesetterKey;
+extern NSString *const MMCellWidthMultiplierKey;
+extern NSString *const MMBaselineOffsetKey;
+extern NSString *const MMTranslateCtrlClickKey;
+extern NSString *const MMTopLeftPointKey;
+extern NSString *const MMOpenInCurrentWindowKey;
+extern NSString *const MMNoFontSubstitutionKey;
+extern NSString *const MMNoTitleBarWindowKey;
+extern NSString *const MMLoginShellKey;
+extern NSString *const MMUntitledWindowKey;
+extern NSString *const MMZoomBothKey;
+extern NSString *const MMCurrentPreferencePaneKey;
+extern NSString *const MMLoginShellCommandKey;
+extern NSString *const MMLoginShellArgumentKey;
+extern NSString *const MMDialogsTrackPwdKey;
+extern NSString *const MMOpenLayoutKey;
+extern NSString *const MMVerticalSplitKey;
+extern NSString *const MMPreloadCacheSizeKey;
+extern NSString *const MMLastWindowClosedBehaviorKey;
 #ifdef INCLUDE_OLD_IM_CODE
-extern NSString *MMUseInlineImKey;
+extern NSString *const MMUseInlineImKey;
 #endif // INCLUDE_OLD_IM_CODE
-extern NSString *MMSuppressTerminationAlertKey;
-extern NSString *MMNativeFullScreenKey;
-extern NSString *MMUseMouseTimeKey;
-extern NSString *MMFullScreenFadeTimeKey;
-extern NSString *MMUseCGLayerAlwaysKey;
+extern NSString *const MMSuppressTerminationAlertKey;
+extern NSString *const MMNativeFullScreenKey;
+extern NSString *const MMUseMouseTimeKey;
+extern NSString *const MMFullScreenFadeTimeKey;
+extern NSString *const MMUseCGLayerAlwaysKey;
 
 
 // Enum for MMUntitledWindowKey
@@ -90,23 +88,27 @@ enum {
 };
 
 
-
+/**
+ */
 @interface NSIndexSet (MMExtras)
-+ (id)indexSetWithVimList:(NSString *)list;
++ (instancetype)indexSetWithVimList:(NSString *)list;
 @end
 
-
+/**
+ */
 @interface NSDocumentController (MMExtras)
 - (void)noteNewRecentFilePath:(NSString *)path;
 - (void)noteNewRecentFilePaths:(NSArray *)paths;
 @end
 
-
+/**
+ */
 @interface NSSavePanel (MMExtras)
 - (void)hiddenFilesButtonToggled:(id)sender;
 @end
 
-
+/**
+ */
 @interface NSMenu (MMExtras)
 - (int)indexOfItemWithAction:(SEL)action;
 - (NSMenuItem *)itemWithAction:(SEL)action;
@@ -117,30 +119,32 @@ enum {
 - (NSMenu *)findFileMenu;
 @end
 
-
+/**
+ */
 @interface NSToolbar (MMExtras)
 - (NSUInteger)indexOfItemWithItemIdentifier:(NSString *)identifier;
 - (NSToolbarItem *)itemAtIndex:(NSUInteger)idx;
 - (NSToolbarItem *)itemWithItemIdentifier:(NSString *)identifier;
 @end
 
-
+/**
+ */
 @interface NSTabView (MMExtras)
 - (void)removeAllTabViewItems;
 @end
 
-
+/**
+ */
 @interface NSNumber (MMExtras)
 // HACK to allow font size to be changed via menu (bound to Cmd+/Cmd-)
 - (NSInteger)tag;
 @end
 
 
-
 // Create a view with a "show hidden files" button to be used as accessory for
 // open/save panels.  This function assumes ownership of the view so do not
 // release it.
-NSView *showHiddenFilesView();
+extern NSView *showHiddenFilesView();
 
 
 // Convert filenames (which are in a variant of decomposed form, NFD, on HFS+)
@@ -150,8 +154,8 @@ NSView *showHiddenFilesView();
 //     http://developer.apple.com/technotes/tn/tn1150table.html
 //     http://developer.apple.com/qa/qa2001/qa1235.html
 //     http://www.unicode.org/reports/tr15/
-NSString *normalizeFilename(NSString *filename);
-NSArray *normalizeFilenames(NSArray *filenames);
+extern NSString *normalizeFilename(NSString *filename);
+extern NSArray *normalizeFilenames(NSArray *filenames);
 
 
-BOOL shouldUseYosemiteTabBarStyle();
+extern BOOL shouldUseYosemiteTabBarStyle();
