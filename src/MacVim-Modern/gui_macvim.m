@@ -14,6 +14,8 @@
  */
 
 #import "MMBackend.h"
+#import "NSString+Vim.h"
+#import "MMPoint.h"
 #import "MacVim.h"
 #import "vim.h"
 #import <Foundation/Foundation.h>
@@ -115,7 +117,7 @@ gui_mch_prepare(int *argc, char **argv)
         BOOL delarg = NO;
         if (strncmp(argv[i], "--mmwaitforack", 14) == 0) {
             // Implies -f (only called from front end)
-            [[MMBackend sharedInstance] setWaitForAck:YES];
+            [MMBackend.shared setWaitForAck:YES];
             delarg = YES;
         }
 #ifdef FEAT_NETBEANS_INTG
@@ -190,7 +192,7 @@ gui_mch_init(void)
 {
     ASLogDebug(@"");
 
-    if (![[MMBackend sharedInstance] checkin]) {
+    if (![MMBackend.shared checkin]) {
         // TODO: Kill the process if there is no terminal to fall back on,
         // otherwise the process will run outputting to the console.
         return FAIL;
@@ -210,10 +212,10 @@ gui_mch_init(void)
 
     gui_mch_def_colors();
 
-    [[MMBackend sharedInstance]
+    [MMBackend.shared
         setDefaultColorsBackground:gui.back_pixel foreground:gui.norm_pixel];
-    [[MMBackend sharedInstance] setBackgroundColor:gui.back_pixel];
-    [[MMBackend sharedInstance] setForegroundColor:gui.norm_pixel];
+    [MMBackend.shared setBackgroundColor:gui.back_pixel];
+    [MMBackend.shared setForegroundColor:gui.norm_pixel];
 
     // NOTE: If this call is left out the cursor is opaque.
     highlight_gui_started();
@@ -238,7 +240,7 @@ gui_mch_init(void)
             vim_free(ffname);
         }
 
-        [[MMBackend sharedInstance] addToMRU:filenames];
+        [MMBackend.shared addToMRU:filenames];
     }
 
     return OK;
@@ -251,7 +253,7 @@ gui_mch_exit(int rc)
 {
     ASLogDebug(@"rc=%d", rc);
 
-    [[MMBackend sharedInstance] exit];
+    [MMBackend.shared exit];
 }
 
 
@@ -261,7 +263,7 @@ gui_mch_exit(int rc)
     int
 gui_mch_open(void)
 {
-    return [[MMBackend sharedInstance] openGUIWindow];
+    return [MMBackend.shared openGUIWindow];
 }
 
 
@@ -292,7 +294,7 @@ gui_mch_update(void)
 
     CFAbsoluteTime nowTime = CFAbsoluteTimeGetCurrent();
     if (nowTime - lastTime > 0.2) {
-        [[MMBackend sharedInstance] update];
+        [MMBackend.shared update];
         lastTime = nowTime;
     }
 }
@@ -355,7 +357,7 @@ gui_macvim_flush(void)
     void
 gui_macvim_force_flush(void)
 {
-    [[MMBackend sharedInstance] flushQueue:YES];
+    [MMBackend.shared flushQueue:YES];
 }
 
 
@@ -373,13 +375,13 @@ gui_mch_wait_for_chars(int wtime)
 {
     // NOTE! In all likelihood Vim will take a nap when waitForInput: is
     // called, so force a flush of the command queue here.
-    [[MMBackend sharedInstance] flushQueue:YES];
+    [MMBackend.shared flushQueue:YES];
 
 #ifdef MESSAGE_QUEUE
     parse_queued_messages();
 #endif
 
-    return [[MMBackend sharedInstance] waitForInput:wtime];
+    return [MMBackend.shared waitForInput:wtime];
 }
 
 
@@ -392,7 +394,7 @@ gui_mch_wait_for_chars(int wtime)
     void
 gui_mch_clear_all(void)
 {
-    [[MMBackend sharedInstance] clearAll];
+    [MMBackend.shared clearAll];
 }
 
 
@@ -403,7 +405,7 @@ gui_mch_clear_all(void)
     void
 gui_mch_clear_block(int row1, int col1, int row2, int col2)
 {
-    [[MMBackend sharedInstance] clearBlockFromRow:row1 column:col1
+    [MMBackend.shared clearBlockFromRow:row1 column:col1
                                                     toRow:row2 column:col2];
 }
 
@@ -415,7 +417,7 @@ gui_mch_clear_block(int row1, int col1, int row2, int col2)
     void
 gui_mch_delete_lines(int row, int num_lines)
 {
-    [[MMBackend sharedInstance] deleteLinesFromRow:row count:num_lines
+    [MMBackend.shared deleteLinesFromRow:row count:num_lines
             scrollBottom:gui.scroll_region_bot
                     left:gui.scroll_region_left
                    right:gui.scroll_region_right];
@@ -434,7 +436,7 @@ gui_mch_draw_string(int row, int col, char_u *s, int len, int cells, int flags)
     }
 #endif
 
-    [[MMBackend sharedInstance] drawString:s
+    [MMBackend.shared drawString:s
                                     length:len
                                        row:row
                                     column:col
@@ -455,7 +457,7 @@ gui_macvim_draw_string(int row, int col, char_u *s, int len, int flags)
     int endcol = col;
     int startcol = col;
     BOOL wide = NO;
-    MMBackend *backend = [MMBackend sharedInstance];
+    MMBackend *backend = MMBackend.shared;
 #ifdef FEAT_MBYTE
     char_u *conv_str = NULL;
 
@@ -513,7 +515,7 @@ gui_macvim_draw_string(int row, int col, char_u *s, int len, int flags)
     void
 gui_mch_insert_lines(int row, int num_lines)
 {
-    [[MMBackend sharedInstance] insertLinesFromRow:row count:num_lines
+    [MMBackend.shared insertLinesFromRow:row count:num_lines
             scrollBottom:gui.scroll_region_bot
                     left:gui.scroll_region_left
                    right:gui.scroll_region_right];
@@ -526,7 +528,7 @@ gui_mch_insert_lines(int row, int num_lines)
     void
 gui_mch_set_fg_color(guicolor_T color)
 {
-    [[MMBackend sharedInstance] setForegroundColor:color];
+    [MMBackend.shared setForegroundColor:color];
 }
 
 
@@ -536,7 +538,7 @@ gui_mch_set_fg_color(guicolor_T color)
     void
 gui_mch_set_bg_color(guicolor_T color)
 {
-    [[MMBackend sharedInstance] setBackgroundColor:color];
+    [MMBackend.shared setBackgroundColor:color];
 }
 
 
@@ -546,7 +548,7 @@ gui_mch_set_bg_color(guicolor_T color)
     void
 gui_mch_set_sp_color(guicolor_T color)
 {
-    [[MMBackend sharedInstance] setSpecialColor:color];
+    [MMBackend.shared setSpecialColor:color];
 }
 
 
@@ -556,7 +558,7 @@ gui_mch_set_sp_color(guicolor_T color)
     void
 gui_mch_def_colors()
 {
-    MMBackend *backend = [MMBackend sharedInstance];
+    MMBackend *backend = MMBackend.shared;
 
     // The default colors are taken from system values
     gui.def_norm_pixel = gui.norm_pixel = 
@@ -577,7 +579,7 @@ gui_mch_new_colors(void)
 
     ASLogDebug(@"back=%ld norm=%ld", gui.def_back_pixel, gui.def_norm_pixel);
 
-    [[MMBackend sharedInstance]
+    [MMBackend.shared
         setDefaultColorsBackground:gui.def_back_pixel
                         foreground:gui.def_norm_pixel];
 }
@@ -588,7 +590,7 @@ gui_mch_new_colors(void)
     void
 gui_mch_invert_rectangle(int r, int c, int nr, int nc, int invert)
 {
-    [[MMBackend sharedInstance] drawInvertedRectAtRow:r column:c numRows:nr
+    [MMBackend.shared drawInvertedRectAtRow:r column:c numRows:nr
             numColumns:nc invert:invert];
 }
 
@@ -603,7 +605,7 @@ gui_mch_invert_rectangle(int r, int c, int nr, int nc, int invert)
     void
 gui_mch_set_curtab(int nr)
 {
-    [[MMBackend sharedInstance] selectTab:nr];
+    [MMBackend.shared selectTab:nr];
 }
 
 
@@ -613,7 +615,7 @@ gui_mch_set_curtab(int nr)
     int
 gui_mch_showing_tabline(void)
 {
-    return [[MMBackend sharedInstance] tabBarVisible];
+    return [MMBackend.shared tabBarVisible];
 }
 
 /*
@@ -622,7 +624,7 @@ gui_mch_showing_tabline(void)
     void
 gui_mch_update_tabline(void)
 {
-    [[MMBackend sharedInstance] updateTabBar];
+    [MMBackend.shared updateTabBar];
 }
 
 /*
@@ -631,7 +633,7 @@ gui_mch_update_tabline(void)
     void
 gui_mch_show_tabline(int showit)
 {
-    [[MMBackend sharedInstance] showTabBar:showit];
+    [MMBackend.shared showTabBar:showit];
 }
 
 
@@ -689,7 +691,7 @@ menu_for_descriptor(NSArray *desc)
 gui_mch_add_menu(vimmenu_T *menu, int idx)
 {
     NSArray *desc = descriptor_for_menu(menu);
-    [[MMBackend sharedInstance] queueMessage:AddMenuMsgID properties:
+    [MMBackend.shared queueMessage:AddMenuMsgID properties:
         [NSDictionary dictionaryWithObjectsAndKeys:
             desc, @"descriptor",
             [NSNumber numberWithInt:idx], @"index",
@@ -754,7 +756,7 @@ gui_mch_add_menu_item(vimmenu_T *menu, int idx)
             icon = lookup_toolbar_item(menu->iconidx);
     }
 
-    [[MMBackend sharedInstance] queueMessage:AddMenuItemMsgID properties:
+    [MMBackend.shared queueMessage:AddMenuItemMsgID properties:
         [NSDictionary dictionaryWithObjectsAndKeys:
             desc, @"descriptor",
             [NSNumber numberWithInt:idx], @"index",
@@ -775,7 +777,7 @@ gui_mch_add_menu_item(vimmenu_T *menu, int idx)
 gui_mch_destroy_menu(vimmenu_T *menu)
 {
     NSArray *desc = descriptor_for_menu(menu);
-    [[MMBackend sharedInstance] queueMessage:RemoveMenuItemMsgID properties:
+    [MMBackend.shared queueMessage:RemoveMenuItemMsgID properties:
         [NSDictionary dictionaryWithObject:desc forKey:@"descriptor"]];
 }
 
@@ -795,7 +797,7 @@ gui_mch_menu_grey(vimmenu_T *menu, int grey)
 
     menu->was_grey = grey;
 
-    [[MMBackend sharedInstance] queueMessage:EnableMenuItemMsgID properties:
+    [MMBackend.shared queueMessage:EnableMenuItemMsgID properties:
         [NSDictionary dictionaryWithObjectsAndKeys:
             desc, @"descriptor",
             [NSNumber numberWithInt:!grey], @"enable",
@@ -822,7 +824,7 @@ gui_mch_menu_hidden(vimmenu_T *menu, int hidden)
 gui_mch_show_popupmenu(vimmenu_T *menu)
 {
     NSArray *desc = descriptor_for_menu(menu);
-    [[MMBackend sharedInstance] queueMessage:ShowPopupMenuMsgID properties:
+    [MMBackend.shared queueMessage:ShowPopupMenuMsgID properties:
         [NSDictionary dictionaryWithObject:desc forKey:@"descriptor"]];
 }
 
@@ -845,7 +847,7 @@ gui_make_popup(char_u *path_name, int mouse_pos)
             [NSNumber numberWithInt:curwin->w_wcol], @"column",
             nil];
 
-    [[MMBackend sharedInstance] queueMessage:ShowPopupMenuMsgID properties:p];
+    [MMBackend.shared queueMessage:ShowPopupMenuMsgID properties:p];
 }
 
 
@@ -883,7 +885,7 @@ gui_mch_show_toolbar(int showit)
     if (toolbar_flags & TOOLBAR_ICONS) flags |= ToolbarIconFlag;
     if (tbis_flags & (TBIS_MEDIUM|TBIS_LARGE)) flags |= ToolbarSizeRegularFlag;
 
-    [[MMBackend sharedInstance] showToolbar:showit flags:flags];
+    [MMBackend.shared showToolbar:showit flags:flags];
 }
 
 
@@ -972,8 +974,8 @@ gui_mch_init_font(char_u *font_name, int fontset)
     // the same (normal) font.  Also note that each time the normal font is
     // set, the advancement may change so the wide font needs to be updated
     // as well (so that it is always twice the width of the normal font).
-    [[MMBackend sharedInstance] setFont:font wide:NO];
-    [[MMBackend sharedInstance] setFont:(NOFONT != gui.wide_font ? gui.wide_font
+    [MMBackend.shared setFont:font wide:NO];
+    [MMBackend.shared setFont:(NOFONT != gui.wide_font ? gui.wide_font
                                                                  : font)
                                    wide:YES];
 
@@ -1059,7 +1061,7 @@ gui_mch_create_scrollbar(
 	scrollbar_T *sb,
 	int orient)	/* SBAR_VERT or SBAR_HORIZ */
 {
-    [[MMBackend sharedInstance] 
+    [MMBackend.shared 
             createScrollbarWithIdentifier:(int32_t)sb->ident type:sb->type];
 }
 
@@ -1067,7 +1069,7 @@ gui_mch_create_scrollbar(
     void
 gui_mch_destroy_scrollbar(scrollbar_T *sb)
 {
-    [[MMBackend sharedInstance] 
+    [MMBackend.shared 
             destroyScrollbarWithIdentifier:(int32_t)sb->ident];
 }
 
@@ -1077,7 +1079,7 @@ gui_mch_enable_scrollbar(
 	scrollbar_T	*sb,
 	int		flag)
 {
-    [[MMBackend sharedInstance] 
+    [MMBackend.shared 
             showScrollbarWithIdentifier:(int32_t)sb->ident state:flag];
 }
 
@@ -1097,7 +1099,7 @@ gui_mch_set_scrollbar_pos(
         len = w; 
     }
 
-    [[MMBackend sharedInstance] 
+    [MMBackend.shared 
             setScrollbarPosition:pos length:len identifier:(int32_t)sb->ident];
 }
 
@@ -1109,7 +1111,7 @@ gui_mch_set_scrollbar_thumb(
 	long size,
 	long max)
 {
-    [[MMBackend sharedInstance] 
+    [MMBackend.shared 
             setScrollbarThumbValue:val
                               size:size
                                max:max
@@ -1126,7 +1128,7 @@ gui_mch_set_scrollbar_thumb(
     void
 gui_mch_draw_hollow_cursor(guicolor_T color)
 {
-    return [[MMBackend sharedInstance]
+    return [MMBackend.shared
         drawCursorAtRow:gui.row column:gui.col shape:MMInsertionPointHollow
                fraction:100 color:color];
 }
@@ -1160,7 +1162,7 @@ gui_mch_draw_part_cursor(int w, int h, guicolor_T color)
             break;
     }
 
-    return [[MMBackend sharedInstance]
+    return [MMBackend.shared
         drawCursorAtRow:gui.row column:gui.col shape:shape
                fraction:shape_table[idx].percentage color:color];
 }
@@ -1191,7 +1193,7 @@ gui_mch_is_blink_off(void)
     void
 gui_mch_set_blinking(long wait, long on, long off)
 {
-    [[MMBackend sharedInstance] setBlinkWait:wait on:on off:off];
+    [MMBackend.shared setBlinkWait:wait on:on off:off];
 }
 
 
@@ -1202,7 +1204,7 @@ gui_mch_set_blinking(long wait, long on, long off)
     void
 gui_mch_start_blink(void)
 {
-    [[MMBackend sharedInstance] startBlink];
+    [MMBackend.shared startBlink];
 }
 
 
@@ -1212,7 +1214,7 @@ gui_mch_start_blink(void)
     void
 gui_mch_stop_blink(void)
 {
-    [[MMBackend sharedInstance] stopBlink];
+    [MMBackend.shared stopBlink];
 }
 
 
@@ -1239,7 +1241,7 @@ gui_mch_setmouse(int x, int y)
     void
 mch_set_mouse_shape(int shape)
 {
-    [[MMBackend sharedInstance] setMouseShape:shape];
+    [MMBackend.shared setMouseShape:shape];
 }
 
 
@@ -1253,7 +1255,7 @@ mch_set_mouse_shape(int shape)
 im_set_position(int row, int col)
 {
     // The pre-edit area is a popup window which is displayed by MMTextView.
-    [[MMBackend sharedInstance] setPreEditRow:row column:col];
+    [MMBackend.shared setPreEditRow:row column:col];
 }
 
 
@@ -1263,7 +1265,7 @@ im_set_control(int enable)
     // Tell frontend whether it should notify us when the input method changes
     // or not (called when 'imd' is toggled).
     int msgid = enable ? EnableImControlMsgID : DisableImControlMsgID;
-    [[MMBackend sharedInstance] queueMessage:msgid properties:nil];
+    [MMBackend.shared queueMessage:msgid properties:nil];
 }
 
 
@@ -1273,8 +1275,8 @@ im_set_active(int active)
     // Tell frontend to enable/disable IM (called e.g. when the mode changes).
     if (!p_imdisable) {
         int msgid = active ? ActivateKeyScriptMsgID : DeactivateKeyScriptMsgID;
-        [[MMBackend sharedInstance] setImState:active];
-        [[MMBackend sharedInstance] queueMessage:msgid properties:nil];
+        [MMBackend.shared setImState:active];
+        [MMBackend.shared queueMessage:msgid properties:nil];
     }
 }
 
@@ -1282,7 +1284,7 @@ im_set_active(int active)
     int
 im_get_status(void)
 {
-    return [[MMBackend sharedInstance] imState];
+    return [MMBackend.shared imState];
 }
 
 #endif // defined(USE_IM_CONTROL)
@@ -1311,7 +1313,7 @@ macvim_find_and_replace(char_u *arg, BOOL replace)
             [NSNumber numberWithInt:flags],         @"flags",
             nil];
 
-    [[MMBackend sharedInstance] queueMessage:ShowFindReplaceDialogMsgID
+    [MMBackend.shared queueMessage:ShowFindReplaceDialogMsgID
                                   properties:args];
 }
 
@@ -1349,10 +1351,10 @@ ex_macaction(eap)
     arg = CONVERT_TO_UTF8(arg);
 #endif
 
-    NSDictionary *actionDict = [[MMBackend sharedInstance] actionDict];
+    NSDictionary *actions = MMBackend.shared.actions;
     NSString *name = [NSString stringWithUTF8String:(char*)arg];
-    if (actionDict && [actionDict objectForKey:name] != nil) {
-        [[MMBackend sharedInstance] executeActionWithName:name];
+    if (actions[name]) {
+        [MMBackend.shared executeActionWithName:name];
     } else {
         EMSG2(_("E???: Invalid action: %s"), eap->arg);
     }
@@ -1369,7 +1371,7 @@ ex_macaction(eap)
     int
 gui_mch_adjust_charheight(void)
 {
-    [[MMBackend sharedInstance] adjustLinespace:p_linespace];
+    [MMBackend.shared adjustLinespace:p_linespace];
     return OK;
 }
 
@@ -1422,7 +1424,7 @@ gui_mch_browse(
     if (initdir)
         [attr setObject:[NSString stringWithVimString:initdir] forKey:@"dir"];
 
-    char_u *s = (char_u*)[[MMBackend sharedInstance]
+    char_u *s = (char_u*)[MMBackend.shared
                             browseForFileWithAttributes:attr];
 
     return s;
@@ -1450,7 +1452,7 @@ gui_mch_browsedir(
     if (initdir)
         [attr setObject:[NSString stringWithVimString:initdir] forKey:@"dir"];
 
-    char_u *s = (char_u*)[[MMBackend sharedInstance]
+    char_u *s = (char_u*)[MMBackend.shared
                             browseForFileWithAttributes:attr];
 
     return s;
@@ -1525,7 +1527,7 @@ gui_mch_dialog(
         [attr setObject:string forKey:@"textFieldString"];
     }
 
-    return [[MMBackend sharedInstance] showDialogWithAttributes:attr
+    return [MMBackend.shared showDialogWithAttributes:attr
                                                     textField:(char*)textfield];
 }
 
@@ -1545,7 +1547,7 @@ gui_mch_flash(int msec)
     guicolor_T
 gui_mch_get_color(char_u *name)
 {
-    if (![MMBackend sharedInstance])
+    if (!MMBackend.shared)
 	return INVALCOLOR;
 
 #ifdef FEAT_MBYTE
@@ -1553,7 +1555,7 @@ gui_mch_get_color(char_u *name)
 #endif
 
     NSString *key = [NSString stringWithUTF8String:(char*)name];
-    guicolor_T col = [[MMBackend sharedInstance] lookupColorWithKey:key];
+    guicolor_T col = [MMBackend.shared lookupColorWithKey:key];
 
 #ifdef FEAT_MBYTE
     CONVERT_TO_UTF8_FREE(name);
@@ -1599,7 +1601,7 @@ gui_mch_get_screen_dimensions(int *screen_w, int *screen_h)
     int
 gui_mch_haskey(char_u *name)
 {
-    return [[MMBackend sharedInstance] hasSpecialKeyWithValue:name];
+    return [MMBackend.shared hasSpecialKeyWithValue:name];
 }
 
 
@@ -1619,7 +1621,7 @@ gui_mch_iconify(void)
     void
 gui_mch_set_foreground(void)
 {
-    [[MMBackend sharedInstance] activate];
+    [MMBackend.shared activate];
 }
 #endif
 
@@ -1638,7 +1640,7 @@ gui_mch_set_shellsize(
     ASLogDebug(@"width=%d height=%d min_width=%d min_height=%d base_width=%d "
                "base_height=%d direction=%d", width, height, min_width,
                min_height, base_width, base_height, direction);
-    [[MMBackend sharedInstance] setRows:height columns:width];
+    [MMBackend.shared setRows:height columns:width];
 }
 
 
@@ -1649,7 +1651,7 @@ gui_mch_set_shellsize(
     void
 gui_mch_set_winpos(int x, int y)
 {
-    [[MMBackend sharedInstance] setWindowPositionX:x Y:y];
+    MMBackend.shared.windowPosition = (MMPoint){y, x};
 }
 
 
@@ -1659,7 +1661,9 @@ gui_mch_set_winpos(int x, int y)
     int
 gui_mch_get_winpos(int *x, int *y)
 {
-    [[MMBackend sharedInstance] getWindowPositionX:x Y:y];
+    const MMPoint point = MMBackend.shared.windowPosition;
+    if (x) *x = point.col;
+    if (y) *y = point.row;
     return OK;
 }
 
@@ -1684,7 +1688,7 @@ gui_mch_settitle(char_u *title, char_u *icon)
     title = CONVERT_TO_UTF8(title);
 #endif
 
-    MMBackend *backend = [MMBackend sharedInstance];
+    MMBackend *backend = MMBackend.shared;
     [backend setWindowTitle:(char*)title];
 
     // TODO: Convert filename to UTF-8?
@@ -1708,14 +1712,14 @@ gui_mch_toggle_tearoffs(int enable)
     void
 gui_mch_enter_fullscreen(int fuoptions_flags, guicolor_T bg)
 {
-    [[MMBackend sharedInstance] enterFullScreen:fuoptions_flags background:bg];
+    [MMBackend.shared enterFullScreen:fuoptions_flags background:bg];
 }
 
 
     void
 gui_mch_leave_fullscreen()
 {
-    [[MMBackend sharedInstance] leaveFullScreen];
+    [MMBackend.shared leaveFullScreen];
 }
 
 
@@ -1732,14 +1736,14 @@ gui_mch_fuopt_update()
         bg = fuoptions_bgcolor;
     }
 
-    [[MMBackend sharedInstance] setFullScreenBackgroundColor:bg];
+    [MMBackend.shared setFullScreenBackgroundColor:bg];
 }
 
 
     void
 gui_macvim_update_modified_flag()
 {
-    [[MMBackend sharedInstance] updateModifiedFlag];
+    [MMBackend.shared updateModifiedFlag];
 }
 
 /*
@@ -1779,24 +1783,24 @@ gui_macvim_add_to_find_pboard(char_u *pat)
     void
 gui_macvim_set_antialias(int antialias)
 {
-    [[MMBackend sharedInstance] setAntialias:antialias];
+    [MMBackend.shared setAntialias:antialias];
 }
 
     void
 gui_macvim_set_ligatures(int ligatures)
 {
-    [[MMBackend sharedInstance] setLigatures:ligatures];
+    [MMBackend.shared setLigatures:ligatures];
 }
     void
 gui_macvim_set_thinstrokes(int thinStrokes)
 {
-    [[MMBackend sharedInstance] setThinStrokes:thinStrokes];
+    [MMBackend.shared setThinStrokes:thinStrokes];
 }
 
     void
 gui_macvim_wait_for_startup()
 {
-    MMBackend *backend = [MMBackend sharedInstance];
+    MMBackend *backend = MMBackend.shared;
     if ([backend waitForAck])
         [backend waitForConnectionAcknowledgement];
 }
@@ -1807,7 +1811,7 @@ void gui_macvim_get_window_layout(int *count, int *layout)
 
     // NOTE: Only set 'layout' if the backend has requested a != 0 layout, else
     // any command line arguments (-p/-o) would be ignored.
-    int window_layout = [[MMBackend sharedInstance] initialWindowLayout];
+    int window_layout = [MMBackend.shared initialWindowLayout];
     if (window_layout > 0 && window_layout < 4) {
         // The window_layout numbers must match the WIN_* defines in main.c.
         *count = 0;
@@ -1852,7 +1856,7 @@ serverRegisterName(char_u *name)
 #endif
 
     NSString *svrName = [NSString stringWithUTF8String:(char*)name];
-    [[MMBackend sharedInstance] registerServerWithName:svrName];
+    [MMBackend.shared registerServerWithName:svrName];
 
 #ifdef FEAT_MBYTE
     CONVERT_TO_UTF8_FREE(name);
@@ -1873,7 +1877,7 @@ serverSendToVim(char_u *name, char_u *cmd, char_u **result,
     cmd = CONVERT_TO_UTF8(cmd);
 #endif
 
-    BOOL ok = [[MMBackend sharedInstance]
+    BOOL ok = [MMBackend.shared
             sendToServer:[NSString stringWithUTF8String:(char*)name]
                   string:[NSString stringWithUTF8String:(char*)cmd]
                    reply:result
@@ -1897,7 +1901,7 @@ serverSendToVim(char_u *name, char_u *cmd, char_u **result,
 serverGetVimNames(void)
 {
     char_u *names = NULL;
-    NSArray *list = [[MMBackend sharedInstance] serverList];
+    NSArray *list = [MMBackend.shared serverList];
 
     if (list) {
         NSString *string = [list componentsJoinedByString:@"\n"];
@@ -1931,7 +1935,7 @@ serverStrToPort(char_u *str)
     int
 serverPeekReply(int port, char_u **str)
 {
-    NSString *reply = [[MMBackend sharedInstance] peekForReplyOnPort:port];
+    NSString *reply = [MMBackend.shared peekForReplyOnPort:port];
     int len = [reply lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
 
     if (str && len > 0) {
@@ -1967,7 +1971,7 @@ serverPeekReply(int port, char_u **str)
     int
 serverReadReply(int port, char_u **str)
 {
-    NSString *reply = [[MMBackend sharedInstance] waitForReplyOnPort:port];
+    NSString *reply = [MMBackend.shared waitForReplyOnPort:port];
     if (reply && str) {
         *str = [reply vimStringSave];
         return 0;
@@ -1990,7 +1994,7 @@ serverSendReply(char_u *serverid, char_u *reply)
 #ifdef FEAT_MBYTE
         reply = CONVERT_TO_UTF8(reply);
 #endif
-        BOOL ok = [[MMBackend sharedInstance]
+        BOOL ok = [MMBackend.shared
                 sendReply:[NSString stringWithUTF8String:(char*)reply]
                    toPort:port];
         retval = ok ? 0 : -1;
@@ -2100,12 +2104,12 @@ odb_end(void)
 get_macaction_name(expand_T *xp, int idx)
 {
     static char_u *str = NULL;
-    NSDictionary *actionDict = [[MMBackend sharedInstance] actionDict];
+    NSDictionary *actions = MMBackend.shared.actions;
 
-    if (nil == actionDict || idx < 0 || idx >= [actionDict count])
+    if (!actions || idx < 0 || idx >= actions.count)
         return NULL;
 
-    NSString *string = [[actionDict allKeys] objectAtIndex:idx];
+    NSString *string = actions.allKeys[idx];
     if (!string)
         return NULL;
 
@@ -2131,13 +2135,13 @@ get_macaction_name(expand_T *xp, int idx)
 is_valid_macaction(char_u *action)
 {
     int isValid = NO;
-    NSDictionary *actionDict = [[MMBackend sharedInstance] actionDict];
-    if (actionDict) {
+    NSDictionary *actions = MMBackend.shared.actions;
+    if (actions) {
 #ifdef FEAT_MBYTE
         action = CONVERT_TO_UTF8(action);
 #endif
         NSString *string = [NSString stringWithUTF8String:(char*)action];
-        isValid = (nil != [actionDict objectForKey:string]);
+        isValid = (nil != actions[string]);
 #ifdef FEAT_MBYTE
         CONVERT_TO_UTF8_FREE(action);
 #endif
@@ -2272,7 +2276,7 @@ gui_mch_drawsign(int row, int col, int typenr)
     char_u *txt = sign_get_text(typenr);
     int txtSize = txt ? strlen((char*)txt) : 2;
 
-    [[MMBackend sharedInstance] drawSign:imgName
+    [MMBackend.shared drawSign:imgName
                                    atRow:row
                                   column:col
                                    width:txtSize
@@ -2304,7 +2308,7 @@ gui_mch_destroy_sign(void *sign)
     if (!imgName)
         return;
 
-    [[MMBackend sharedInstance]
+    [MMBackend.shared
             queueMessage:DeleteSignMsgID
               properties:[NSDictionary dictionaryWithObjectsAndKeys:
                                                     imgName, @"imgName", nil]];
@@ -2346,7 +2350,7 @@ gui_mch_enable_beval_area(beval)
     // Set the balloon delay when enabling balloon eval.
     float delay = p_bdlay/1000.0f - MMBalloonEvalInternalDelay;
     if (delay < 0) delay = 0;
-    [[MMBackend sharedInstance] queueMessage:SetTooltipDelayMsgID properties:
+    [MMBackend.shared queueMessage:SetTooltipDelayMsgID properties:
         [NSDictionary dictionaryWithObject:[NSNumber numberWithFloat:delay]
                                     forKey:@"delay"]];
 }
@@ -2356,7 +2360,7 @@ gui_mch_disable_beval_area(beval)
     BalloonEval	*beval;
 {
     // NOTE: An empty tool tip indicates that the tool tip window should hide.
-    [[MMBackend sharedInstance] queueMessage:SetTooltipMsgID properties:
+    [MMBackend.shared queueMessage:SetTooltipMsgID properties:
         [NSDictionary dictionaryWithObject:@"" forKey:@"toolTip"]];
 }
 
@@ -2369,7 +2373,7 @@ gui_mch_post_balloon(beval, mesg)
     char_u	*mesg;
 {
     NSString *toolTip = [NSString stringWithVimString:mesg];
-    [[MMBackend sharedInstance] setLastToolTip:toolTip];
+    [MMBackend.shared setLastToolTip:toolTip];
 }
 
 #endif // FEAT_BEVAL
@@ -2377,5 +2381,5 @@ gui_mch_post_balloon(beval, mesg)
     void
 gui_macvim_set_blur(int radius)
 {
-    [[MMBackend sharedInstance] setBlurRadius:radius];
+    [MMBackend.shared setBlurRadius:radius];
 }

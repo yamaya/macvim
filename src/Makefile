@@ -1366,9 +1366,11 @@ CARBONGUI_TESTARG = VIMPROG=../$(APPDIR)/Contents/MacOS/$(VIMTARGET)
 
 # MACVIM GUI
 MACVIMGUI_SRC	= gui.c gui_beval.c MacVim-Modern/gui_macvim.m MacVim-Modern/MMBackend.m \
+		  MacVim-Modern/NSString+Vim.m MacVim-Modern/MMEventUtils.m \
 		  MacVim-Modern/MacVim.m
 MACVIMGUI_OBJ	= objects/gui.o objects/gui_beval.o objects/pty.o \
-		  objects/gui_macvim.o objects/MMBackend.o objects/MacVim.o
+		  objects/gui_macvim.o objects/MMBackend.o objects/MacVim.o \
+		  objects/NSString+Vim.o objects/MMEventUtils.o
 MACVIMGUI_DEFS	= -DFEAT_GUI_MACVIM -Wall -Wno-unknown-pragmas -pipe
 MACVIMGUI_IPATH	=
 MACVIMGUI_LIBS_DIR =
@@ -2940,7 +2942,13 @@ objects/.dirstamp:
 $(ALL_OBJ): objects/.dirstamp
 
 objects/MMBackend.o: MacVim-Modern/MMBackend.m
-	$(CCC) -fobjc-exceptions -o $@ MacVim-Modern/MMBackend.m
+	$(CCC) -fobjc-arc -fobjc-exceptions -o $@ MacVim-Modern/MMBackend.m
+
+objects/NSString+Vim.o: MacVim-Modern/NSString+Vim.m
+	$(CCC) -fobjc-arc -fobjc-exceptions -o $@ MacVim-Modern/NSString+Vim.m
+
+objects/MMEventUtils.o: MacVim-Modern/MMEventUtils.m
+	$(CCC) -fobjc-arc -fobjc-exceptions -o $@ MacVim-Modern/MMEventUtils.m
 
 objects/MacVim.o: MacVim-Modern/MacVim.m
 	$(CCC) -o $@ MacVim-Modern/MacVim.m

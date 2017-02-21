@@ -28,16 +28,16 @@
  */
 
 #import "MMBackend.h"
-
-
+#import "NSString+Vim.h"
+#import "MMEventUtils.h"
 
 // NOTE: Colors in MMBackend are stored as unsigned ints on the form 0xaarrggbb
 // whereas colors in Vim are int without the alpha component.  Also note that
 // 'transp' is assumed to be a value between 0 and 100.
-#define MM_COLOR(col) ((unsigned)( ((col)&0xffffff) | 0xff000000 ))
+#define MM_COLOR(col) \
+    ((unsigned)( ((col)&0xffffff) | 0xff000000 ))
 #define MM_COLOR_WITH_TRANSP(col,transp) \
-    ((unsigned)( ((col)&0xffffff) \
-        | ((((unsigned)((((100-(transp))*255)/100)+.5f))&0xff)<<24) ))
+    ((unsigned)( ((col)&0xffffff) | ((((unsigned)((((100-(transp))*255)/100)+.5f))&0xff)<<24) ))
 
 // Values for window layout (must match values in main.c).
 #define WIN_HOR     1       // "-o" horizontally split windows
@@ -45,17 +45,6 @@
 #define WIN_TABS    3       // "-p" windows on tab pages
 
 static unsigned MMServerMax = 1000;
-
-#ifdef FEAT_BEVAL
-// Seconds to delay balloon evaluation after mouse event (subtracted from
-// p_bdlay so that this effectively becomes the smallest possible delay).
-NSTimeInterval MMBalloonEvalInternalDelay = 0.1;
-#endif
-
-// TODO: Move to separate file.
-static int eventModifierFlagsToVimModMask(int modifierFlags);
-static int eventModifierFlagsToVimMouseModMask(int modifierFlags);
-static int eventButtonNumberToVimMouseButton(int buttonNumber);
 
 // In gui_macvim.m
 vimmenu_T *menu_for_descriptor(NSArray *desc);
@@ -65,7 +54,7 @@ static id evalExprCocoa(NSString * expr, NSString ** errstr);
 extern void im_preedit_start_macvim();
 extern void im_preedit_end_macvim();
 extern void im_preedit_abandon_macvim();
-extern void im_preedit_changed_macvim(char *preedit_string, int cursor_index);
+extern void im_preedit_changed_macvim(const char *preedit_string, int cursor_index);
 
 enum {
     MMBlinkStateNone = 0,
@@ -82,13 +71,11 @@ static NSString *MMSymlinkWarningString =
 
 // Keycodes recognized by Vim (struct taken from gui_x11.c and gui_w48.c)
 // (The key codes were taken from Carbon/HIToolbox/Events.)
-static struct specialkey
-{
-    unsigned    key_sym;
-    char_u      vim_code0;
-    char_u      vim_code1;
-} special_keys[] =
-{
+static struct _SpecialKey {
+    unsigned    keysym;
+    char_u      code0;
+    char_u      code1;
+} specialKeys[] = {
     {0x7e /*kVK_UpArrow*/,       'k', 'u'},
     {0x7d /*kVK_DownArrow*/,     'k', 'd'},
     {0x7b /*kVK_LeftArrow*/,     'k', 'l'},
@@ -153,7 +140,7 @@ static struct specialkey
     /* End of list marker: */
     {0, 0, 0}
 };
-
+typedef struct _SpecialKey SpecialKey;
 
 extern GuiFont gui_mch_retain_font(GuiFont font);
 
@@ -162,7 +149,8 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 - (NSComparisonResult)serverNameCompare:(NSString *)string;
 @end
 
-
+/**
+ */
 @interface MMBackend (Private)
 - (void)clearDrawData;
 - (void)didChangeWholeLine;
@@ -170,13 +158,9 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 - (void)insertVimStateMessage;
 - (void)processInputQueue;
 - (void)handleInputEvent:(int)msgid data:(NSData *)data;
-- (void)doKeyDown:(NSString *)key
-          keyCode:(unsigned)code
-        modifiers:(int)mods;
-- (BOOL)handleSpecialKey:(NSString *)key
-                 keyCode:(unsigned)code
-               modifiers:(int)mods;
-- (BOOL)handleMacMetaKey:(int)ikey modifiers:(int)mods;
+- (void)doKeyDown:(NSString *)key keyCode:(unsigned)code modifiers:(int)modifiers;
+- (BOOL)handleSpecialKey:(NSString *)key keyCode:(unsigned)code modifiers:(int)modifiers;
+- (BOOL)handleMacMetaKey:(int)ikey modifiers:(int)modifiers;
 - (void)queueMessage:(int)msgid data:(NSData *)data;
 - (void)connectionDidDie:(NSNotification *)notification;
 - (void)blinkTimerFired:(NSTimer *)timer;
@@ -203,8 +187,8 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 #endif
 @end
 
-
-
+/**
+ */
 @interface MMBackend (ClientServer)
 - (NSString *)connectionNameFromServerName:(NSString *)name;
 - (NSConnection *)connectionForServerName:(NSString *)name;
@@ -214,43 +198,72 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 - (NSString *)alternateServerNameForName:(NSString *)name;
 @end
 
+/**
+ */
+@implementation MMBackend {
+    unsigned            _defaultBackgroundColor;
+    unsigned            _defaultForegroundColor;
+    NSDictionary        *_colors;
+    NSDictionary        *_systemColors;
+    NSMutableArray      *_outputQueue;
+    NSMutableArray      *_inputQueue;
+    NSMutableData       *_drawData;
+    NSConnection        *_vimServerConnection;
+    id                  _appProxy;
+    unsigned            _identifier;
+    id                  _dialogReturn;
+    int                 _blinkState;
+    NSTimer             *_blinkTimer;
+    NSTimeInterval      _blinkWaitInterval;
+    NSTimeInterval      _blinkOnInterval;
+    NSTimeInterval      _blinkOffInterval;
+    NSMutableDictionary *_connections;
+    NSMutableDictionary *_clients;
+    NSMutableDictionary *_serverReplyDict;
+    NSString            *_alternateServerName;
+    GuiFont             _oldWideFont;
+    BOOL                _teminating;
+    BOOL                _flushDisabled;
+    unsigned            _numWholeLineChanges;
+    unsigned            _offsetForDrawDataPrune;
+    NSString            *_lastToolTip;
+}
+@synthesize foregroundColor = _foregroundColor, backgroundColor = _backgroundColor, specialColor = _specialColor;
+@synthesize connection = _connection, actions = _actions;
+@synthesize initialWindowLayout = _initialWindowLayout, windowPosition = _windowPosition;
+@synthesize waitForAck = _waitForAck, tabBarVisible = _tabBarVisible, imState = _imState;
+#ifdef FEAT_BEVAL
+@synthesize lastToolTip = _lastToolTip;
+#endif
 
-
-@implementation MMBackend
-
-+ (MMBackend *)sharedInstance
++ (instancetype)shared
 {
     static MMBackend *singleton = nil;
-    return singleton ? singleton : (singleton = [MMBackend new]);
+    return singleton ?: (singleton = MMBackend.new);
 }
 
-- (id)init
+- (instancetype)init
 {
-    self = [super init];
-    if (!self) return nil;
+    if (!(self = [super init])) return nil;
 
-    outputQueue = [[NSMutableArray alloc] init];
-    inputQueue = [[NSMutableArray alloc] init];
-    drawData = [[NSMutableData alloc] initWithCapacity:1024];
-    connectionNameDict = [[NSMutableDictionary alloc] init];
-    clientProxyDict = [[NSMutableDictionary alloc] init];
-    serverReplyDict = [[NSMutableDictionary alloc] init];
+    _outputQueue = NSMutableArray.new;
+    _inputQueue = NSMutableArray.new;
+    _drawData = [[NSMutableData alloc] initWithCapacity:1024];
+    _connections = NSMutableDictionary.new;
+    _clients = NSMutableDictionary.new;
+    _serverReplyDict = NSMutableDictionary.new;
 
-    NSBundle *mainBundle = [NSBundle mainBundle];
-    NSString *path = [mainBundle pathForResource:@"Colors" ofType:@"plist"];
-    if (path)
-        colorDict = [[NSDictionary dictionaryWithContentsOfFile:path] retain];
+    NSBundle *bundle = NSBundle.mainBundle;
+    NSString *path = [bundle pathForResource:@"Colors" ofType:@"plist"];
+    if (path) _colors = [NSDictionary dictionaryWithContentsOfFile:path];
 
-    path = [mainBundle pathForResource:@"SystemColors" ofType:@"plist"];
-    if (path)
-        sysColorDict = [[NSDictionary dictionaryWithContentsOfFile:path]
-            retain];
+    path = [bundle pathForResource:@"SystemColors" ofType:@"plist"];
+    if (path) _systemColors = [NSDictionary dictionaryWithContentsOfFile:path];
 
-    path = [mainBundle pathForResource:@"Actions" ofType:@"plist"];
-    if (path)
-        actionDict = [[NSDictionary dictionaryWithContentsOfFile:path] retain];
+    path = [bundle pathForResource:@"Actions" ofType:@"plist"];
+    if (path) _actions = [NSDictionary dictionaryWithContentsOfFile:path];
 
-    if (!(colorDict && sysColorDict && actionDict)) {
+    if (!(_colors && _systemColors && _actions)) {
         ASLogNotice(@"Failed to load dictionaries.%@", MMSymlinkWarningString);
     }
 
@@ -259,100 +272,59 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
 - (void)dealloc
 {
-    ASLogDebug(@"");
+    [NSNotificationCenter.defaultCenter removeObserver:self];
 
-    [[NSNotificationCenter defaultCenter] removeObserver:self];
-
-    gui_mch_free_font(oldWideFont);  oldWideFont = NOFONT;
-    [blinkTimer release];  blinkTimer = nil;
-    [alternateServerName release];  alternateServerName = nil;
-    [serverReplyDict release];  serverReplyDict = nil;
-    [clientProxyDict release];  clientProxyDict = nil;
-    [connectionNameDict release];  connectionNameDict = nil;
-    [inputQueue release];  inputQueue = nil;
-    [outputQueue release];  outputQueue = nil;
-    [drawData release];  drawData = nil;
-    [connection release];  connection = nil;
-    [actionDict release];  actionDict = nil;
-    [sysColorDict release];  sysColorDict = nil;
-    [colorDict release];  colorDict = nil;
-    [vimServerConnection release];  vimServerConnection = nil;
-#ifdef FEAT_BEVAL
-    [lastToolTip release];  lastToolTip = nil;
-#endif
-
-    [super dealloc];
+    gui_mch_free_font(_oldWideFont);
+    _oldWideFont = NOFONT;
 }
 
-- (void)setBackgroundColor:(int)color
+- (void)setBackgroundColor:(unsigned)color
 {
-    backgroundColor = MM_COLOR_WITH_TRANSP(color,p_transp);
+    _backgroundColor = MM_COLOR_WITH_TRANSP(color, p_transp);
 }
 
-- (void)setForegroundColor:(int)color
+- (void)setForegroundColor:(unsigned)color
 {
-    foregroundColor = MM_COLOR(color);
+    _foregroundColor = MM_COLOR(color);
 }
 
-- (void)setSpecialColor:(int)color
+- (void)setSpecialColor:(unsigned)color
 {
-    specialColor = MM_COLOR(color);
+    _specialColor = MM_COLOR(color);
 }
 
-- (void)setDefaultColorsBackground:(int)bg foreground:(int)fg
+- (void)setDefaultColorsBackground:(unsigned)bg foreground:(unsigned)fg
 {
-    defaultBackgroundColor = MM_COLOR_WITH_TRANSP(bg,p_transp);
-    defaultForegroundColor = MM_COLOR(fg);
+    _defaultBackgroundColor = MM_COLOR_WITH_TRANSP(bg, p_transp);
+    _defaultForegroundColor = MM_COLOR(fg);
 
-    NSMutableData *data = [NSMutableData data];
-
-    [data appendBytes:&defaultBackgroundColor length:sizeof(unsigned)];
-    [data appendBytes:&defaultForegroundColor length:sizeof(unsigned)];
-
+    NSMutableData *data = NSMutableData.new;
+    [data appendBytes:&_defaultBackgroundColor length:sizeof(_defaultBackgroundColor)];
+    [data appendBytes:&_defaultForegroundColor length:sizeof(_defaultForegroundColor)];
     [self queueMessage:SetDefaultColorsMsgID data:data];
 }
 
 - (NSConnection *)connection
 {
-    if (!connection) {
+    if (!_connection) {
         // NOTE!  If the name of the connection changes here it must also be
         // updated in MMAppController.m.
-        NSString *name = [NSString stringWithFormat:@"%@-connection",
-               [[NSBundle mainBundle] bundlePath]];
-
-        connection = [NSConnection connectionWithRegisteredName:name host:nil];
-        [connection retain];
+        NSString *name = [NSString stringWithFormat:@"%@-connection", NSBundle.mainBundle.bundlePath];
+        _connection = [NSConnection connectionWithRegisteredName:name host:nil];
     }
 
-    // NOTE: 'connection' may be nil here.
-    return connection;
+    // NOTE: '_connection' may be nil here.
+    return _connection;
 }
 
-- (NSDictionary *)actionDict
+- (void)setWindowPosition:(MMPoint)point
 {
-    return actionDict;
-}
-
-- (int)initialWindowLayout
-{
-    return initialWindowLayout;
-}
-
-- (void)getWindowPositionX:(int*)x Y:(int*)y
-{
-    // NOTE: winposX and winposY are set by the SetWindowPositionMsgID message.
-    if (x) *x = winposX;
-    if (y) *y = winposY;
-}
-
-- (void)setWindowPositionX:(int)x Y:(int)y
-{
+    ASLogDebug(@"x=%d y=%d", point.col, point.row);
     // NOTE: Setting the window position has no immediate effect on the cached
-    // variables winposX and winposY.  These are set by the frontend when the
+    // variables _windowPosition.  These are set by the frontend when the
     // window actually moves (see SetWindowPositionMsgID).
-    ASLogDebug(@"x=%d y=%d", x, y);
-    int pos[2] = { x, y };
-    NSData *data = [NSData dataWithBytes:pos length:2*sizeof(int)];
+    const int pos[] = {_windowPosition.col, _windowPosition.row};
+    NSData *data = [NSData dataWithBytes:pos length:sizeof(pos)];
     [self queueMessage:SetWindowPositionMsgID data:data];
 }
 
@@ -363,8 +335,8 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
 - (BOOL)checkin
 {
-    if (![self connection]) {
-        if (waitForAck) {
+    if (!self.connection) {
+        if (_waitForAck) {
             // This is a preloaded process and as such should not cause the
             // MacVim to be opened.  We probably got here as a result of the
             // user quitting MacVim while the process was preloading, so exit
@@ -374,7 +346,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
             exit(0);
         }
 
-        NSBundle *mainBundle = [NSBundle mainBundle];
+        NSBundle *mainBundle = NSBundle.mainBundle;
 #if 0
         OSStatus status;
         FSRef ref;
@@ -412,57 +384,42 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
         // NOTE!  Using NSTask to launch the GUI has the negative side-effect
         // that the GUI won't be activated (or raised) so there is a hack in
         // MMAppController which raises the app when a new window is opened.
-        NSMutableArray *args = [NSMutableArray arrayWithObjects:
-            [NSString stringWithFormat:@"-%@", MMNoWindowKey], @"yes", nil];
-        NSString *exeName = [[mainBundle infoDictionary]
-                objectForKey:@"CFBundleExecutable"];
+        NSArray *args = @[@"yes", [NSString stringWithFormat:@"-%@", MMNoWindowKey]];
+        NSString *exeName = mainBundle.infoDictionary[@"CFBundleExecutable"];
         NSString *path = [mainBundle pathForAuxiliaryExecutable:exeName];
         if (!path) {
-            ASLogCrit(@"Could not find MacVim executable in bundle.%@",
-                      MMSymlinkWarningString);
+            ASLogCrit(@"Could not find MacVim executable in bundle.%@", MMSymlinkWarningString);
             return NO;
         }
-
         [NSTask launchedTaskWithLaunchPath:path arguments:args];
 #endif
-
         // HACK!  Poll the mach bootstrap server until it returns a valid
         // connection to detect that MacVim has finished launching.  Also set a
         // time-out date so that we don't get stuck doing this forever.
-        NSDate *timeOutDate = [NSDate dateWithTimeIntervalSinceNow:10];
-        while (![self connection] &&
-                NSOrderedDescending == [timeOutDate compare:[NSDate date]])
-            [[NSRunLoop currentRunLoop]
-                    runMode:NSDefaultRunLoopMode
-                 beforeDate:[NSDate dateWithTimeIntervalSinceNow:.1]];
+        NSDate *to = [NSDate dateWithTimeIntervalSinceNow:10];
+        while (!self.connection && NSOrderedDescending == [to compare:NSDate.date])
+            [NSRunLoop.currentRunLoop runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:.1]];
 
-        // NOTE: [self connection] will set 'connection' as a side-effect.
-        if (!connection) {
+        if (!self.connection) {
             ASLogCrit(@"Timed-out waiting for GUI to launch.");
             return NO;
         }
     }
 
     @try {
-        [[NSNotificationCenter defaultCenter] addObserver:self
-                selector:@selector(connectionDidDie:)
-                    name:NSConnectionDidDieNotification object:connection];
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(connectionDidDie:) name:NSConnectionDidDieNotification object:self.connection];
 
-        appProxy = [[connection rootProxy] retain];
-        [appProxy setProtocolForProxy:@protocol(MMAppProtocol)];
+        _appProxy = self.connection.rootProxy;
+        [_appProxy setProtocolForProxy:@protocol(MMAppProtocol)];
 
         // NOTE: We do not set any new timeout values for the connection to the
         // frontend.  This means that if the frontend is "stuck" (e.g. in a
         // modal loop) then any calls to the frontend will block indefinitely
         // (the default timeouts are huge).
-
-        int pid = [[NSProcessInfo processInfo] processIdentifier];
-
-        identifier = [appProxy connectBackend:self pid:pid];
+        _identifier = [_appProxy connectBackend:self pid:NSProcessInfo.processInfo.processIdentifier];
         return YES;
-    }
-    @catch (NSException *ex) {
-        ASLogDebug(@"Connect backend failed: reason=%@", ex);
+    } @catch (NSException *e) {
+        ASLogDebug(@"Connect backend failed: reason=%@", e);
     }
 
     return NO;
@@ -478,8 +435,8 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
         // coordinates.  However, this seems like a minor problem that is not
         // worth fixing since all GUIs work this way.)
         ASLogDebug(@"default x=%d y=%d", gui_win_x, gui_win_y);
-        int pos[2] = { gui_win_x, gui_win_y };
-        NSData *data = [NSData dataWithBytes:pos length:2*sizeof(int)];
+        const int pos[] = {gui_win_x, gui_win_y};
+        NSData *data = [NSData dataWithBytes:pos length:sizeof(pos)];
         [self queueMessage:SetWindowPositionMsgID data:data];
     }
 
@@ -493,140 +450,127 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
 - (void)clearAll
 {
-    int type = ClearAllDrawType;
+    const int type = ClearAllDrawType;
 
     // Any draw commands in queue are effectively obsolete since this clearAll
     // will negate any effect they have, therefore we may as well clear the
     // draw queue.
     [self clearDrawData];
 
-    [drawData appendBytes:&type length:sizeof(int)];
+    [_drawData appendBytes:&type length:sizeof(int)];
 }
 
-- (void)clearBlockFromRow:(int)row1 column:(int)col1
-                    toRow:(int)row2 column:(int)col2
+- (void)clearBlockFromRow:(int)row1 column:(int)col1 toRow:(int)row2 column:(int)col2
 {
-    int type = ClearBlockDrawType;
+    const int type = ClearBlockDrawType;
 
-    [drawData appendBytes:&type length:sizeof(int)];
+    [_drawData appendBytes:&type length:sizeof(int)];
 
-    [drawData appendBytes:&defaultBackgroundColor length:sizeof(unsigned)];
-    [drawData appendBytes:&row1 length:sizeof(int)];
-    [drawData appendBytes:&col1 length:sizeof(int)];
-    [drawData appendBytes:&row2 length:sizeof(int)];
-    [drawData appendBytes:&col2 length:sizeof(int)];
+    [_drawData appendBytes:&_defaultBackgroundColor length:sizeof(_defaultBackgroundColor)];
+    [_drawData appendBytes:&row1 length:sizeof(int)];
+    [_drawData appendBytes:&col1 length:sizeof(int)];
+    [_drawData appendBytes:&row2 length:sizeof(int)];
+    [_drawData appendBytes:&col2 length:sizeof(int)];
 }
 
-- (void)deleteLinesFromRow:(int)row count:(int)count
-              scrollBottom:(int)bottom left:(int)left right:(int)right
+- (void)deleteLinesFromRow:(int)row count:(int)count scrollBottom:(int)bottom left:(int)left right:(int)right
 {
-    int type = DeleteLinesDrawType;
+    const int type = DeleteLinesDrawType;
 
-    [drawData appendBytes:&type length:sizeof(int)];
+    [_drawData appendBytes:&type length:sizeof(int)];
 
-    [drawData appendBytes:&defaultBackgroundColor length:sizeof(unsigned)];
-    [drawData appendBytes:&row length:sizeof(int)];
-    [drawData appendBytes:&count length:sizeof(int)];
-    [drawData appendBytes:&bottom length:sizeof(int)];
-    [drawData appendBytes:&left length:sizeof(int)];
-    [drawData appendBytes:&right length:sizeof(int)];
+    [_drawData appendBytes:&_defaultBackgroundColor length:sizeof(_defaultBackgroundColor)];
+    [_drawData appendBytes:&row length:sizeof(int)];
+    [_drawData appendBytes:&count length:sizeof(int)];
+    [_drawData appendBytes:&bottom length:sizeof(int)];
+    [_drawData appendBytes:&left length:sizeof(int)];
+    [_drawData appendBytes:&right length:sizeof(int)];
 
-    if (left == 0 && right == gui.num_cols-1)
+    if (left == 0 && right == gui.num_cols - 1)
         [self didChangeWholeLine];
 }
 
-- (void)drawString:(char_u*)s length:(int)len row:(int)row
-            column:(int)col cells:(int)cells flags:(int)flags
+- (void)drawString:(char_u*)s length:(int)len row:(int)row column:(int)col cells:(int)cells flags:(int)flags
 {
     if (len <= 0) return;
 
-    int type = DrawStringDrawType;
+    const int type = DrawStringDrawType;
 
-    [drawData appendBytes:&type length:sizeof(int)];
-
-    [drawData appendBytes:&backgroundColor length:sizeof(unsigned)];
-    [drawData appendBytes:&foregroundColor length:sizeof(unsigned)];
-    [drawData appendBytes:&specialColor length:sizeof(unsigned)];
-    [drawData appendBytes:&row length:sizeof(int)];
-    [drawData appendBytes:&col length:sizeof(int)];
-    [drawData appendBytes:&cells length:sizeof(int)];
-    [drawData appendBytes:&flags length:sizeof(int)];
-    [drawData appendBytes:&len length:sizeof(int)];
-    [drawData appendBytes:s length:len];
+    [_drawData appendBytes:&type length:sizeof(type)];
+    [_drawData appendBytes:&_backgroundColor length:sizeof(_backgroundColor)];
+    [_drawData appendBytes:&_foregroundColor length:sizeof(_foregroundColor)];
+    [_drawData appendBytes:&_specialColor length:sizeof(_specialColor)];
+    [_drawData appendBytes:&row length:sizeof(int)];
+    [_drawData appendBytes:&col length:sizeof(int)];
+    [_drawData appendBytes:&cells length:sizeof(int)];
+    [_drawData appendBytes:&flags length:sizeof(int)];
+    [_drawData appendBytes:&len length:sizeof(int)];
+    [_drawData appendBytes:s length:len];
 }
 
-- (void)insertLinesFromRow:(int)row count:(int)count
-              scrollBottom:(int)bottom left:(int)left right:(int)right
+- (void)insertLinesFromRow:(int)row count:(int)count scrollBottom:(int)bottom left:(int)left right:(int)right
 {
-    int type = InsertLinesDrawType;
+    const int type = InsertLinesDrawType;
 
-    [drawData appendBytes:&type length:sizeof(int)];
+    [_drawData appendBytes:&type length:sizeof(int)];
 
-    [drawData appendBytes:&defaultBackgroundColor length:sizeof(unsigned)];
-    [drawData appendBytes:&row length:sizeof(int)];
-    [drawData appendBytes:&count length:sizeof(int)];
-    [drawData appendBytes:&bottom length:sizeof(int)];
-    [drawData appendBytes:&left length:sizeof(int)];
-    [drawData appendBytes:&right length:sizeof(int)];
+    [_drawData appendBytes:&_defaultBackgroundColor length:sizeof(_defaultBackgroundColor)];
+    [_drawData appendBytes:&row length:sizeof(int)];
+    [_drawData appendBytes:&count length:sizeof(int)];
+    [_drawData appendBytes:&bottom length:sizeof(int)];
+    [_drawData appendBytes:&left length:sizeof(int)];
+    [_drawData appendBytes:&right length:sizeof(int)];
 
     if (left == 0 && right == gui.num_cols-1)
         [self didChangeWholeLine];
 }
 
-- (void)drawCursorAtRow:(int)row column:(int)col shape:(int)shape
-               fraction:(int)percent color:(int)color
+- (void)drawCursorAtRow:(int)row column:(int)col shape:(int)shape fraction:(int)percent color:(int)color
 {
-    int type = DrawCursorDrawType;
-    unsigned uc = MM_COLOR(color);
+    const int type = DrawCursorDrawType;
+    const unsigned uc = MM_COLOR(color);
 
-    [drawData appendBytes:&type length:sizeof(int)];
+    [_drawData appendBytes:&type length:sizeof(int)];
 
-    [drawData appendBytes:&uc length:sizeof(unsigned)];
-    [drawData appendBytes:&row length:sizeof(int)];
-    [drawData appendBytes:&col length:sizeof(int)];
-    [drawData appendBytes:&shape length:sizeof(int)];
-    [drawData appendBytes:&percent length:sizeof(int)];
+    [_drawData appendBytes:&uc length:sizeof(unsigned)];
+    [_drawData appendBytes:&row length:sizeof(int)];
+    [_drawData appendBytes:&col length:sizeof(int)];
+    [_drawData appendBytes:&shape length:sizeof(int)];
+    [_drawData appendBytes:&percent length:sizeof(int)];
 }
 
-- (void)drawInvertedRectAtRow:(int)row column:(int)col numRows:(int)nr
-                   numColumns:(int)nc invert:(int)invert
+- (void)drawInvertedRectAtRow:(int)row column:(int)col numRows:(int)nr numColumns:(int)nc invert:(int)invert
 {
-    int type = DrawInvertedRectDrawType;
-    [drawData appendBytes:&type length:sizeof(int)];
+    const int type = DrawInvertedRectDrawType;
+    [_drawData appendBytes:&type length:sizeof(int)];
 
-    [drawData appendBytes:&row length:sizeof(int)];
-    [drawData appendBytes:&col length:sizeof(int)];
-    [drawData appendBytes:&nr length:sizeof(int)];
-    [drawData appendBytes:&nc length:sizeof(int)];
-    [drawData appendBytes:&invert length:sizeof(int)];
+    [_drawData appendBytes:&row length:sizeof(int)];
+    [_drawData appendBytes:&col length:sizeof(int)];
+    [_drawData appendBytes:&nr length:sizeof(int)];
+    [_drawData appendBytes:&nc length:sizeof(int)];
+    [_drawData appendBytes:&invert length:sizeof(int)];
 }
 
-- (void)drawSign:(NSString *)imgName
-           atRow:(int)row
-          column:(int)col
-           width:(int)width
-          height:(int)height
+- (void)drawSign:(NSString *)name atRow:(int)row column:(int)col width:(int)width height:(int)height
 {
-    int type = DrawSignDrawType;
-    [drawData appendBytes:&type length:sizeof(int)];
+    const int type = DrawSignDrawType;
+    [_drawData appendBytes:&type length:sizeof(int)];
 
-    const char* utf8String = [imgName UTF8String];
-    int strSize = (int)strlen(utf8String) + 1;
-    [drawData appendBytes:&strSize length:sizeof(int)];
-    [drawData appendBytes:utf8String length:strSize];
+    [_drawData appendBytes:&col length:sizeof(int)];
+    [_drawData appendBytes:&row length:sizeof(int)];
+    [_drawData appendBytes:&width length:sizeof(int)];
+    [_drawData appendBytes:&height length:sizeof(int)];
 
-    [drawData appendBytes:&col length:sizeof(int)];
-    [drawData appendBytes:&row length:sizeof(int)];
-    [drawData appendBytes:&width length:sizeof(int)];
-    [drawData appendBytes:&height length:sizeof(int)];
+    const char* u8 = name.UTF8String;
+    const int length = (int)strlen(u8) + 1;
+    [_drawData appendBytes:&length length:sizeof(int)];
+    [_drawData appendBytes:u8 length:length];
 }
 
 - (void)update
 {
     // Keep running the run-loop until there is no more input to process.
-    while (CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0, true)
-            == kCFRunLoopRunHandledSource)
-        ;   // do nothing
+    while (CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0, true) == kCFRunLoopRunHandledSource) {}
 }
 
 - (void)flushQueue:(BOOL)force
@@ -635,43 +579,40 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     // flushed.  It can be set to YES at the beginning of a sequence of calls
     // that may potentially add items to the queue, and then restored back to
     // NO.
-    if (flushDisabled) return;
+    if (_flushDisabled) return;
 
-    if ([drawData length] > 0) {
+    if (_drawData.length > 0) {
         // HACK!  Detect changes to 'guifontwide'.
-        if (gui.wide_font != oldWideFont) {
-            gui_mch_free_font(oldWideFont);
-            oldWideFont = gui_mch_retain_font(gui.wide_font);
-            [self setFont:oldWideFont wide:YES];
+        if (gui.wide_font != _oldWideFont) {
+            gui_mch_free_font(_oldWideFont);
+            _oldWideFont = gui_mch_retain_font(gui.wide_font);
+            [self setFont:_oldWideFont wide:YES];
         }
 
         int type = SetCursorPosDrawType;
-        [drawData appendBytes:&type length:sizeof(type)];
-        [drawData appendBytes:&gui.row length:sizeof(gui.row)];
-        [drawData appendBytes:&gui.col length:sizeof(gui.col)];
+        [_drawData appendBytes:&type length:sizeof(type)];
+        [_drawData appendBytes:&gui.row length:sizeof(gui.row)];
+        [_drawData appendBytes:&gui.col length:sizeof(gui.col)];
 
-        [self queueMessage:BatchDrawMsgID data:[[drawData copy] autorelease]];
+        [self queueMessage:BatchDrawMsgID data:_drawData.copy];
         [self clearDrawData];
     }
 
-    if ([outputQueue count] > 0) {
+    if (_outputQueue.count != 0) {
         [self insertVimStateMessage];
 
         @try {
-            ASLogDebug(@"Flushing queue: %@",
-                       debugStringForMessageQueue(outputQueue));
-            [appProxy processInput:outputQueue forIdentifier:identifier];
-        }
-        @catch (NSException *ex) {
-            ASLogDebug(@"processInput:forIdentifer failed: reason=%@", ex);
-            if (![connection isValid]) {
+            ASLogDebug(@"Flushing queue: %@", debugStringForMessageQueue(_outputQueue));
+            [_appProxy processInput:_outputQueue forIdentifier:_identifier];
+        } @catch (NSException *e) {
+            ASLogDebug(@"processInput:forIdentifer failed: reason=%@", e);
+            if (!self.connection.isValid) {
                 ASLogDebug(@"Connection is invalid, exit now!");
-                ASLogDebug(@"waitForAck=%d got_int=%d", waitForAck, got_int);
+                ASLogDebug(@"waitForAck=%d got_int=%d", _waitForAck, got_int);
                 mch_exit(-1);
             }
         }
-
-        [outputQueue removeAllObjects];
+        [_outputQueue removeAllObjects];
     }
 }
 
@@ -682,33 +623,27 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
     // Only start the run loop if the input queue is empty, otherwise process
     // the input first so that the input on queue isn't delayed.
-    if ([inputQueue count] || input_available()) {
+    if (_inputQueue.count || input_available()) {
         inputReceived = YES;
     } else {
         // Wait for the specified amount of time, unless 'milliseconds' is
         // negative in which case we wait "forever" (1e6 seconds translates to
         // approximately 11 days).
-        CFTimeInterval dt = (milliseconds >= 0 ? .001*milliseconds : 1e6);
+        CFTimeInterval dt = (milliseconds >= 0 ? .001 * milliseconds : 1e6);
         NSTimer *timer = nil;
 
         // Set interval timer which checks for the events of job and channel
         // when there is any pending job or channel.
         if (dt > 0.1 && (has_any_channel() || has_pending_job())) {
-            timer = [NSTimer scheduledTimerWithTimeInterval:0.1
-                                                     target:self
-                                                   selector:@selector(checkForProcessEvents:)
-                                                   userInfo:nil
-                                                    repeats:YES];
-            [[NSRunLoop currentRunLoop] addTimer:timer
-                                         forMode:NSDefaultRunLoopMode];
+            timer = [NSTimer scheduledTimerWithTimeInterval:0.1 target:self selector:@selector(checkForProcessEvents:) userInfo:nil repeats:YES];
+            [NSRunLoop.currentRunLoop addTimer:timer forMode:NSDefaultRunLoopMode];
         }
 
-        while (CFRunLoopRunInMode(kCFRunLoopDefaultMode, dt, true)
-                == kCFRunLoopRunHandledSource) {
+        while (CFRunLoopRunInMode(kCFRunLoopDefaultMode, dt, true) == kCFRunLoopRunHandledSource) {
             // In order to ensure that all input on the run-loop has been
             // processed we set the timeout to 0 and keep processing until the
             // run-loop times out.
-            dt = 0.0;
+            dt = 0;
             inputReceived = YES;
         }
 
@@ -720,8 +655,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
     // The above calls may have placed messages on the input queue so process
     // it now.  This call may enter a blocking loop.
-    if ([inputQueue count] > 0)
-        [self processInputQueue];
+    if (_inputQueue.count != 0) [self processInputQueue];
 
     return inputReceived;
 }
@@ -730,27 +664,25 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 {
     // NOTE: This is called if mch_exit() is called.  Since we assume here that
     // the process has started properly, be sure to use exit() instead of
-    // mch_exit() to prematurely terminate a process (or set 'isTerminating'
+    // mch_exit() to prematurely terminate a process (or set '_teminating'
     // first).
 
     // Make sure no connectionDidDie: notification is received now that we are
     // already exiting.
-    [[NSNotificationCenter defaultCenter] removeObserver:self];
+    [NSNotificationCenter.defaultCenter removeObserver:self];
 
-    // The 'isTerminating' flag indicates that the frontend is also exiting so
+    // The '_teminating' flag indicates that the frontend is also exiting so
     // there is no need to flush any more output since the frontend won't look
     // at it anyway.
-    if (!isTerminating && [connection isValid]) {
+    if (!_teminating && self.connection.isValid) {
         @try {
             // Flush the entire queue in case a VimLeave autocommand added
             // something to the queue.
             [self queueMessage:CloseWindowMsgID data:nil];
-            ASLogDebug(@"Flush output queue before exit: %@",
-                       debugStringForMessageQueue(outputQueue));
-            [appProxy processInput:outputQueue forIdentifier:identifier];
-        }
-        @catch (NSException *ex) {
-            ASLogDebug(@"CloseWindowMsgID send failed: reason=%@", ex);
+            ASLogDebug(@"Flush output queue before exit: %@", debugStringForMessageQueue(_outputQueue));
+            [_appProxy processInput:_outputQueue forIdentifier:_identifier];
+        } @catch (NSException *e) {
+            ASLogDebug(@"CloseWindowMsgID send failed: reason=%@", e);
         }
 
         // NOTE: If Cmd-w was pressed to close the window the menu is briefly
@@ -766,9 +698,9 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
 #ifdef MAC_CLIENTSERVER
     // The default connection is used for the client/server code.
-    if (vimServerConnection) {
-        [vimServerConnection setRootObject:nil];
-        [vimServerConnection invalidate];
+    if (_vimServerConnection) {
+        _vimServerConnection.rootObject = nil;
+        [_vimServerConnection invalidate];
     }
 #endif
 }
@@ -782,86 +714,69 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
 - (void)updateTabBar
 {
-    NSMutableData *data = [NSMutableData data];
+    NSMutableData *data = NSMutableData.new;
 
     int idx = tabpage_index(curtab) - 1;
     [data appendBytes:&idx length:sizeof(int)];
 
-    tabpage_T *tp;
-    for (tp = first_tabpage; tp != NULL; tp = tp->tp_next) {
-        // Count the number of windows in the tabpage.
-        //win_T *wp = tp->tp_firstwin;
-        //int wincount;
-        //for (wincount = 0; wp != NULL; wp = wp->w_next, ++wincount);
-        //[data appendBytes:&wincount length:sizeof(int)];
-
-        int tabProp = MMTabInfoCount;
-        [data appendBytes:&tabProp length:sizeof(int)];
-        for (tabProp = MMTabLabel; tabProp < MMTabInfoCount; ++tabProp) {
+    for (tabpage_T *tp = first_tabpage; tp; tp = tp->tp_next) {
+        const int count = MMTabInfoCount;
+        [data appendBytes:&count length:sizeof(int)];
+        for (int i = MMTabLabel; i < count; ++i) {
             // This function puts the label of the tab in the global 'NameBuff'.
-            get_tabline_label(tp, (tabProp == MMTabToolTip));
-            NSString *s = [NSString stringWithVimString:NameBuff];
-            int len = [s lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
-            if (len < 0)
-                len = 0;
-
-            [data appendBytes:&len length:sizeof(int)];
-            if (len > 0)
-                [data appendBytes:[s UTF8String] length:len];
+            get_tabline_label(tp, i == MMTabToolTip);
+            NSString *label = [NSString stringWithVimString:NameBuff];
+            const int length = [label lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+            [data appendBytes:&length length:sizeof(int)];
+            if (length > 0) [data appendBytes:label.UTF8String length:length];
         }
     }
 
     [self queueMessage:UpdateTabBarMsgID data:data];
 }
 
-- (BOOL)tabBarVisible
-{
-    return tabBarVisible;
-}
-
 - (void)showTabBar:(BOOL)enable
 {
-    tabBarVisible = enable;
+    _tabBarVisible = enable;
 
-    int msgid = enable ? ShowTabBarMsgID : HideTabBarMsgID;
+    const int msgid = enable ? ShowTabBarMsgID : HideTabBarMsgID;
     [self queueMessage:msgid data:nil];
 }
 
 - (void)setRows:(int)rows columns:(int)cols
 {
-    int dim[] = { rows, cols };
-    NSData *data = [NSData dataWithBytes:&dim length:2*sizeof(int)];
+    const int dim[] = {rows, cols};
+    NSData *data = [NSData dataWithBytes:&dim length:sizeof(dim)];
 
     [self queueMessage:SetTextDimensionsMsgID data:data];
 }
 
 - (void)setWindowTitle:(char *)title
 {
-    NSMutableData *data = [NSMutableData data];
-    int len = strlen(title);
-    if (len <= 0) return;
+    NSMutableData *data = NSMutableData.new;
+    const int length = strlen(title);
+    if (length <= 0) return;
 
-    [data appendBytes:&len length:sizeof(int)];
-    [data appendBytes:title length:len];
+    [data appendBytes:&length length:sizeof(int)];
+    [data appendBytes:title length:length];
 
     [self queueMessage:SetWindowTitleMsgID data:data];
 }
 
 - (void)setDocumentFilename:(char *)filename
 {
-    NSMutableData *data = [NSMutableData data];
-    int len = filename ? strlen(filename) : 0;
+    NSMutableData *data = NSMutableData.new;
+    const int length = filename ? strlen(filename) : 0;
 
-    [data appendBytes:&len length:sizeof(int)];
-    if (len > 0)
-        [data appendBytes:filename length:len];
+    [data appendBytes:&length length:sizeof(int)];
+    if (length > 0) [data appendBytes:filename length:length];
 
     [self queueMessage:SetDocumentFilenameMsgID data:data];
 }
 
 - (char *)browseForFileWithAttributes:(NSDictionary *)attr
 {
-    char_u *s = NULL;
+    char_u *cstring = NULL;
 
     [self queueMessage:BrowseForFileMsgID properties:attr];
     [self flushQueue:YES];
@@ -869,16 +784,17 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     @try {
         [self waitForDialogReturn];
 
-        if (dialogReturn && [dialogReturn isKindOfClass:[NSString class]])
-            s = [dialogReturn vimStringSave];
+        if ([_dialogReturn isKindOfClass:NSString.class]) {
+            NSString *string = (NSString *)_dialogReturn;
+            cstring = string.vimStringSave;
+        }
 
-        [dialogReturn release];  dialogReturn = nil;
-    }
-    @catch (NSException *ex) {
-        ASLogDebug(@"Exception: reason=%@", ex);
+        _dialogReturn = nil;
+    } @catch (NSException *e) {
+        ASLogDebug(@"Exception: reason=%@", e);
     }
 
-    return (char *)s;
+    return (char *)cstring;
 }
 
 - (oneway void)setDialogReturn:(in bycopy id)obj
@@ -891,14 +807,11 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     // to indicate that a save/open panel or alert has finished.
 
     // We want to distinguish between "no dialog return yet" and "dialog
-    // returned nothing".  The former can be tested with dialogReturn == nil,
-    // the latter with dialogReturn == [NSNull null].
-    if (!obj) obj = [NSNull null];
+    // returned nothing".  The former can be tested with _dialogReturn == nil,
+    // the latter with _dialogReturn == [NSNull null].
+    if (!obj) obj = NSNull.null;
 
-    if (obj != dialogReturn) {
-        [dialogReturn release];
-        dialogReturn = [obj retain];
-    }
+    if (obj != _dialogReturn) _dialogReturn = obj;
 }
 
 - (int)showDialogWithAttributes:(NSDictionary *)attr textField:(char *)txtfield
@@ -911,12 +824,12 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     @try {
         [self waitForDialogReturn];
 
-        if (dialogReturn && [dialogReturn isKindOfClass:[NSArray class]]
-                && [dialogReturn count]) {
-            retval = [[dialogReturn objectAtIndex:0] intValue];
-            if (txtfield && [dialogReturn count] > 1) {
-                NSString *retString = [dialogReturn objectAtIndex:1];
-                char_u *ret = (char_u*)[retString UTF8String];
+        if ([_dialogReturn isKindOfClass:NSArray.class] && [_dialogReturn count] != 0) {
+            NSArray *dialogReturn = (NSArray *)_dialogReturn;
+            retval = [dialogReturn.firstObject intValue];
+            if (txtfield && dialogReturn.count > 1) {
+                NSString *string = dialogReturn[1];
+                char_u *ret = (char_u *)string.UTF8String;
 #ifdef FEAT_MBYTE
                 ret = CONVERT_FROM_UTF8(ret);
 #endif
@@ -927,10 +840,9 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
             }
         }
 
-        [dialogReturn release]; dialogReturn = nil;
-    }
-    @catch (NSException *ex) {
-        ASLogDebug(@"Exception: reason=%@", ex);
+        _dialogReturn = nil;
+    } @catch (NSException *e) {
+        ASLogDebug(@"Exception: reason=%@", e);
     }
 
     return retval;
@@ -938,7 +850,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
 - (void)showToolbar:(int)enable flags:(int)flags
 {
-    NSMutableData *data = [NSMutableData data];
+    NSMutableData *data = NSMutableData.new;
 
     [data appendBytes:&enable length:sizeof(int)];
     [data appendBytes:&flags length:sizeof(int)];
@@ -948,7 +860,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
 - (void)createScrollbarWithIdentifier:(int32_t)ident type:(int)type
 {
-    NSMutableData *data = [NSMutableData data];
+    NSMutableData *data = NSMutableData.new;
 
     [data appendBytes:&ident length:sizeof(int32_t)];
     [data appendBytes:&type length:sizeof(int)];
@@ -958,7 +870,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
 - (void)destroyScrollbarWithIdentifier:(int32_t)ident
 {
-    NSMutableData *data = [NSMutableData data];
+    NSMutableData *data = NSMutableData.new;
     [data appendBytes:&ident length:sizeof(int32_t)];
 
     [self queueMessage:DestroyScrollbarMsgID data:data];
@@ -966,7 +878,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
 - (void)showScrollbarWithIdentifier:(int32_t)ident state:(int)visible
 {
-    NSMutableData *data = [NSMutableData data];
+    NSMutableData *data = NSMutableData.new;
 
     [data appendBytes:&ident length:sizeof(int32_t)];
     [data appendBytes:&visible length:sizeof(int)];
@@ -976,7 +888,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
 - (void)setScrollbarPosition:(int)pos length:(int)len identifier:(int32_t)ident
 {
-    NSMutableData *data = [NSMutableData data];
+    NSMutableData *data = NSMutableData.new;
 
     [data appendBytes:&ident length:sizeof(int32_t)];
     [data appendBytes:&pos length:sizeof(int)];
@@ -985,17 +897,12 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     [self queueMessage:SetScrollbarPositionMsgID data:data];
 }
 
-- (void)setScrollbarThumbValue:(long)val size:(long)size max:(long)max
-                    identifier:(int32_t)ident
+- (void)setScrollbarThumbValue:(long)val size:(long)size max:(long)max identifier:(int32_t)ident
 {
-    float fval = max-size+1 > 0 ? (float)val/(max-size+1) : 0;
-    float prop = (float)size/(max+1);
-    if (fval < 0) fval = 0;
-    else if (fval > 1.0f) fval = 1.0f;
-    if (prop < 0) prop = 0;
-    else if (prop > 1.0f) prop = 1.0f;
+    const float fval = MIN(MAX(max - size + 1 > 0 ? (float)val / (max - size + 1) : 0, 0), 1);
+    const float prop = MIN(MAX((float)size / (max + 1), 0), 1);
 
-    NSMutableData *data = [NSMutableData data];
+    NSMutableData *data = NSMutableData.new;
 
     [data appendBytes:&ident length:sizeof(int32_t)];
     [data appendBytes:&fval length:sizeof(float)];
@@ -1006,21 +913,21 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
 - (void)setFont:(GuiFont)font wide:(BOOL)wide
 {
-    NSString *fontName = (NSString *)font;
+    NSString *fontName = (__bridge NSString *)font;
     float size = 0;
     NSArray *components = [fontName componentsSeparatedByString:@":h"];
-    if ([components count] == 2) {
-        size = [[components lastObject] floatValue];
-        fontName = [components objectAtIndex:0];
+    if (components.count == 2) {
+        size = [components.lastObject floatValue];
+        fontName = components.firstObject;
     }
 
-    int len = [fontName lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
-    NSMutableData *data = [NSMutableData data];
+    const int length = [fontName lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+    NSMutableData *data = NSMutableData.new;
     [data appendBytes:&size length:sizeof(float)];
-    [data appendBytes:&len length:sizeof(int)];
+    [data appendBytes:&length length:sizeof(int)];
 
-    if (len > 0)
-        [data appendBytes:[fontName UTF8String] length:len];
+    if (length > 0)
+        [data appendBytes:fontName.UTF8String length:length];
     else if (!wide)
         return;     // Only the wide font can be set to nothing
 
@@ -1029,13 +936,13 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
 - (void)executeActionWithName:(NSString *)name
 {
-    int len = [name lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+    const int length = [name lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
 
-    if (len > 0) {
-        NSMutableData *data = [NSMutableData data];
+    if (length > 0) {
+        NSMutableData *data = NSMutableData.new;
 
-        [data appendBytes:&len length:sizeof(int)];
-        [data appendBytes:[name UTF8String] length:len];
+        [data appendBytes:&length length:sizeof(int)];
+        [data appendBytes:name.UTF8String length:length];
 
         [self queueMessage:ExecuteActionMsgID data:data];
     }
@@ -1043,7 +950,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
 - (void)setMouseShape:(int)shape
 {
-    NSMutableData *data = [NSMutableData data];
+    NSMutableData *data = NSMutableData.new;
     [data appendBytes:&shape length:sizeof(int)];
     [self queueMessage:SetMouseShapeMsgID data:data];
 }
@@ -1052,27 +959,21 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 {
     // Vim specifies times in milliseconds, whereas Cocoa wants them in
     // seconds.
-    blinkWaitInterval = .001f*wait;
-    blinkOnInterval = .001f*on;
-    blinkOffInterval = .001f*off;
+    _blinkWaitInterval = .001 * wait;
+    _blinkOnInterval = .001 * on;
+    _blinkOffInterval = .001 * off;
 }
 
 - (void)startBlink
 {
-    if (blinkTimer) {
-        [blinkTimer invalidate];
-        [blinkTimer release];
-        blinkTimer = nil;
+    if (_blinkTimer) {
+        [_blinkTimer invalidate];
+        _blinkTimer = nil;
     }
 
-    if (blinkWaitInterval > 0 && blinkOnInterval > 0 && blinkOffInterval > 0
-            && gui.in_focus) {
-        blinkState = MMBlinkStateOn;
-        blinkTimer =
-            [[NSTimer scheduledTimerWithTimeInterval:blinkWaitInterval
-                                              target:self
-                                            selector:@selector(blinkTimerFired:)
-                                            userInfo:nil repeats:NO] retain];
+    if (_blinkWaitInterval > 0 && _blinkOnInterval > 0 && _blinkOffInterval > 0 && gui.in_focus) {
+        _blinkState = MMBlinkStateOn;
+        _blinkTimer = [NSTimer scheduledTimerWithTimeInterval:_blinkWaitInterval target:self selector:@selector(blinkTimerFired:) userInfo:nil repeats:NO];
         gui_update_cursor(TRUE, FALSE);
         [self flushQueue:YES];
     }
@@ -1080,17 +981,17 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
 - (void)stopBlink
 {
-    if (MMBlinkStateOff == blinkState) {
+    if (MMBlinkStateOff == _blinkState) {
         gui_update_cursor(TRUE, FALSE);
         [self flushQueue:YES];
     }
 
-    blinkState = MMBlinkStateNone;
+    _blinkState = MMBlinkStateNone;
 }
 
 - (void)adjustLinespace:(int)linespace
 {
-    NSMutableData *data = [NSMutableData data];
+    NSMutableData *data = NSMutableData.new;
     [data appendBytes:&linespace length:sizeof(int)];
     [self queueMessage:AdjustLinespaceMsgID data:data];
 }
@@ -1102,7 +1003,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
 - (void)setPreEditRow:(int)row column:(int)col
 {
-    NSMutableData *data = [NSMutableData data];
+    NSMutableData *data = NSMutableData.new;
     [data appendBytes:&row length:sizeof(int)];
     [data appendBytes:&col length:sizeof(int)];
     [self queueMessage:SetPreEditPositionMsgID data:data];
@@ -1110,43 +1011,39 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
 - (int)lookupColorWithKey:(NSString *)key
 {
-    if (!(key && [key length] > 0))
-        return INVALCOLOR;
+    if (key.length == 0) return INVALCOLOR;
 
-    NSString *stripKey = [[[[key lowercaseString]
-        stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]]
+    NSString *stripKey = [[[key.lowercaseString
+        stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet]
             componentsSeparatedByString:@" "]
                componentsJoinedByString:@""];
 
-    if (stripKey && [stripKey length] > 0) {
+    if (stripKey && stripKey.length != 0) {
         // First of all try to lookup key in the color dictionary; note that
         // all keys in this dictionary are lowercase with no whitespace.
-        id obj = [colorDict objectForKey:stripKey];
+        id obj = _colors[stripKey];
         if (obj) return [obj intValue];
 
         // The key was not in the dictionary; is it perhaps of the form
         // #rrggbb?
-        if ([stripKey length] > 1 && [stripKey characterAtIndex:0] == '#') {
+        if (stripKey.length > 1 && [stripKey characterAtIndex:0] == '#') {
             NSScanner *scanner = [NSScanner scannerWithString:stripKey];
-            [scanner setScanLocation:1];
+            scanner.scanLocation = 1;
             unsigned hex = 0;
-            if ([scanner scanHexInt:&hex]) {
-                return (int)hex;
-            }
+            if ([scanner scanHexInt:&hex]) return (int)hex;
         }
 
         // As a last resort, check if it is one of the system defined colors.
         // The keys in this dictionary are also lowercase with no whitespace.
-        obj = [sysColorDict objectForKey:stripKey];
-        if (obj) {
+        if ((obj = _systemColors[stripKey]) != nil) {
             NSColor *col = [NSColor performSelector:NSSelectorFromString(obj)];
             if (col) {
                 CGFloat r, g, b, a;
                 col = [col colorUsingColorSpaceName:NSCalibratedRGBColorSpace];
                 [col getRed:&r green:&g blue:&b alpha:&a];
-                return (((int)(r*255+.5f) & 0xff) << 16)
-                     + (((int)(g*255+.5f) & 0xff) << 8)
-                     +  ((int)(b*255+.5f) & 0xff);
+                return (((int)(r * 255 + .5f) & 0xff) << 16)
+                     + (((int)(g * 255 + .5f) & 0xff) << 8)
+                     +  ((int)(b * 255 + .5f) & 0xff);
             }
         }
     }
@@ -1157,22 +1054,21 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
 - (BOOL)hasSpecialKeyWithValue:(char_u *)value
 {
-    int i;
-    for (i = 0; special_keys[i].key_sym != 0; i++) {
-        if (value[0] == special_keys[i].vim_code0
-                && value[1] == special_keys[i].vim_code1)
+    for (size_t i = 0; specialKeys[i].keysym != 0; i++) {
+        if (value[0] == specialKeys[i].code0 && value[1] == specialKeys[i].code1)
             return YES;
     }
-
     return NO;
 }
 
 - (void)enterFullScreen:(int)fuoptions background:(int)bg
 {
-    NSMutableData *data = [NSMutableData data];
-    [data appendBytes:&fuoptions length:sizeof(int)];
+    NSMutableData *data = NSMutableData.new;
     bg = MM_COLOR(bg);
+
+    [data appendBytes:&fuoptions length:sizeof(int)];
     [data appendBytes:&bg length:sizeof(int)];
+
     [self queueMessage:EnterFullScreenMsgID data:data];
 }
 
@@ -1183,8 +1079,9 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
 - (void)setFullScreenBackgroundColor:(int)color
 {
-    NSMutableData *data = [NSMutableData data];
+    NSMutableData *data = NSMutableData.new;
     color = MM_COLOR(color);
+
     [data appendBytes:&color length:sizeof(int)];
 
     [self queueMessage:SetFullScreenColorMsgID data:data];
@@ -1192,38 +1089,39 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
 - (void)setAntialias:(BOOL)antialias
 {
-    int msgid = antialias ? EnableAntialiasMsgID : DisableAntialiasMsgID;
+    const int msgid = antialias ? EnableAntialiasMsgID : DisableAntialiasMsgID;
 
     [self queueMessage:msgid data:nil];
 }
 
 - (void)setLigatures:(BOOL)ligatures
 {
-    int msgid = ligatures ? EnableLigaturesMsgID : DisableLigaturesMsgID;
+    const int msgid = ligatures ? EnableLigaturesMsgID : DisableLigaturesMsgID;
 
     [self queueMessage:msgid data:nil];
 }
 
 - (void)setThinStrokes:(BOOL)thinStrokes
 {
-    int msgid = thinStrokes ? EnableThinStrokesMsgID : DisableThinStrokesMsgID;
+    const int msgid = thinStrokes ? EnableThinStrokesMsgID : DisableThinStrokesMsgID;
 
     [self queueMessage:msgid data:nil];
 }
 
 - (void)setBlurRadius:(int)radius
 {
-    NSMutableData *data = [NSMutableData data];
-    [data appendBytes:&radius length:sizeof(int)];
+    NSMutableData *data = NSMutableData.new;
 
+    [data appendBytes:&radius length:sizeof(radius)];
     [self queueMessage:SetBlurRadiusMsgID data:data];
 }
 
 - (void)updateModifiedFlag
 {
-    int state = [self checkForModifiedBuffers];
-    NSMutableData *data = [NSMutableData data];
-    [data appendBytes:&state length:sizeof(int)];
+    const int state = self.checkForModifiedBuffers;
+    NSMutableData *data = NSMutableData.new;
+
+    [data appendBytes:&state length:sizeof(state)];
     [self queueMessage:SetBuffersModifiedMsgID data:data];
 }
 
@@ -1254,38 +1152,33 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
         if (!data) return;
         const void *bytes = [data bytes];
         unsigned mods = *((unsigned*)bytes);  bytes += sizeof(unsigned);
-        unsigned code = *((unsigned*)bytes);  bytes += sizeof(unsigned);
-        unsigned len  = *((unsigned*)bytes);  bytes += sizeof(unsigned);
+        const unsigned code = *((unsigned*)bytes);  bytes += sizeof(unsigned);
+        const unsigned len  = *((unsigned*)bytes);  bytes += sizeof(unsigned);
 
         if (ctrl_c_interrupts && 1 == len) {
             // NOTE: the flag ctrl_c_interrupts is 0 e.g. when the user has
             // mappings to something like <C-c>g.  Also it seems the flag
             // intr_char is 0 when MacVim was started from Finder whereas it is
             // 0x03 (= Ctrl_C) when started from Terminal.
-            char_u *str = (char_u*)bytes;
+            char_u *str = (char_u *)bytes;
             if (str[0] == Ctrl_C || (str[0] == intr_char && intr_char != 0)) {
-                ASLogDebug(@"Got INT, str[0]=%#x ctrl_c_interrupts=%d "
-                        "intr_char=%#x", str[0], ctrl_c_interrupts, intr_char);
+                ASLogDebug(@"Got INT, str[0]=%#x ctrl_c_interrupts=%d intr_char=%#x", str[0], ctrl_c_interrupts, intr_char);
                 got_int = TRUE;
-                [inputQueue removeAllObjects];
+                [_inputQueue removeAllObjects];
                 return;
             }
         }
 
         // The lowest bit of the modifiers is set if this key is a repeat.
-        BOOL isKeyRepeat = (mods & 1) != 0;
+        const BOOL isKeyRepeat = (mods & 1) != 0;
 
         // Ignore key press if the input buffer has something in it and this
         // key is a repeat (since this means Vim can't keep up with the speed
         // with which new input is being received).
         if (!isKeyRepeat || vim_is_input_buf_empty()) {
-            NSString *key = [[NSString alloc] initWithBytes:bytes
-                                                 length:len
-                                               encoding:NSUTF8StringEncoding];
-            mods = eventModifierFlagsToVimModMask(mods);
-
+            NSString *key = [[NSString alloc] initWithBytes:bytes length:len encoding:NSUTF8StringEncoding];
+            mods = EventModifierFlagsToVimModMask(mods);
             [self doKeyDown:key keyCode:code modifiers:mods];
-            [key release];
         } else {
             ASLogDebug(@"Dropping repeated keyboard input");
         }
@@ -1297,63 +1190,60 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
         // was aborted).  Don't preserve modified files since the user would
         // already have been presented with a dialog warning if there were any
         // modified files when we get here.
-        isTerminating = YES;
+        _teminating = YES;
         getout(0);
     } else {
         // First remove previous instances of this message from the input
         // queue, else the input queue may fill up as a result of Vim not being
         // able to keep up with the speed at which new messages are received.
         // TODO: Remove all previous instances (there could be many)?
-        int i, count = [inputQueue count];
-        for (i = 1; i < count; i += 2) {
-            if ([[inputQueue objectAtIndex:i-1] intValue] == msgid) {
-                ASLogDebug(@"Input queue filling up, remove message: %s",
-                                                        MessageStrings[msgid]);
-                [inputQueue removeObjectAtIndex:i];
-                [inputQueue removeObjectAtIndex:i-1];
+        const int count = _inputQueue.count;
+        for (int i = 1; i < count; i += 2) {
+            if ([_inputQueue[i - 1] intValue] == msgid) {
+                ASLogDebug(@"Input queue filling up, remove message: %s", MessageStrings[msgid]);
+                [_inputQueue removeObjectAtIndex:i];
+                [_inputQueue removeObjectAtIndex:i - 1];
                 break;
             }
         }
 
         // Now add message to input queue.  Add null data if necessary to
         // ensure that input queue has even length.
-        [inputQueue addObject:[NSNumber numberWithInt:msgid]];
-        [inputQueue addObject:(data ? (id)data : [NSNull null])];
+        [_inputQueue addObject:@(msgid)];
+        [_inputQueue addObject:(data ? (id)data : NSNull.null)];
     }
 }
 
-- (id)evaluateExpressionCocoa:(in bycopy NSString *)expr
-                  errorString:(out bycopy NSString **)errstr
+- (id)evaluateExpressionCocoa:(in bycopy NSString *)expr errorString:(out bycopy NSString **)errstr
 {
     return evalExprCocoa(expr, errstr);
 }
 
-
 - (NSString *)evaluateExpression:(in bycopy NSString *)expr
 {
     NSString *eval = nil;
-    char_u *s = (char_u*)[expr UTF8String];
+    char_u *cstring = (char_u*)expr.UTF8String;
 
 #ifdef FEAT_MBYTE
-    s = CONVERT_FROM_UTF8(s);
+    cstring = CONVERT_FROM_UTF8(cstring);
 #endif
 
-    char_u *res = eval_client_expr_to_string(s);
+    char_u *result = eval_client_expr_to_string(cstring);
 
 #ifdef FEAT_MBYTE
-    CONVERT_FROM_UTF8_FREE(s);
+    CONVERT_FROM_UTF8_FREE(cstring);
 #endif
 
-    if (res != NULL) {
-        s = res;
+    if (result) {
+        cstring = result;
 #ifdef FEAT_MBYTE
-        s = CONVERT_TO_UTF8(s);
+        cstring = CONVERT_TO_UTF8(cstring);
 #endif
-        eval = [NSString stringWithUTF8String:(char*)s];
+        eval = [NSString stringWithUTF8String:(char *)cstring];
 #ifdef FEAT_MBYTE
-        CONVERT_TO_UTF8_FREE(s);
+        CONVERT_TO_UTF8_FREE(cstring);
 #endif
-        vim_free(res);
+        vim_free(result);
     }
 
     return eval;
@@ -1366,8 +1256,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     if (VIsual_active && (State & NORMAL) && clip_star.available) {
         // If there is no pasteboard, return YES to indicate that there is text
         // to copy.
-        if (!pboard)
-            return YES;
+        if (!pboard) return YES;
 
         // The code below used to be clip_copy_selection() but it is now
         // static, so do it manually.
@@ -1379,8 +1268,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
         // Get the text to put on the pasteboard.
         long_u llen = 0; char_u *str = 0;
         int type = clip_convert_selection(&str, &llen, &clip_star);
-        if (type < 0)
-            return NO;
+        if (type < 0) return NO;
         
         // TODO: Avoid overflow.
         int len = (int)llen;
@@ -1394,14 +1282,11 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
         }
 #endif
 
-        NSString *string = [[NSString alloc]
-            initWithBytes:str length:len encoding:NSUTF8StringEncoding];
-
-        NSArray *types = [NSArray arrayWithObject:NSStringPboardType];
+        NSString *string = [[NSString alloc] initWithBytes:str length:len encoding:NSUTF8StringEncoding];
+        NSArray *types = @[NSStringPboardType];
         [pboard declareTypes:types owner:nil];
-        BOOL ok = [pboard setString:string forType:NSStringPboardType];
+        const BOOL ok = [pboard setString:string forType:NSStringPboardType];
     
-        [string release];
         vim_free(str);
 
         return ok;
@@ -1410,30 +1295,27 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     return NO;
 }
 
-- (oneway void)addReply:(in bycopy NSString *)reply
-                 server:(in byref id <MMVimServerProtocol>)server
+- (oneway void)addReply:(in bycopy NSString *)reply server:(in byref id <MMVimServerProtocol>)server
 {
     ASLogDebug(@"reply=%@ server=%@", reply, (id)server);
 
     // Replies might come at any time and in any order so we keep them in an
     // array inside a dictionary with the send port used as key.
 
-    NSConnection *conn = [(NSDistantObject*)server connectionForProxy];
+    NSConnection *connection = [(NSDistantObject *)server connectionForProxy];
     // HACK! Assume connection uses mach ports.
-    int port = [(NSMachPort*)[conn sendPort] machPort];
-    NSNumber *key = [NSNumber numberWithInt:port];
+    const int port = [(NSMachPort *)connection.sendPort machPort];
+    NSNumber *key = @(port);
 
-    NSMutableArray *replies = [serverReplyDict objectForKey:key];
+    NSMutableArray *replies = _serverReplyDict[key];
     if (!replies) {
-        replies = [NSMutableArray array];
-        [serverReplyDict setObject:replies forKey:key];
+        _serverReplyDict[key] = replies = NSMutableArray.new;
     }
 
     [replies addObject:reply];
 }
 
-- (void)addInput:(in bycopy NSString *)input
-          client:(in byref id <MMVimClientProtocol>)client
+- (void)addInput:(in bycopy NSString *)input client:(in byref id <MMVimClientProtocol>)client
 {
     ASLogDebug(@"input=%@ client=%@", input, (id)client);
 
@@ -1441,81 +1323,72 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     // server_to_input_buf() in that it always sets the 'silent' flag and we
     // don't want the MacVim client/server code to behave differently from
     // other platforms.
-    char_u *s = [input vimStringSave];
-    server_to_input_buf(s);
-    vim_free(s);
+    char_u *cstring = input.vimStringSave;
+    server_to_input_buf(cstring);
+    vim_free(cstring);
 
     [self addClient:(id)client];
 }
 
-- (NSString *)evaluateExpression:(in bycopy NSString *)expr
-                 client:(in byref id <MMVimClientProtocol>)client
+- (NSString *)evaluateExpression:(in bycopy NSString *)expression client:(in byref id <MMVimClientProtocol>)client
 {
     [self addClient:(id)client];
-    return [self evaluateExpression:expr];
+    return [self evaluateExpression:expression];
 }
 
-- (void)registerServerWithName:(NSString *)name
+- (void)registerServerWithName:(NSString *)baseName
 {
-    NSString *svrName = name;
-    unsigned i;
+    NSString *name = baseName;
 
-    if (vimServerConnection) // Paranoia check, should always be nil
-        [vimServerConnection release];
+    _vimServerConnection = [[NSConnection alloc] initWithReceivePort:NSPort.port sendPort:nil];
 
-    vimServerConnection = [[NSConnection alloc]
-                                            initWithReceivePort:[NSPort port]
-                                                       sendPort:nil];
+    for (NSUInteger i = 0; i < MMServerMax; ++i) {
+        NSString *connName = [self connectionNameFromServerName:name];
 
-    for (i = 0; i < MMServerMax; ++i) {
-        NSString *connName = [self connectionNameFromServerName:svrName];
-
-        if ([vimServerConnection registerName:connName]) {
-            ASLogInfo(@"Registered server with name: %@", svrName);
+        if ([_vimServerConnection registerName:connName]) {
+            ASLogInfo(@"Registered server with name: %@", name);
 
             // TODO: Set request/reply time-outs to something else?
             //
             // Don't wait for requests (time-out means that the message is
             // dropped).
-            [vimServerConnection setRequestTimeout:0];
-            //[vimServerConnection setReplyTimeout:MMReplyTimeout];
-            [vimServerConnection setRootObject:self];
+            _vimServerConnection.requestTimeout = 0;
+            //_vimServerConnection.replyTimeout = MMReplyTimeout;
+            _vimServerConnection.rootObject = self;
 
             // NOTE: 'serverName' is a global variable
-            serverName = [svrName vimStringSave];
+            serverName = name.vimStringSave;
 #ifdef FEAT_EVAL
             set_vim_var_string(VV_SEND_SERVER, serverName, -1);
 #endif
 #ifdef FEAT_TITLE
-	    need_maketitle = TRUE;
+            need_maketitle = TRUE;
 #endif
-            [self queueMessage:SetServerNameMsgID
-                        data:[svrName dataUsingEncoding:NSUTF8StringEncoding]];
+            NSData *data = [name dataUsingEncoding:NSUTF8StringEncoding];
+            [self queueMessage:SetServerNameMsgID data:data];
             break;
         }
 
-        svrName = [NSString stringWithFormat:@"%@%d", name, i+1];
+        name = [NSString stringWithFormat:@"%@%d", baseName, (int)i + 1];
     }
 }
 
-- (BOOL)sendToServer:(NSString *)name string:(NSString *)string
-               reply:(char_u **)reply port:(int *)port expression:(BOOL)expr
-              silent:(BOOL)silent
+- (BOOL)sendToServer:(NSString *)name string:(NSString *)string reply:(char_u **)reply port:(int *)port expression:(BOOL)expr silent:(BOOL)silent
 {
     // NOTE: If 'name' equals 'serverName' then the request is local (client
     // and server are the same).  This case is not handled separately, so a
     // connection will be set up anyway (this simplifies the code).
 
-    NSConnection *conn = [self connectionForServerName:name];
-    if (!conn) {
+    NSConnection *connection = [self connectionForServerName:name];
+    if (!connection) {
         if (!silent) {
-            char_u *s = (char_u*)[name UTF8String];
+            char_u *cstring = (char_u *)name.UTF8String;
 #ifdef FEAT_MBYTE
-            s = CONVERT_FROM_UTF8(s);
+            cstring = CONVERT_FROM_UTF8(cstring);
 #endif
-	    EMSG2(_(e_noserver), s);
+            EMSG2(_(e_noserver), cstring);
 #ifdef FEAT_MBYTE
-            CONVERT_FROM_UTF8_FREE(s);
+            CONVERT_FROM_UTF8_FREE(cstring);
 #endif
         }
         return NO;
@@ -1523,10 +1396,10 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
     if (port) {
         // HACK! Assume connection uses mach ports.
-        *port = [(NSMachPort*)[conn sendPort] machPort];
+        *port = [(NSMachPort *)connection.sendPort machPort];
     }
 
-    id proxy = [conn rootProxy];
+    id proxy = connection.rootProxy;
     [proxy setProtocolForProxy:@protocol(MMVimServerProtocol)];
 
     @try {
@@ -1534,20 +1407,18 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
             NSString *eval = [proxy evaluateExpression:string client:self];
             if (reply) {
                 if (eval) {
-                    *reply = [eval vimStringSave];
+                    *reply = eval.vimStringSave;
                 } else {
                     *reply = vim_strsave((char_u*)_(e_invexprmsg));
                 }
             }
 
-            if (!eval)
-                return NO;
+            if (!eval) return NO;
         } else {
             [proxy addInput:string client:self];
         }
-    }
-    @catch (NSException *ex) {
-        ASLogDebug(@"Exception: reason=%@", ex);
+    } @catch (NSException *e) {
+        ASLogDebug(@"Exception: reason=%@", e);
         return NO;
     }
 
@@ -1558,15 +1429,14 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 {
     NSArray *list = nil;
 
-    if ([self connection]) {
-        id proxy = [connection rootProxy];
+    if (self.connection) {
+        id proxy = self.connection.rootProxy;
         [proxy setProtocolForProxy:@protocol(MMAppProtocol)];
 
         @try {
             list = [proxy serverList];
-        }
-        @catch (NSException *ex) {
-            ASLogDebug(@"serverList failed: reason=%@", ex);
+        } @catch (NSException *e) {
+            ASLogDebug(@"serverList failed: reason=%@", e);
         }
     } else {
         // We get here if a --remote flag is used before MacVim has started.
@@ -1581,7 +1451,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     ASLogDebug(@"port=%d", port);
 
     NSNumber *key = [NSNumber numberWithInt:port];
-    NSMutableArray *replies = [serverReplyDict objectForKey:key];
+    NSMutableArray *replies = [_serverReplyDict objectForKey:key];
     if (replies && [replies count]) {
         ASLogDebug(@"    %ld replies, topmost is: %@", [replies count],
                    [replies objectAtIndex:0]);
@@ -1607,21 +1477,19 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     // Wait for reply as long as the connection to the server is valid (unless
     // user interrupts wait with Ctrl-C).
     while (!got_int && [conn isValid] &&
-            !(replies = [serverReplyDict objectForKey:key])) {
-        [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
-                                 beforeDate:[NSDate distantFuture]];
+            !(replies = [_serverReplyDict objectForKey:key])) {
+        [NSRunLoop.currentRunLoop runMode:NSDefaultRunLoopMode beforeDate:NSDate.distantFuture];
     }
 
     if (replies) {
         if ([replies count] > 0) {
-            reply = [[replies objectAtIndex:0] retain];
+            reply = [replies objectAtIndex:0];
             ASLogDebug(@"    Got reply: %@", reply);
             [replies removeObjectAtIndex:0];
-            [reply autorelease];
         }
 
         if ([replies count] == 0)
-            [serverReplyDict removeObjectForKey:key];
+            [_serverReplyDict removeObjectForKey:key];
     }
 
     return reply;
@@ -1629,15 +1497,14 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
 - (BOOL)sendReply:(NSString *)reply toPort:(int)port
 {
-    id client = [clientProxyDict objectForKey:[NSNumber numberWithInt:port]];
+    id client = _clients[@(port)];
     if (client) {
         @try {
             ASLogDebug(@"reply=%@ port=%d", reply, port);
             [client addReply:reply server:self];
             return YES;
-        }
-        @catch (NSException *ex) {
-            ASLogDebug(@"addReply:server: failed: reason=%@", ex);
+        } @catch (NSException *e) {
+            ASLogDebug(@"addReply:server: failed: reason=%@", e);
         }
     } else {
         ASLogNotice(@"server2client failed; no client with id %d", port);
@@ -1646,31 +1513,19 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     return NO;
 }
 
-- (BOOL)waitForAck
-{
-    return waitForAck;
-}
-
-- (void)setWaitForAck:(BOOL)yn
-{
-    waitForAck = yn;
-}
-
 - (void)waitForConnectionAcknowledgement
 {
-    if (!waitForAck) return;
+    if (!_waitForAck) return;
 
-    while (waitForAck && !got_int && [connection isValid]) {
-        [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
-                                 beforeDate:[NSDate distantFuture]];
-        ASLogDebug(@"  waitForAck=%d got_int=%d isValid=%d",
-                   waitForAck, got_int, [connection isValid]);
+    while (_waitForAck && !got_int && self.connection.isValid) {
+        [NSRunLoop.currentRunLoop runMode:NSDefaultRunLoopMode beforeDate:NSDate.distantFuture];
+        ASLogDebug(@"  waitForAck=%d got_int=%d isValid=%d", _waitForAck, got_int, self.connection.isValid);
     }
 
-    if (waitForAck) {
+    if (_waitForAck) {
         ASLogDebug(@"Never received a connection acknowledgement");
-        [[NSNotificationCenter defaultCenter] removeObserver:self];
-        [appProxy release];  appProxy = nil;
+        [NSNotificationCenter.defaultCenter removeObserver:self];
+        _appProxy = nil;
 
         // NOTE: We intentionally do not call mch_exit() since this in turn
         // will lead to -[MMBackend exit] getting called which we want to
@@ -1685,36 +1540,30 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 - (oneway void)acknowledgeConnection
 {
     ASLogDebug(@"");
-    waitForAck = NO;
-}
-
-- (BOOL)imState
-{
-    return imState;
+    _waitForAck = NO;
 }
 
 - (void)setImState:(BOOL)activated
 {
-    imState = activated;
-
-    gui_update_cursor(TRUE, FALSE);
-    [self flushQueue:YES];
+    if (_imState != activated) {
+        _imState = activated;
+        gui_update_cursor(TRUE, FALSE);
+        [self flushQueue:YES];
+    }
 }
 
 #ifdef FEAT_BEVAL
 - (void)setLastToolTip:(NSString *)toolTip
 {
-    if (toolTip != lastToolTip) {
-        [lastToolTip release];
-        lastToolTip = [toolTip copy];
+    if (toolTip != _lastToolTip) {
+        _lastToolTip = toolTip.copy;
     }
 }
 #endif
 
 - (void)addToMRU:(NSArray *)filenames
 {
-    [self queueMessage:AddToMRUMsgID properties:
-            [NSDictionary dictionaryWithObject:filenames forKey:@"filenames"]];
+    [self queueMessage:AddToMRUMsgID properties:@{@"filenames": filenames}];
 }
 
 @end // MMBackend
@@ -1725,8 +1574,8 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
 - (void)clearDrawData
 {
-    [drawData setLength:0];
-    numWholeLineChanges = offsetForDrawDataPrune = 0;
+    _drawData.length = 0;
+    _numWholeLineChanges = _offsetForDrawDataPrune = 0;
 }
 
 - (void)didChangeWholeLine
@@ -1741,19 +1590,16 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     // instance I know where this can happen is when a command is executed in
     // the shell (think ":grep" with thousands of matches).
 
-    ++numWholeLineChanges;
-    if (numWholeLineChanges == gui.num_rows) {
+    ++_numWholeLineChanges;
+    if (_numWholeLineChanges == gui.num_rows) {
         // Remember the offset to prune up to.
-        offsetForDrawDataPrune = [drawData length];
-    } else if (numWholeLineChanges == 2*gui.num_rows) {
+        _offsetForDrawDataPrune = _drawData.length;
+    } else if (_numWholeLineChanges == 2*gui.num_rows) {
         // Delete all the unnecessary draw commands.
-        NSMutableData *d = [[NSMutableData alloc]
-                    initWithBytes:[drawData bytes] + offsetForDrawDataPrune
-                           length:[drawData length] - offsetForDrawDataPrune];
-        offsetForDrawDataPrune = [d length];
-        numWholeLineChanges -= gui.num_rows;
-        [drawData release];
-        drawData = d;
+        NSMutableData *d = [[NSMutableData alloc] initWithBytes:_drawData.bytes + _offsetForDrawDataPrune length:_drawData.length - _offsetForDrawDataPrune];
+        _offsetForDrawDataPrune = d.length;
+        _numWholeLineChanges -= gui.num_rows;
+        _drawData = d;
     }
 }
 
@@ -1767,34 +1613,29 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     // items while a sheet is being displayed, so we can't just wait for the
     // first message to arrive and assume that is the setDialogReturn: call.
 
-    while (nil == dialogReturn && !got_int && [connection isValid])
-        [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode
-                                 beforeDate:[NSDate distantFuture]];
+    while (!_dialogReturn && !got_int && self.connection.isValid)
+        [NSRunLoop.currentRunLoop runMode:NSDefaultRunLoopMode beforeDate:NSDate.distantFuture];
 
     // Search for any resize messages on the input queue.  All other messages
     // on the input queue are dropped.  The reason why we single out resize
     // messages is because the user may have resized the window while a sheet
     // was open.
-    int i, count = [inputQueue count];
-    if (count > 0) {
+    const int count = _inputQueue.count;
+    if (count != 0) {
         id textDimData = nil;
-        if (count%2 == 0) {
-            for (i = count-2; i >= 0; i -= 2) {
-                int msgid = [[inputQueue objectAtIndex:i] intValue];
+        if (count % 2 == 0) {
+            for (int i = count - 2; i >= 0; i -= 2) {
+                int msgid = [_inputQueue[i] intValue];
                 if (SetTextDimensionsMsgID == msgid) {
-                    textDimData = [[inputQueue objectAtIndex:i+1] retain];
+                    textDimData = _inputQueue[i + 1];
                     break;
                 }
             }
         }
-
-        [inputQueue removeAllObjects];
-
+        [_inputQueue removeAllObjects];
         if (textDimData) {
-            [inputQueue addObject:
-                    [NSNumber numberWithInt:SetTextDimensionsMsgID]];
-            [inputQueue addObject:textDimData];
-            [textDimData release];
+            [_inputQueue addObject:@(SetTextDimensionsMsgID)];
+            [_inputQueue addObject:textDimData];
         }
     }
 }
@@ -1808,53 +1649,44 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     // We take this approach of "pushing" the state to MacVim to avoid having
     // to make synchronous calls from MacVim to Vim in order to get state.
 
-    BOOL mmta = curbuf ? curbuf->b_p_mmta : NO;
-    int numTabs = tabpage_index(NULL) - 1;
-    if (numTabs < 0)
-        numTabs = 0;
-
-    NSDictionary *vimState = [NSDictionary dictionaryWithObjectsAndKeys:
-        [[NSFileManager defaultManager] currentDirectoryPath], @"pwd",
-        [NSNumber numberWithInt:p_mh], @"p_mh",
-        [NSNumber numberWithBool:mmta], @"p_mmta",
-        [NSNumber numberWithInt:numTabs], @"numTabs",
-        [NSNumber numberWithInt:fuoptions_flags], @"fullScreenOptions",
-        [NSNumber numberWithLong:p_mouset], @"p_mouset",
-        nil];
+    NSDictionary *vimState = @{
+        @"pwd": NSFileManager.defaultManager.currentDirectoryPath,
+        @"p_mh": @(p_mh),
+        @"p_mmta": @(curbuf ? curbuf->b_p_mmta : NO), 
+        @"numTabs": @(MAX(tabpage_index(NULL) - 1, 0)), 
+        @"fullScreenOptions": @(fuoptions_flags), 
+        @"p_mouset": @(p_mouset), 
+    };
 
     // Put the state before all other messages.
     // TODO: If called multiple times the oldest state will be used! Should
     // remove any current Vim state messages from the queue first.
     int msgid = SetVimStateMsgID;
-    [outputQueue insertObject:[vimState dictionaryAsData] atIndex:0];
-    [outputQueue insertObject:[NSData dataWithBytes:&msgid length:sizeof(int)]
-                      atIndex:0];
+    [_outputQueue insertObject:[vimState dictionaryAsData] atIndex:0];
+    [_outputQueue insertObject:[NSData dataWithBytes:&msgid length:sizeof(int)] atIndex:0];
 }
 
 - (void)processInputQueue
 {
-    if ([inputQueue count] == 0) return;
+    if (_inputQueue.count == 0) return;
 
     // NOTE: One of the input events may cause this method to be called
     // recursively, so copy the input queue to a local variable and clear the
     // queue before starting to process input events (otherwise we could get
     // stuck in an endless loop).
-    NSArray *q = [inputQueue copy];
-    unsigned i, count = [q count];
+    NSArray *q = _inputQueue.copy;
+    unsigned i, count = q.count;
 
-    [inputQueue removeAllObjects];
+    [_inputQueue removeAllObjects];
 
     for (i = 1; i < count; i+=2) {
-        int msgid = [[q objectAtIndex:i-1] intValue];
-        id data = [q objectAtIndex:i];
-        if ([data isEqual:[NSNull null]])
-            data = nil;
+        int msgid = [q[i - 1] intValue];
+        id data = q[i];
+        if ([data isEqual:NSNull.null]) data = nil;
 
         ASLogDebug(@"(%d) %s", i, MessageStrings[msgid]);
         [self handleInputEvent:msgid data:data];
     }
-
-    [q release];
 }
 
 
@@ -1862,7 +1694,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 {
     if (ScrollWheelMsgID == msgid) {
         if (!data) return;
-        const void *bytes = [data bytes];
+        const void *bytes = data.bytes;
 
         int row = *((int*)bytes);  bytes += sizeof(int);
         int col = *((int*)bytes);  bytes += sizeof(int);
@@ -1876,7 +1708,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
         else if (dx < 0) button = MOUSE_6;
         else if (dx > 0) button = MOUSE_7;
 
-        flags = eventModifierFlagsToVimMouseModMask(flags);
+        flags = EventModifierFlagsToVimMouseModMask(flags);
 
         int numLines = (dy != 0) ? (int)round(dy) : (int)round(dx);
         if (numLines < 0) numLines = -numLines;
@@ -1892,17 +1724,13 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
         if (p_beval && balloonEval) {
             // Update the balloon eval message after a slight delay (to avoid
             // calling it too often).
-            [NSObject cancelPreviousPerformRequestsWithTarget:self
-                                             selector:@selector(bevalCallback:)
-                                               object:nil];
-            [self performSelector:@selector(bevalCallback:)
-                       withObject:nil
-                       afterDelay:MMBalloonEvalInternalDelay];
+            [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(bevalCallback:) object:nil];
+            [self performSelector:@selector(bevalCallback:) withObject:nil afterDelay:MMBalloonEvalInternalDelay];
         }
 #endif
     } else if (MouseDownMsgID == msgid) {
         if (!data) return;
-        const void *bytes = [data bytes];
+        const void *bytes = data.bytes;
 
         int row = *((int*)bytes);  bytes += sizeof(int);
         int col = *((int*)bytes);  bytes += sizeof(int);
@@ -1910,35 +1738,35 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
         int flags = *((int*)bytes);  bytes += sizeof(int);
         int repeat = *((int*)bytes);  bytes += sizeof(int);
 
-        button = eventButtonNumberToVimMouseButton(button);
+        button = EventButtonNumberToVimMouseButton(button);
         if (button >= 0) {
-            flags = eventModifierFlagsToVimMouseModMask(flags);
+            flags = EventModifierFlagsToVimMouseModMask(flags);
             gui_send_mouse_event(button, col, row, repeat, flags);
         }
     } else if (MouseUpMsgID == msgid) {
         if (!data) return;
-        const void *bytes = [data bytes];
+        const void *bytes = data.bytes;
 
         int row = *((int*)bytes);  bytes += sizeof(int);
         int col = *((int*)bytes);  bytes += sizeof(int);
         int flags = *((int*)bytes);  bytes += sizeof(int);
 
-        flags = eventModifierFlagsToVimMouseModMask(flags);
+        flags = EventModifierFlagsToVimMouseModMask(flags);
 
         gui_send_mouse_event(MOUSE_RELEASE, col, row, NO, flags);
     } else if (MouseDraggedMsgID == msgid) {
         if (!data) return;
-        const void *bytes = [data bytes];
+        const void *bytes = data.bytes;
 
         int row = *((int*)bytes);  bytes += sizeof(int);
         int col = *((int*)bytes);  bytes += sizeof(int);
         int flags = *((int*)bytes);  bytes += sizeof(int);
 
-        flags = eventModifierFlagsToVimMouseModMask(flags);
+        flags = EventModifierFlagsToVimMouseModMask(flags);
 
         gui_send_mouse_event(MOUSE_DRAG, col, row, NO, flags);
     } else if (MouseMovedMsgID == msgid) {
-        const void *bytes = [data bytes];
+        const void *bytes = data.bytes;
         int row = *((int*)bytes);  bytes += sizeof(int);
         int col = *((int*)bytes);  bytes += sizeof(int);
 
@@ -1951,12 +1779,8 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
             // Update the balloon eval message after a slight delay (to avoid
             // calling it too often).
-            [NSObject cancelPreviousPerformRequestsWithTarget:self
-                                             selector:@selector(bevalCallback:)
-                                               object:nil];
-            [self performSelector:@selector(bevalCallback:)
-                       withObject:nil
-                       afterDelay:MMBalloonEvalInternalDelay];
+            [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(bevalCallback:) object:nil];
+            [self performSelector:@selector(bevalCallback:) withObject:nil afterDelay:MMBalloonEvalInternalDelay];
         }
 #endif
     } else if (AddInputMsgID == msgid) {
@@ -1964,16 +1788,15 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
                 encoding:NSUTF8StringEncoding];
         if (string) {
             [self addInput:string];
-            [string release];
         }
     } else if (SelectTabMsgID == msgid) {
         if (!data) return;
-        const void *bytes = [data bytes];
+        const void *bytes = data.bytes;
         int idx = *((int*)bytes) + 1;
         send_tabline_event(idx);
     } else if (CloseTabMsgID == msgid) {
         if (!data) return;
-        const void *bytes = [data bytes];
+        const void *bytes = data.bytes;
         int idx = *((int*)bytes) + 1;
         send_tabline_menu_event(idx, TABLINE_MENU_CLOSE);
         [self redrawScreen];
@@ -1982,7 +1805,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
         [self redrawScreen];
     } else if (DraggedTabMsgID == msgid) {
         if (!data) return;
-        const void *bytes = [data bytes];
+        const void *bytes = data.bytes;
         // NOTE! The destination index is 0 based, so do not add 1 to make it 1
         // based.
         int idx = *((int*)bytes);
@@ -1991,7 +1814,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     } else if (SetTextDimensionsMsgID == msgid || LiveResizeMsgID == msgid
             || SetTextRowsMsgID == msgid || SetTextColumnsMsgID == msgid) {
         if (!data) return;
-        const void *bytes = [data bytes];
+        const void *bytes = data.bytes;
         int rows = Rows;
         if (SetTextColumnsMsgID != msgid) {
             rows = *((int*)bytes);  bytes += sizeof(int);
@@ -2023,10 +1846,9 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     } else if (ExecuteMenuMsgID == msgid) {
         NSDictionary *attrs = [NSDictionary dictionaryWithData:data];
         if (attrs) {
-            NSArray *desc = [attrs objectForKey:@"descriptor"];
+            NSArray *desc = attrs[@"descriptor"];
             vimmenu_T *menu = menu_for_descriptor(desc);
-            if (menu)
-                gui_menu_cb(menu);
+            if (menu) gui_menu_cb(menu);
         }
     } else if (ToggleToolbarMsgID == msgid) {
         [self handleToggleToolbar];
@@ -2047,7 +1869,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
         if (gui.in_focus)
             [self focusChange:NO];
     } else if (SetMouseShapeMsgID == msgid) {
-        const void *bytes = [data bytes];
+        const void *bytes = data.bytes;
         int shape = *((int*)bytes);  bytes += sizeof(int);
         update_mouseshape(shape);
     } else if (XcodeModMsgID == msgid) {
@@ -2058,7 +1880,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
         [self handleFindReplace:[NSDictionary dictionaryWithData:data]];
     } else if (ZoomMsgID == msgid) {
         if (!data) return;
-        const void *bytes = [data bytes];
+        const void *bytes = data.bytes;
         int rows = *((int*)bytes);  bytes += sizeof(int);
         int cols = *((int*)bytes);  bytes += sizeof(int);
         //int zoom = *((int*)bytes);  bytes += sizeof(int);
@@ -2073,10 +1895,10 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
         gui_resize_shell(cols, rows);
     } else if (SetWindowPositionMsgID == msgid) {
         if (!data) return;
-        const void *bytes = [data bytes];
-        winposX = *((int*)bytes);  bytes += sizeof(int);
-        winposY = *((int*)bytes);  bytes += sizeof(int);
-        ASLogDebug(@"SetWindowPositionMsgID: x=%d y=%d", winposX, winposY);
+        const void *bytes = data.bytes;
+        _windowPosition.col = *((int *)bytes);  bytes += sizeof(int);
+        _windowPosition.row = *((int *)bytes);  bytes += sizeof(int);
+        ASLogDebug(@"SetWindowPositionMsgID: x=%d y=%d", _windowPosition.col, _windowPosition.row);
     } else if (GestureMsgID == msgid) {
         [self handleGesture:data];
     } else if (ActivatedImMsgID == msgid) {
@@ -2090,30 +1912,25 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     }
 }
 
-- (void)doKeyDown:(NSString *)key
-          keyCode:(unsigned)code
-        modifiers:(int)mods
+- (void)doKeyDown:(NSString *)key keyCode:(unsigned)code modifiers:(int)modifiers
 {
-    ASLogDebug(@"key='%@' code=%#x mods=%#x length=%ld", key, code, mods,
-            [key length]);
+    ASLogDebug(@"key='%@' code=%#x modifiers=%#x length=%ld", key, code, modifiers, key.length);
     if (!key) return;
 
-    char_u *str = (char_u*)[key UTF8String];
-    int i, len = [key lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+    char_u *str = (char_u *)key.UTF8String;
+    int length = [key lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
 
-    if ([self handleSpecialKey:key keyCode:code modifiers:mods])
-        return;
+    if ([self handleSpecialKey:key keyCode:code modifiers:modifiers]) return;
 
 #ifdef FEAT_MBYTE
     char_u *conv_str = NULL;
     if (input_conv.vc_type != CONV_NONE) {
-        conv_str = string_convert(&input_conv, str, &len);
-        if (conv_str)
-            str = conv_str;
+        conv_str = string_convert(&input_conv, str, &length);
+        if (conv_str) str = conv_str;
     }
 #endif
 
-    if (mods & MOD_MASK_CMD) {
+    if (modifiers & MOD_MASK_CMD) {
         // NOTE: For normal input (non-special, 'macmeta' off) the modifier
         // flags are already included in the key event.  However, the Cmd key
         // flag is special and must always be added manually.
@@ -2122,37 +1939,34 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
         // 'macmeta' is set.  It is important that these flags are cleared
         // _after_ special keys have been handled, since they should never be
         // cleared for special keys.
-        mods &= ~MOD_MASK_SHIFT;
-        if (!(mods & MOD_MASK_CTRL)) {
-            BOOL mmta = curbuf ? curbuf->b_p_mmta : YES;
-            if (!mmta)
-                mods &= ~MOD_MASK_ALT;
+        modifiers &= ~MOD_MASK_SHIFT;
+        if (!(modifiers & MOD_MASK_CTRL)) {
+            const BOOL mmta = curbuf ? curbuf->b_p_mmta : YES;
+            if (!mmta) modifiers &= ~MOD_MASK_ALT;
         }
 
-        ASLogDebug(@"add mods=%#x", mods);
-        char_u modChars[3] = { CSI, KS_MODIFIER, mods };
-        add_to_input_buf(modChars, 3);
-    } else if (mods & MOD_MASK_ALT && 1 == len && str[0] < 0x80
-            && curbuf && curbuf->b_p_mmta) {
+        ASLogDebug(@"add modifiers=%#x", modifiers);
+        char_u chars[] = {CSI, KS_MODIFIER, modifiers};
+        add_to_input_buf(chars, sizeof(chars));
+    } else if (modifiers & MOD_MASK_ALT && 1 == length && str[0] < 0x80 && curbuf && curbuf->b_p_mmta) {
         // HACK! The 'macmeta' is set so we have to handle Alt key presses
         // separately.  Normally Alt key presses are interpreted by the
         // frontend but now we have to manually set the 8th bit and deal with
         // UTF-8 conversion.
-        if ([self handleMacMetaKey:str[0] modifiers:mods])
-            return;
+        if ([self handleMacMetaKey:str[0] modifiers:modifiers]) return;
     }
 
 
-    for (i = 0; i < len; ++i) {
-        ASLogDebug(@"add byte [%d/%d]: %#x", i, len, str[i]);
-        add_to_input_buf(str+i, 1);
+    for (int i = 0; i < length; ++i) {
+        ASLogDebug(@"add byte [%d/%d]: %#x", i, length, str[i]);
+        add_to_input_buf(str + i, 1);
         if (CSI == str[i]) {
             // NOTE: If the converted string contains the byte CSI, then it
             // must be followed by the bytes KS_EXTRA, KE_CSI or things
             // won't work.
-            static char_u extra[2] = { KS_EXTRA, KE_CSI };
+            static char_u extra[] = {KS_EXTRA, KE_CSI};
             ASLogDebug(@"add KS_EXTRA, KE_CSI");
-            add_to_input_buf(extra, 2);
+            add_to_input_buf(extra, sizeof(extra));
         }
     }
 
@@ -2162,25 +1976,21 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 #endif
 }
 
-- (BOOL)handleSpecialKey:(NSString *)key
-                 keyCode:(unsigned)code
-               modifiers:(int)mods
+- (BOOL)handleSpecialKey:(NSString *)key keyCode:(unsigned)code modifiers:(int)modifiers
 {
-    int i;
-    for (i = 0; special_keys[i].key_sym != 0; i++) {
-        if (special_keys[i].key_sym == code) {
+    SpecialKey *found = nil;
+    for (size_t i = 0; specialKeys[i].keysym != 0; i++) {
+        if (specialKeys[i].keysym == code) {
             ASLogDebug(@"Special key: %#x", code);
+            found = &specialKeys[i];
             break;
         }
     }
-    if (special_keys[i].key_sym == 0)
-        return NO;
+    if (!found) return NO;
 
-    int ikey = special_keys[i].vim_code1 == NUL ? special_keys[i].vim_code0 :
-            TO_SPECIAL(special_keys[i].vim_code0, special_keys[i].vim_code1);
-    ikey = simplify_key(ikey, &mods);
-    if (ikey == CSI)
-        ikey = K_CSI;
+    int ikey = found->code1 == NUL ? found->code0 : TO_SPECIAL(found->code0, found->code1);
+    ikey = simplify_key(ikey, &modifiers);
+    if (ikey == CSI) ikey = K_CSI;
 
     char_u chars[4];
     int len = 0;
@@ -2190,18 +2000,18 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
         chars[1] = K_SECOND(ikey);
         chars[2] = K_THIRD(ikey);
         len = 3;
-    } else if (mods & MOD_MASK_ALT && special_keys[i].vim_code1 == 0
+    } else if (modifiers & MOD_MASK_ALT && found->code1 == 0
 #ifdef FEAT_MBYTE
             && !enc_dbcs    // TODO: ?  (taken from gui_gtk_x11.c)
 #endif
             ) {
         ASLogDebug(@"Alt special=%d", ikey);
 
-        // NOTE: The last entries in the special_keys struct when pressed
+        // NOTE: The last entries in the specialKeys struct when pressed
         // together with Alt need to be handled separately or they will not
         // work.
         // The following code was gleaned from gui_gtk_x11.c.
-        mods &= ~MOD_MASK_ALT;
+        modifiers &= ~MOD_MASK_ALT;
         int mkey = 0x80 | ikey;
 #ifdef FEAT_MBYTE
         if (enc_utf8) {  // TODO: What about other encodings?
@@ -2229,43 +2039,39 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     }
 
     if (len > 0) {
-        if (mods) {
-            ASLogDebug(@"Adding mods to special: %d", mods);
-            char_u modChars[3] = { CSI, KS_MODIFIER, (char_u)mods };
-            add_to_input_buf(modChars, 3);
+        if (modifiers) {
+            ASLogDebug(@"Adding modifiers to special: %d", modifiers);
+            char_u chars[] = {CSI, KS_MODIFIER, (char_u)modifiers};
+            add_to_input_buf(chars, sizeof(chars));
         }
-
-        ASLogDebug(@"Adding special (%d): %x,%x,%x", len,
-                chars[0], chars[1], chars[2]);
+        ASLogDebug(@"Adding special (%d): %x,%x,%x", len, chars[0], chars[1], chars[2]);
         add_to_input_buf(chars, len);
     }
 
     return YES;
 }
 
-- (BOOL)handleMacMetaKey:(int)ikey modifiers:(int)mods
+- (BOOL)handleMacMetaKey:(int)ikey modifiers:(int)modifiers
 {
-    ASLogDebug(@"ikey=%d mods=%d", ikey, mods);
+    ASLogDebug(@"ikey=%d modifiers=%d", ikey, modifiers);
 
     // This code was taken from gui_w48.c and gui_gtk_x11.c.
     char_u string[7];
-    int ch = simplify_key(ikey, &mods);
+    int ch = simplify_key(ikey, &modifiers);
 
     // Remove the SHIFT modifier for keys where it's already included,
     // e.g., '(' and '*'
-    if (ch < 0x100 && !isalpha(ch) && isprint(ch))
-        mods &= ~MOD_MASK_SHIFT;
+    if (ch < 0x100 && !isalpha(ch) && isprint(ch)) modifiers &= ~MOD_MASK_SHIFT;
 
     // Interpret the ALT key as making the key META, include SHIFT, etc.
-    ch = extract_modifiers(ch, &mods);
-    if (ch == CSI)
-        ch = K_CSI;
+    ch = extract_modifiers(ch, &modifiers);
+    if (ch == CSI) ch = K_CSI;
 
     int len = 0;
-    if (mods) {
+    if (modifiers) {
         string[len++] = CSI;
         string[len++] = KS_MODIFIER;
-        string[len++] = mods;
+        string[len++] = modifiers;
     }
 
     string[len++] = ch;
@@ -2287,11 +2093,8 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
 - (void)queueMessage:(int)msgid data:(NSData *)data
 {
-    [outputQueue addObject:[NSData dataWithBytes:&msgid length:sizeof(int)]];
-    if (data)
-        [outputQueue addObject:data];
-    else
-        [outputQueue addObject:[NSData data]];
+    [_outputQueue addObject:[NSData dataWithBytes:&msgid length:sizeof(msgid)]];
+    [_outputQueue addObject:data ?: NSData.new];
 }
 
 - (void)connectionDidDie:(NSNotification *)notification
@@ -2302,33 +2105,28 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     //
     // NOTE: This is not called if a Vim controller invalidates its connection.
 
-    ASLogNotice(@"Main connection was lost before process had a chance "
-                "to terminate; preserving swap files.");
+    ASLogNotice(@"Main connection was lost before process had a chance to terminate; preserving swap files.");
     getout_preserve_modified(1);
 }
 
 - (void)blinkTimerFired:(NSTimer *)timer
 {
-    NSTimeInterval timeInterval = 0;
+    NSTimeInterval interval = 0;
 
-    [blinkTimer release];
-    blinkTimer = nil;
+    _blinkTimer = nil;
 
-    if (MMBlinkStateOn == blinkState) {
+    if (MMBlinkStateOn == _blinkState) {
         gui_undraw_cursor();
-        blinkState = MMBlinkStateOff;
-        timeInterval = blinkOffInterval;
-    } else if (MMBlinkStateOff == blinkState) {
+        _blinkState = MMBlinkStateOff;
+        interval = _blinkOffInterval;
+    } else if (MMBlinkStateOff == _blinkState) {
         gui_update_cursor(TRUE, FALSE);
-        blinkState = MMBlinkStateOn;
-        timeInterval = blinkOnInterval;
+        _blinkState = MMBlinkStateOn;
+        interval = _blinkOnInterval;
     }
 
-    if (timeInterval > 0) {
-        blinkTimer = 
-            [[NSTimer scheduledTimerWithTimeInterval:timeInterval target:self
-                                            selector:@selector(blinkTimerFired:)
-                                            userInfo:nil repeats:NO] retain];
+    if (interval > 0) {
+        _blinkTimer = [NSTimer scheduledTimerWithTimeInterval:interval target:self selector:@selector(blinkTimerFired:) userInfo:nil repeats:NO];
         [self flushQueue:YES];
     }
 }
@@ -2342,7 +2140,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 {
     // If 'go' contains 'T', then remove it, else add it.
 
-    char_u go[sizeof(GO_ALL)+2];
+    char_u go[sizeof(GO_ALL) + 2];
     char_u *p;
     int len;
 
@@ -2350,7 +2148,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     p = vim_strchr(go, GO_TOOLBAR);
     len = STRLEN(go);
 
-    if (p != NULL) {
+    if (p) {
         char_u *end = go + len;
         while (p < end) {
             p[0] = p[1];
@@ -2361,17 +2159,17 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
         go[len+1] = NUL;
     }
 
-    set_option_value((char_u*)"guioptions", 0, go, 0);
+    set_option_value((char_u *)"guioptions", 0, go, 0);
 }
 
 - (void)handleScrollbarEvent:(NSData *)data
 {
     if (!data) return;
 
-    const void *bytes = [data bytes];
-    int32_t ident = *((int32_t*)bytes);  bytes += sizeof(int32_t);
-    int hitPart = *((int*)bytes);  bytes += sizeof(int);
-    float fval = *((float*)bytes);  bytes += sizeof(float);
+    const void *bytes = data.bytes;
+    int32_t ident = *((int32_t *)bytes);  bytes += sizeof(int32_t);
+    int hitPart = *((int *)bytes);  bytes += sizeof(int);
+    float fval = *((float *)bytes);  bytes += sizeof(float);
     scrollbar_T *sb = gui_find_scrollbar(ident);
 
     if (sb) {
@@ -2416,14 +2214,11 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
                 // Update both the left&right vertical scrollbars.
                 int32_t idL = (int32_t)sb->wp->w_scrollbars[SBAR_LEFT].ident;
                 int32_t idR = (int32_t)sb->wp->w_scrollbars[SBAR_RIGHT].ident;
-                [self setScrollbarThumbValue:value size:size max:max
-                                  identifier:idL];
-                [self setScrollbarThumbValue:value size:size max:max
-                                  identifier:idR];
+                [self setScrollbarThumbValue:value size:size max:max identifier:idL];
+                [self setScrollbarThumbValue:value size:size max:max identifier:idR];
             } else {
                 // Update the horizontal scrollbar.
-                [self setScrollbarThumbValue:value size:size max:max
-                                  identifier:ident];
+                [self setScrollbarThumbValue:value size:size max:max identifier:ident];
             }
         }
     }
@@ -2433,47 +2228,43 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 {
     if (!data) return;
 
-    const void *bytes = [data bytes];
-    int pointSize = (int)*((float*)bytes);  bytes += sizeof(float);
+    const void *bytes = data.bytes;
+    int pointSize = (int)*((float *)bytes);  bytes += sizeof(float);
 
-    unsigned len = *((unsigned*)bytes);  bytes += sizeof(unsigned);
+    unsigned len = *((unsigned *)bytes);  bytes += sizeof(unsigned);
     NSMutableString *name = [NSMutableString stringWithUTF8String:bytes];
     bytes += len;
 
     [name appendString:[NSString stringWithFormat:@":h%d", pointSize]];
-    char_u *s = (char_u*)[name UTF8String];
+    char_u *cstring = (char_u *)name.UTF8String;
 
-    unsigned wlen = *((unsigned*)bytes);  bytes += sizeof(unsigned);
+    unsigned wlen = *((unsigned *)bytes);  bytes += sizeof(unsigned);
     char_u *ws = NULL;
     if (wlen > 0) {
         NSMutableString *wname = [NSMutableString stringWithUTF8String:bytes];
         bytes += wlen;
 
         [wname appendString:[NSString stringWithFormat:@":h%d", pointSize]];
-        ws = (char_u*)[wname UTF8String];
+        ws = (char_u *)wname.UTF8String;
     }
 
 #ifdef FEAT_MBYTE
-    s = CONVERT_FROM_UTF8(s);
-    if (ws) {
-        ws = CONVERT_FROM_UTF8(ws);
-    }
+    cstring = CONVERT_FROM_UTF8(cstring);
+    if (ws) ws = CONVERT_FROM_UTF8(ws);
 #endif
 
-    set_option_value((char_u*)"guifont", 0, s, 0);
+    set_option_value((char_u *)"guifont", 0, cstring, 0);
 
     if (ws && gui.wide_font != NOFONT) {
         // NOTE: This message is sent on Cmd-+/Cmd-- and as such should only
         // change the wide font if 'gfw' is non-empty (the frontend always has
         // some wide font set, even if 'gfw' is empty).
-        set_option_value((char_u*)"guifontwide", 0, ws, 0);
+        set_option_value((char_u *)"guifontwide", 0, ws, 0);
     }
 
 #ifdef FEAT_MBYTE
-    if (ws) {
-        CONVERT_FROM_UTF8_FREE(ws);
-    }
-    CONVERT_FROM_UTF8_FREE(s);
+    if (ws) CONVERT_FROM_UTF8_FREE(ws);
+    CONVERT_FROM_UTF8_FREE(cstring);
 #endif
 
     [self redrawScreen];
@@ -2490,13 +2281,11 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     NSMutableDictionary *args = [NSMutableDictionary dictionaryWithData:data];
     if (!args) return;
 
-    id obj = [args objectForKey:@"forceOpen"];
-    BOOL forceOpen = YES;
-    if (obj)
-        forceOpen = [obj boolValue];
+    const id obj = args[@"forceOpen"];
+    const BOOL forceOpen = obj ? [obj boolValue] : YES;
 
-    NSArray *filenames = [args objectForKey:@"filenames"];
-    if (!(filenames && [filenames count] > 0)) return;
+    NSArray *filenames = args[@"filenames"];
+    if (filenames.count == 0) return;
 
 #ifdef FEAT_DND
     if (!forceOpen && (State & CMDLINE)) {
@@ -2504,17 +2293,16 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
         // should be added to the command line, instead of opening the
         // files in tabs (unless forceOpen is set).  This is taken care of by
         // gui_handle_drop().
-        int n = [filenames count];
-        char_u **fnames = (char_u **)alloc(n * sizeof(char_u *));
+        const NSUInteger fileCount = filenames.count;
+        char_u **fnames = (char_u **)alloc(fileCount * sizeof(char_u *));
         if (fnames) {
-            int i = 0;
-            for (i = 0; i < n; ++i)
-                fnames[i] = [[filenames objectAtIndex:i] vimStringSave];
+            for (NSUInteger i = 0; i < fileCount; ++i)
+                fnames[i] = [filenames[i] vimStringSave];
 
             // NOTE!  This function will free 'fnames'.
             // HACK!  It is assumed that the 'x' and 'y' arguments are
             // unused when in command line mode.
-            gui_handle_drop(0, 0, 0, fnames, n);
+            gui_handle_drop(0, 0, 0, fnames, fileCount);
         }
     } else
 #endif // FEAT_DND
@@ -2528,31 +2316,26 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     if (!data) return;
 
 #ifdef FEAT_DND
-    char_u  dropkey[3] = { CSI, KS_EXTRA, (char_u)KE_DROP };
-    const void *bytes = [data bytes];
-    int len = *((int*)bytes);  bytes += sizeof(int);
+    char_u dropkey[] = {CSI, KS_EXTRA, (char_u)KE_DROP};
+    const void *bytes = data.bytes;
+    const int ignore __attribute__((unused)) = *((int *)bytes);  bytes += sizeof(int);
     NSMutableString *string = [NSMutableString stringWithUTF8String:bytes];
 
     // Replace unrecognized end-of-line sequences with \x0a (line feed).
-    NSRange range = { 0, [string length] };
-    unsigned n = [string replaceOccurrencesOfString:@"\x0d\x0a"
-                                         withString:@"\x0a" options:0
-                                              range:range];
+    const NSRange range = {0, string.length};
+    unsigned n = [string replaceOccurrencesOfString:@"\x0d\x0a" withString:@"\x0a" options:0 range:range];
     if (0 == n) {
-        n = [string replaceOccurrencesOfString:@"\x0d" withString:@"\x0a"
-                                       options:0 range:range];
+        n = [string replaceOccurrencesOfString:@"\x0d" withString:@"\x0a" options:0 range:range];
     }
 
-    len = [string lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
-    char_u *s = (char_u*)[string UTF8String];
+    int len = [string lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+    char_u *cstring = (char_u *)string.UTF8String;
 #ifdef FEAT_MBYTE
-    if (input_conv.vc_type != CONV_NONE)
-        s = string_convert(&input_conv, s, &len);
+    if (input_conv.vc_type != CONV_NONE) cstring = string_convert(&input_conv, cstring, &len);
 #endif
-    dnd_yank_drag_data(s, len);
+    dnd_yank_drag_data(cstring, len);
 #ifdef FEAT_MBYTE
-    if (input_conv.vc_type != CONV_NONE)
-        vim_free(s);
+    if (input_conv.vc_type != CONV_NONE) vim_free(cstring);
 #endif
     add_to_input_buf(dropkey, sizeof(dropkey));
 #endif // FEAT_DND
@@ -2565,42 +2348,33 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     if (!obj) return;
 
     OSType serverID = [obj unsignedIntValue];
-    NSString *remotePath = [args objectForKey:@"remotePath"];
+    NSString *remotePath = args[@"remotePath"];
 
     NSAppleEventDescriptor *token = nil;
-    NSData *tokenData = [args objectForKey:@"remoteTokenData"];
-    obj = [args objectForKey:@"remoteTokenDescType"];
+    NSData *tokenData = args[@"remoteTokenData"];
+    obj = args[@"remoteTokenDescType"];
     if (tokenData && obj) {
-        DescType tokenType = [obj unsignedLongValue];
-        token = [NSAppleEventDescriptor descriptorWithDescriptorType:tokenType
-                                                                data:tokenData];
+        const DescType tokenType = [obj unsignedLongValue];
+        token = [NSAppleEventDescriptor descriptorWithDescriptorType:tokenType data:tokenData];
     }
 
-    NSArray *filenames = [args objectForKey:@"filenames"];
-    unsigned i, numFiles = [filenames count];
-    for (i = 0; i < numFiles; ++i) {
-        NSString *filename = [filenames objectAtIndex:i];
-        char_u *s = [filename vimStringSave];
-        buf_T *buf = buflist_findname(s);
-        vim_free(s);
+    for (NSString *filename in (NSArray *)args[@"filenames"]) {
+        char_u *cstring = filename.vimStringSave;
+        buf_T *buf = buflist_findname(cstring);
+        vim_free(cstring);
 
         if (buf) {
             if (buf->b_odb_token) {
-                [(NSAppleEventDescriptor*)(buf->b_odb_token) release];
                 buf->b_odb_token = NULL;
             }
-
             if (buf->b_odb_fname) {
                 vim_free(buf->b_odb_fname);
                 buf->b_odb_fname = NULL;
             }
-
             buf->b_odb_server_id = serverID;
 
-            if (token)
-                buf->b_odb_token = [token retain];
-            if (remotePath)
-                buf->b_odb_fname = [remotePath vimStringSave];
+            if (token) buf->b_odb_token = (__bridge_retained void *)token;
+            if (remotePath) buf->b_odb_fname = remotePath.vimStringSave;
         } else {
             ASLogWarn(@"Could not find buffer '%@' for ODB editing.", filename);
         }
@@ -2610,18 +2384,6 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
 - (void)handleXcodeMod:(NSData *)data
 {
-#if 0
-    const void *bytes = [data bytes];
-    DescType type = *((DescType*)bytes);  bytes += sizeof(DescType);
-    unsigned len = *((unsigned*)bytes);  bytes += sizeof(unsigned);
-    if (0 == len)
-        return;
-
-    NSAppleEventDescriptor *replyEvent = [NSAppleEventDescriptor
-            descriptorWithDescriptorType:type
-                                   bytes:bytes
-                                  length:len];
-#endif
 }
 
 - (void)handleOpenWithArguments:(NSDictionary *)args
@@ -2643,21 +2405,17 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
     ASLogDebug(@"args=%@ (starting=%d)", args, starting);
 
-    NSArray *filenames = [args objectForKey:@"filenames"];
-    int i, numFiles = filenames ? [filenames count] : 0;
-    BOOL openFiles = ![[args objectForKey:@"dontOpen"] boolValue];
-    int layout = [[args objectForKey:@"layout"] intValue];
+    NSArray *filenames = args[@"filenames"];
+    BOOL openFiles = ![args[@"dontOpen"] boolValue];
+    int layout = [args[@"layout"] intValue];
 
     if (starting > 0) {
         // When Vim is starting we simply add the files to be opened to the
         // global arglist and Vim will take care of opening them for us.
-        if (openFiles && numFiles > 0) {
-            for (i = 0; i < numFiles; i++) {
-                NSString *fname = [filenames objectAtIndex:i];
+        if (openFiles && filenames.count != 0) {
+            for (NSString *filename in filenames) {
                 char_u *p = NULL;
-
-                if (ga_grow(&global_alist.al_ga, 1) == FAIL
-                        || (p = [fname vimStringSave]) == NULL)
+                if (ga_grow(&global_alist.al_ga, 1) == FAIL || !(p = filename.vimStringSave))
                     exit(2); // See comment in -[MMBackend exit]
                 else
                     alist_add(&global_alist, p, 2);
@@ -2666,20 +2424,19 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
             // Vim will take care of arranging the files added to the arglist
             // in windows or tabs; all we must do is to specify which layout to
             // use.
-            initialWindowLayout = layout;
+            _initialWindowLayout = layout;
 
             // Change to directory of first file to open.
             // NOTE: This is only done when Vim is starting to avoid confusion:
             // if a window is already open the pwd is never touched.
-            if (openFiles && numFiles > 0 && ![args objectForKey:@"remoteID"])
-            {
-                char_u *s = [[filenames objectAtIndex:0] vimStringSave];
-                if (mch_isdir(s)) {
-                    mch_chdir((char*)s);
+            if (openFiles && filenames.count != 0 && !args[@"remoteID"]) {
+                char_u *cstring = [filenames.firstObject vimStringSave];
+                if (mch_isdir(cstring)) {
+                    mch_chdir((char *)cstring);
                 } else {
-                    vim_chdirfile(s);
+                    vim_chdirfile(cstring);
                 }
-                vim_free(s);
+                vim_free(cstring);
             }
         }
     } else {
@@ -2687,9 +2444,8 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
         // files with the specified layout.
         //
         // TODO: Figure out a better way to handle this?
-        if (openFiles && numFiles > 0) {
-            BOOL oneWindowInTab = topframe ? YES
-                                           : (topframe->fr_layout == FR_LEAF);
+        if (openFiles && filenames.count != 0) {
+            BOOL oneWindowInTab = topframe ? YES : (topframe->fr_layout == FR_LEAF);
             BOOL bufChanged = NO;
             BOOL bufHasFilename = NO;
             if (curbuf) {
@@ -2699,10 +2455,9 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
             // Temporarily disable flushing since the following code may
             // potentially cause multiple redraws.
-            flushDisabled = YES;
+            _flushDisabled = YES;
 
-            BOOL onlyOneTab = (first_tabpage->tp_next == NULL);
-            if (WIN_TABS == layout && !onlyOneTab) {
+            if (WIN_TABS == layout && first_tabpage->tp_next) {
                 // By going to the last tabpage we ensure that the new tabs
                 // will appear last (if this call is left out, the taborder
                 // becomes messy).
@@ -2712,27 +2467,22 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
             // Make sure we're in normal mode first.
             [self addInput:@"<C-\\><C-N>"];
 
-            if (numFiles > 1) {
+            if (filenames.count > 1) {
                 // With "split layout" we open a new tab before opening
                 // multiple files if the current tab has more than one window
                 // or if there is exactly one window but whose buffer has a
                 // filename.  (The :drop command ensures modified buffers get
                 // their own window.)
-                if ((WIN_HOR == layout || WIN_VER == layout) &&
-                        (!oneWindowInTab || bufHasFilename))
+                if ((WIN_HOR == layout || WIN_VER == layout) && (!oneWindowInTab || bufHasFilename))
                     [self addInput:@":tabnew<CR>"];
 
                 // The files are opened by constructing a ":drop ..." command
                 // and executing it.
-                NSMutableString *cmd = (WIN_TABS == layout)
-                        ? [NSMutableString stringWithString:@":tab drop"]
-                        : [NSMutableString stringWithString:@":drop"];
+                NSMutableString *cmd = (WIN_TABS == layout ? @":tab drop" : @":drop").mutableCopy;
 
-                for (i = 0; i < numFiles; ++i) {
-                    NSString *file = [filenames objectAtIndex:i];
-                    file = [file stringByEscapingSpecialFilenameCharacters];
+                for (NSString *file in filenames) {
                     [cmd appendString:@" "];
-                    [cmd appendString:file];
+                    [cmd appendString:file.stringByEscapingSpecialFilenameCharacters];
                 }
 
                 // Temporarily clear 'suffixes' so that the files are opened in
@@ -2742,10 +2492,8 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
                 [self addInput:cmd];
 
                 // Split the view into multiple windows if requested.
-                if (WIN_HOR == layout)
-                    [self addInput:@"|sall"];
-                else if (WIN_VER == layout)
-                    [self addInput:@"|vert sall"];
+                if (WIN_HOR == layout) [self addInput:@"|sall"];
+                else if (WIN_VER == layout) [self addInput:@"|vert sall"];
 
                 // Restore the old value of 'suffixes'.
                 [self addInput:@"|let &su=mvim_oldsu|unlet mvim_oldsu<CR>"];
@@ -2754,8 +2502,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
                 // but not if its buffer is modified or has a filename.
                 // However, the 'arglist' layout always opens the file in the
                 // current window.
-                NSString *file = [[filenames lastObject]
-                        stringByEscapingSpecialFilenameCharacters];
+                NSString *file = [filenames.lastObject stringByEscapingSpecialFilenameCharacters];
                 NSString *cmd;
                 if (WIN_HOR == layout) {
                     if (!(bufHasFilename || bufChanged))
@@ -2790,30 +2537,25 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
             gui_update_cursor(FALSE, FALSE);
             maketitle();
 
-            flushDisabled = NO;
+            _flushDisabled = NO;
         }
     }
 
-    if ([args objectForKey:@"remoteID"]) {
+    if (args[@"remoteID"]) {
         // NOTE: We have to delay processing any ODB related arguments since
         // the file(s) may not be opened until the input buffer is processed.
-        [self performSelector:@selector(startOdbEditWithArguments:)
-                   withObject:args
-                   afterDelay:0];
+        [self performSelector:@selector(startOdbEditWithArguments:) withObject:args afterDelay:0];
     }
 
-    NSString *lineString = [args objectForKey:@"cursorLine"];
-    if (lineString && [lineString intValue] > 0) {
-        NSString *columnString = [args objectForKey:@"cursorColumn"];
-        if (!(columnString && [columnString intValue] > 0))
-            columnString = @"1";
-
-        NSString *cmd = [NSString stringWithFormat:@"<C-\\><C-N>:cal "
-                "cursor(%@,%@)|norm! zz<CR>:f<CR>", lineString, columnString];
+    NSString *lineString = args[@"cursorLine"];
+    if (lineString && lineString.intValue > 0) {
+        NSString *columnString = args[@"cursorColumn"];
+        if (!(columnString && columnString.intValue > 0)) columnString = @"1";
+        NSString *cmd = [NSString stringWithFormat:@"<C-\\><C-N>:cal cursor(%@,%@)|norm! zz<CR>:f<CR>", lineString, columnString];
         [self addInput:cmd];
     }
 
-    NSString *rangeString = [args objectForKey:@"selectionRange"];
+    NSString *rangeString = args[@"selectionRange"];
     if (rangeString) {
         // Build a command line string that will select the given range of
         // characters.  If range.length == 0, then position the cursor on the
@@ -2822,13 +2564,10 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
         NSString *cmd;
         if (range.length > 0) {
             // TODO: This only works for encodings where 1 byte == 1 character
-            cmd = [NSString stringWithFormat:@"<C-\\><C-N>%ldgov%ldgo",
-                    range.location, NSMaxRange(range)-1];
+            cmd = [NSString stringWithFormat:@"<C-\\><C-N>%ldgov%ldgo", range.location, NSMaxRange(range)-1];
         } else {
-            cmd = [NSString stringWithFormat:@"<C-\\><C-N>%ldGz.0",
-                    range.location];
+            cmd = [NSString stringWithFormat:@"<C-\\><C-N>%ldGz.0", range.location];
         }
-
         [self addInput:cmd];
     }
 
@@ -2836,9 +2575,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     if (searchText) {
         // NOTE: This command may be overkill to simply search for some text,
         // but it is consistent with what is used in MMAppController.
-        [self addInput:[NSString stringWithFormat:@"<C-\\><C-N>:if search("
-                        "'\\V\\c%@','cW')|let @/='\\V\\c%@'|set hls|endif<CR>",
-                        searchText, searchText]];
+        [self addInput:[NSString stringWithFormat:@"<C-\\><C-N>:if search('\\V\\c%@','cW')|let @/='\\V\\c%@'|set hls|endif<CR>", searchText, searchText]];
     }
 }
 
@@ -2847,15 +2584,9 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     // Return 1 if current buffer is modified, -1 if other buffer is modified,
     // otherwise return 0.
 
-    if (curbuf && bufIsChanged(curbuf))
-        return 1;
+    if (curbuf && bufIsChanged(curbuf)) return 1;
 
-    buf_T *buf;
-    for (buf = firstbuf; buf != NULL; buf = buf->b_next) {
-        if (bufIsChanged(buf)) {
-            return -1;
-        }
-    }
+    for (buf_T *buf = firstbuf; buf; buf = buf->b_next) if (bufIsChanged(buf)) return -1;
 
     return 0;
 }
@@ -2864,7 +2595,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 {
     // NOTE: This code is essentially identical to server_to_input_buf(),
     // except the 'silent' flag is TRUE in the call to ins_typebuf() below.
-    char_u *string = [input vimStringSave];
+    char_u *string = input.vimStringSave;
     if (!string) return;
 
     /* Set 'cpoptions' the way we want it.
@@ -2880,23 +2611,22 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     char_u *str = replace_termcodes((char_u *)string, &ptr, FALSE, TRUE, FALSE);
     p_cpo = cpo_save;
 
-    if (*ptr != NUL)	/* trailing CTRL-V results in nothing */
-    {
-	/*
-	 * Add the string to the input stream.
-	 * Can't use add_to_input_buf() here, we now have K_SPECIAL bytes.
-	 *
-	 * First clear typed characters from the typeahead buffer, there could
-	 * be half a mapping there.  Then append to the existing string, so
-	 * that multiple commands from a client are concatenated.
-	 */
-	if (typebuf.tb_maplen < typebuf.tb_len)
-	    del_typebuf(typebuf.tb_len - typebuf.tb_maplen, typebuf.tb_maplen);
-	(void)ins_typebuf(str, REMAP_NONE, typebuf.tb_len, TRUE, TRUE);
+    if (*ptr) { /* trailing CTRL-V results in nothing */
+        /*
+         * Add the string to the input stream.
+         * Can't use add_to_input_buf() here, we now have K_SPECIAL bytes.
+         *
+         * First clear typed characters from the typeahead buffer, there could
+         * be half a mapping there.  Then append to the existing string, so
+         * that multiple commands from a client are concatenated.
+         */
+        if (typebuf.tb_maplen < typebuf.tb_len)
+            del_typebuf(typebuf.tb_len - typebuf.tb_maplen, typebuf.tb_maplen);
+        (void)ins_typebuf(str, REMAP_NONE, typebuf.tb_len, TRUE, TRUE);
 
-	/* Let input_available() know we inserted text in the typeahead
-	 * buffer. */
-	typebuf_was_filled = TRUE;
+        /* Let input_available() know we inserted text in the typeahead
+         * buffer. */
+        typebuf_was_filled = TRUE;
     }
     vim_free(ptr);
     vim_free(string);
@@ -2904,8 +2634,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
 - (BOOL)unusedEditor
 {
-    BOOL oneWindowInTab = topframe ? YES
-                                   : (topframe->fr_layout == FR_LEAF);
+    const BOOL oneWindowInTab = topframe ? YES : (topframe->fr_layout == FR_LEAF);
     BOOL bufChanged = NO;
     BOOL bufHasFilename = NO;
     if (curbuf) {
@@ -2913,7 +2642,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
         bufHasFilename = curbuf->b_ffname != NULL;
     }
 
-    BOOL onlyOneTab = (first_tabpage->tp_next == NULL);
+    const BOOL onlyOneTab = first_tabpage->tp_next == NULL;
 
     return onlyOneTab && oneWindowInTab && !bufChanged && !bufHasFilename;
 }
@@ -2929,20 +2658,19 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
     // HACK! The cursor is not put back at the command line by the above
     // "redraw commands".  The following test seems to do the trick though.
-    if (State & CMDLINE)
-        redrawcmdline();
+    if (State & CMDLINE) redrawcmdline();
 }
 
 - (void)handleFindReplace:(NSDictionary *)args
 {
     if (!args) return;
 
-    NSString *findString = [args objectForKey:@"find"];
+    NSString *findString = args[@"find"];
     if (!findString) return;
 
-    char_u *find = [findString vimStringSave];
-    char_u *replace = [[args objectForKey:@"replace"] vimStringSave];
-    int flags = [[args objectForKey:@"flags"] intValue];
+    char_u *find = findString.vimStringSave;
+    char_u *replace = [args[@"replace"] vimStringSave];
+    const int flags = [args[@"flags"] intValue];
 
     // NOTE: The flag 0x100 is used to indicate a backward search.
     gui_do_findrepl(flags, find, replace, (flags & 0x100) == 0);
@@ -2954,39 +2682,35 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
 - (void)handleMarkedText:(NSData *)data
 {
-    const void *bytes = [data bytes];
-    int32_t pos = *((int32_t*)bytes);  bytes += sizeof(int32_t);
-    unsigned len = *((unsigned*)bytes);  bytes += sizeof(unsigned);
-    char *chars = (char *)bytes;
+    const void *bytes = data.bytes;
+    const int32_t pos = *((int32_t *)bytes);  bytes += sizeof(int32_t);
+    const unsigned length = *((unsigned *)bytes);  bytes += sizeof(unsigned);
+    const char *chars = (char *)bytes;
 
-    ASLogDebug(@"pos=%d len=%d chars=%s", pos, len, chars);
+    ASLogDebug(@"pos=%d length=%d chars=%s", pos, length, chars);
 
     if (pos < 0) {
         im_preedit_abandon_macvim();
-    } else if (len == 0) {
-	im_preedit_end_macvim();
+    } else if (length == 0) {
+        im_preedit_end_macvim();
     } else {
-        if (!preedit_get_status())
-            im_preedit_start_macvim();
-
-	im_preedit_changed_macvim(chars, pos);
+        if (!preedit_get_status()) im_preedit_start_macvim();
+        im_preedit_changed_macvim(chars, pos);
     }
 }
 
 - (void)handleGesture:(NSData *)data
 {
-    const void *bytes = [data bytes];
-    int flags = *((int*)bytes);  bytes += sizeof(int);
-    int gesture = *((int*)bytes);  bytes += sizeof(int);
-    int modifiers = eventModifierFlagsToVimModMask(flags);
-    char_u string[6];
+    const void *bytes = data.bytes;
+    const int flags = *((int *)bytes);  bytes += sizeof(int);
+    const int gesture = *((int *)bytes);  bytes += sizeof(int);
+    const int modifiers = EventModifierFlagsToVimModMask(flags);
 
-    string[3] = CSI;
-    string[4] = KS_EXTRA;
+    char_u string[6] = {CSI, KS_MODIFIER, modifiers, CSI, KS_EXTRA, 0};
     switch (gesture) {
         case MMGestureSwipeLeft:    string[5] = KE_SWIPELEFT;	break;
         case MMGestureSwipeRight:   string[5] = KE_SWIPERIGHT;	break;
-        case MMGestureSwipeUp:	    string[5] = KE_SWIPEUP;	break;
+        case MMGestureSwipeUp:	    string[5] = KE_SWIPEUP;	    break;
         case MMGestureSwipeDown:    string[5] = KE_SWIPEDOWN;	break;
         default: return;
     }
@@ -2994,9 +2718,6 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     if (modifiers == 0) {
         add_to_input_buf(string + 3, 3);
     } else {
-        string[0] = CSI;
-        string[1] = KS_MODIFIER;
-        string[2] = modifiers;
         add_to_input_buf(string, 6);
     }
 }
@@ -3004,22 +2725,19 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 #ifdef FEAT_BEVAL
 - (void)bevalCallback:(id)sender
 {
-    if (!(p_beval && balloonEval))
-        return;
+    if (!(p_beval && balloonEval)) return;
 
-    if (balloonEval->msgCB != NULL) {
+    if (balloonEval->msgCB) {
         // HACK! We have no way of knowing whether the balloon evaluation
         // worked or not, so we keep track of it using a local tool tip
         // variable.  (The reason we need to know is due to how the Cocoa tool
         // tips work: if there is no tool tip we must set it to nil explicitly
         // or it might never go away.)
-        [self setLastToolTip:nil];
+        self.lastToolTip = nil;
 
         (*balloonEval->msgCB)(balloonEval, 0);
 
-        [self queueMessage:SetTooltipMsgID properties:
-            [NSDictionary dictionaryWithObject:(lastToolTip ? lastToolTip : @"")
-                                        forKey:@"toolTip"]];
+        [self queueMessage:SetTooltipMsgID properties:@{@"toolTip": (_lastToolTip ?: @"")}];
         [self flushQueue:YES];
     }
 }
@@ -3041,84 +2759,70 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
             )
         CFRunLoopStop(CFRunLoopGetCurrent());
 }
-#endif
+#endif // MESSAGE_QUEUE
 
 @end // MMBackend (Private)
 
-
-
-
+/**
+ */
 @implementation MMBackend (ClientServer)
 
 - (NSString *)connectionNameFromServerName:(NSString *)name
 {
-    NSString *bundlePath = [[NSBundle mainBundle] bundlePath];
-
-    return [[NSString stringWithFormat:@"%@.%@", bundlePath, name]
-        lowercaseString];
+    NSString *bundlePath = NSBundle.mainBundle.bundlePath;
+    return [NSString stringWithFormat:@"%@.%@", bundlePath, name].lowercaseString;
 }
 
 - (NSConnection *)connectionForServerName:(NSString *)name
 {
     // TODO: Try 'name%d' if 'name' fails.
     NSString *connName = [self connectionNameFromServerName:name];
-    NSConnection *svrConn = [connectionNameDict objectForKey:connName];
+    NSConnection *connection = _connections[connName];
+    if (connection) {
+        return connection;
+    }
 
-    if (!svrConn) {
-        svrConn = [NSConnection connectionWithRegisteredName:connName
-                                                           host:nil];
-        // Try alternate server...
-        if (!svrConn && alternateServerName) {
-            ASLogInfo(@"  trying to connect to alternate server: %@",
-                      alternateServerName);
-            connName = [self connectionNameFromServerName:alternateServerName];
-            svrConn = [NSConnection connectionWithRegisteredName:connName
-                                                            host:nil];
-        }
+    connection = [NSConnection connectionWithRegisteredName:connName host:nil];
+    // Try alternate server...
+    if (!connection && _alternateServerName) {
+        ASLogInfo(@"  trying to connect to alternate server: %@", _alternateServerName);
+        connName = [self connectionNameFromServerName:_alternateServerName];
+        connection = [NSConnection connectionWithRegisteredName:connName host:nil];
+    }
 
-        // Try looking for alternate servers...
-        if (!svrConn) {
-            ASLogInfo(@"  looking for alternate servers...");
-            NSString *alt = [self alternateServerNameForName:name];
-            if (alt != alternateServerName) {
-                ASLogInfo(@"  found alternate server: %@", alt);
-                [alternateServerName release];
-                alternateServerName = [alt copy];
-            }
-        }
-
-        // Try alternate server again...
-        if (!svrConn && alternateServerName) {
-            ASLogInfo(@"  trying to connect to alternate server: %@",
-                      alternateServerName);
-            connName = [self connectionNameFromServerName:alternateServerName];
-            svrConn = [NSConnection connectionWithRegisteredName:connName
-                                                            host:nil];
-        }
-
-        if (svrConn) {
-            [connectionNameDict setObject:svrConn forKey:connName];
-
-            ASLogDebug(@"Adding %@ as connection observer for %@",
-                       self, svrConn);
-            [[NSNotificationCenter defaultCenter] addObserver:self
-                    selector:@selector(serverConnectionDidDie:)
-                        name:NSConnectionDidDieNotification object:svrConn];
+    // Try looking for alternate servers...
+    if (!connection) {
+        ASLogInfo(@"  looking for alternate servers...");
+        NSString *alt = [self alternateServerNameForName:name];
+        if (alt != _alternateServerName) {
+            ASLogInfo(@"  found alternate server: %@", alt);
+            _alternateServerName = alt.copy;
         }
     }
 
-    return svrConn;
+    // Try alternate server again...
+    if (!connection && _alternateServerName) {
+        ASLogInfo(@"  trying to connect to alternate server: %@", _alternateServerName);
+        connName = [self connectionNameFromServerName:_alternateServerName];
+        connection = [NSConnection connectionWithRegisteredName:connName host:nil];
+    }
+
+    if (connection) {
+        _connections[connName] = connection;
+
+        ASLogDebug(@"Adding %@ as connection observer for %@", self, connection);
+        [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(serverConnectionDidDie:) name:NSConnectionDidDieNotification object:connection];
+    }
+
+    return connection;
 }
 
 - (NSConnection *)connectionForServerPort:(int)port
 {
-    NSConnection *conn;
-    NSEnumerator *e = [connectionNameDict objectEnumerator];
-
-    while ((conn = [e nextObject])) {
+    for (NSConnection *connection in _connections.allValues) {
         // HACK! Assume connection uses mach ports.
-        if (port == [(NSMachPort*)[conn sendPort] machPort])
-            return conn;
+        if (port == [(NSMachPort *)connection.sendPort machPort])
+            return connection;
     }
 
     return nil;
@@ -3128,35 +2832,31 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 {
     ASLogDebug(@"notification=%@", notification);
 
-    NSConnection *svrConn = [notification object];
+    NSConnection *serverConnection = notification.object;
 
-    ASLogDebug(@"Removing %@ as connection observer from %@", self, svrConn);
-    [[NSNotificationCenter defaultCenter]
-            removeObserver:self
-                      name:NSConnectionDidDieNotification
-                    object:svrConn];
+    ASLogDebug(@"Removing %@ as connection observer from %@", self, serverConnection);
+    [NSNotificationCenter.defaultCenter removeObserver:self name:NSConnectionDidDieNotification object:serverConnection];
 
-    [connectionNameDict removeObjectsForKeys:
-        [connectionNameDict allKeysForObject:svrConn]];
+    [_connections removeObjectsForKeys:[_connections allKeysForObject:serverConnection]];
 
     // HACK! Assume connection uses mach ports.
-    int port = [(NSMachPort*)[svrConn sendPort] machPort];
-    NSNumber *key = [NSNumber numberWithInt:port];
+    int port = [(NSMachPort*)serverConnection.sendPort machPort];
+    NSNumber *key = @(port);
 
-    [clientProxyDict removeObjectForKey:key];
-    [serverReplyDict removeObjectForKey:key];
+    [_clients removeObjectForKey:key];
+    [_serverReplyDict removeObjectForKey:key];
 }
 
 - (void)addClient:(NSDistantObject *)client
 {
     NSConnection *conn = [client connectionForProxy];
     // HACK! Assume connection uses mach ports.
-    int port = [(NSMachPort*)[conn sendPort] machPort];
-    NSNumber *key = [NSNumber numberWithInt:port];
+    const int port = [(NSMachPort *)conn.sendPort machPort];
+    NSNumber *key = @(port);
 
-    if (![clientProxyDict objectForKey:key]) {
+    if (!_clients[key]) {
         [client setProtocolForProxy:@protocol(MMVimClientProtocol)];
-        [clientProxyDict setObject:client forKey:key];
+        _clients[key] = client;
     }
 
     // NOTE: 'clientWindow' is a global variable which is used by <client>
@@ -3165,28 +2865,25 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
 - (NSString *)alternateServerNameForName:(NSString *)name
 {
-    if (!(name && [name length] > 0))
+    if (!(name && name.length > 0))
         return nil;
 
     // Only look for alternates if 'name' doesn't end in a digit.
-    unichar lastChar = [name characterAtIndex:[name length]-1];
-    if (lastChar >= '0' && lastChar <= '9')
-        return nil;
+    const unichar lastChar = [name characterAtIndex:name.length - 1];
+    if (lastChar >= '0' && lastChar <= '9') return nil;
 
     // Look for alternates among all current servers.
-    NSArray *list = [self serverList];
-    if (!(list && [list count] > 0))
-        return nil;
+    NSArray *list = self.serverList;
+    if (list.count == 0) return nil;
 
     // Filter out servers starting with 'name' and ending with a number. The
     // (?i) pattern ensures that the match is case insensitive.
     NSString *pat = [NSString stringWithFormat:@"(?i)%@[0-9]+\\z", name];
-    NSPredicate *pred = [NSPredicate predicateWithFormat:
-            @"SELF MATCHES %@", pat];
+    NSPredicate *pred = [NSPredicate predicateWithFormat:@"SELF MATCHES %@", pat];
     list = [list filteredArrayUsingPredicate:pred];
-    if ([list count] > 0) {
+    if (list.count != 0) {
         list = [list sortedArrayUsingSelector:@selector(serverNameCompare:)];
-        return [list objectAtIndex:0];
+        return list.firstObject;
     }
 
     return nil;
@@ -3194,58 +2891,14 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
 @end // MMBackend (ClientServer)
 
-
-
-
+/**
+ */
 @implementation NSString (MMServerNameCompare)
 - (NSComparisonResult)serverNameCompare:(NSString *)string
 {
-    return [self compare:string
-                 options:NSCaseInsensitiveSearch|NSNumericSearch];
+    return [self compare:string options:NSCaseInsensitiveSearch | NSNumericSearch];
 }
 @end
-
-
-
-
-static int eventModifierFlagsToVimModMask(int modifierFlags)
-{
-    int modMask = 0;
-
-    if (modifierFlags & NSEventModifierFlagShift)
-        modMask |= MOD_MASK_SHIFT;
-    if (modifierFlags & NSEventModifierFlagControl)
-        modMask |= MOD_MASK_CTRL;
-    if (modifierFlags & NSEventModifierFlagOption)
-        modMask |= MOD_MASK_ALT;
-    if (modifierFlags & NSEventModifierFlagCommand)
-        modMask |= MOD_MASK_CMD;
-
-    return modMask;
-}
-
-static int eventModifierFlagsToVimMouseModMask(int modifierFlags)
-{
-    int modMask = 0;
-
-    if (modifierFlags & NSEventModifierFlagShift)
-        modMask |= MOUSE_SHIFT;
-    if (modifierFlags & NSEventModifierFlagControl)
-        modMask |= MOUSE_CTRL;
-    if (modifierFlags & NSEventModifierFlagOption)
-        modMask |= MOUSE_ALT;
-
-    return modMask;
-}
-
-static int eventButtonNumberToVimMouseButton(int buttonNumber)
-{
-    static int mouseButton[] = { MOUSE_LEFT, MOUSE_RIGHT, MOUSE_MIDDLE };
-
-    return (buttonNumber >= 0 && buttonNumber < 3)
-            ? mouseButton[buttonNumber] : -1;
-}
-
 
 
 // This function is modeled after the VimToPython function found in if_python.c
@@ -3338,10 +2991,10 @@ static id vimToCocoa(typval_T * tv, int depth)
 static id evalExprCocoa(NSString * expr, NSString ** errstr)
 {
 
-    char_u *s = (char_u*)[expr UTF8String];
+    char_u *cstring = (char_u*)[expr UTF8String];
 
 #ifdef FEAT_MBYTE
-    s = CONVERT_FROM_UTF8(s);
+    cstring = CONVERT_FROM_UTF8(cstring);
 #endif
 
     int save_dbl = debug_break_level;
@@ -3351,7 +3004,7 @@ static id evalExprCocoa(NSString * expr, NSString ** errstr)
     redir_off = 0;
     ++emsg_skip;
 
-    typval_T * tvres = eval_expr(s, NULL);
+    typval_T * tvres = eval_expr(cstring, NULL);
 
     debug_break_level = save_dbl;
     redir_off = save_ro;
@@ -3361,7 +3014,7 @@ static id evalExprCocoa(NSString * expr, NSString ** errstr)
     out_flush();
 
 #ifdef FEAT_MBYTE
-    CONVERT_FROM_UTF8_FREE(s);
+    CONVERT_FROM_UTF8_FREE(cstring);
 #endif
 
 #ifdef FEAT_GUI
@@ -3385,48 +3038,9 @@ static id evalExprCocoa(NSString * expr, NSString ** errstr)
     return res;
 }
 
-
-
-@implementation NSString (VimStrings)
-
-+ (id)stringWithVimString:(char_u *)s
-{
-    // This method ensures a non-nil string is returned.  If 's' cannot be
-    // converted to a utf-8 string it is assumed to be latin-1.  If conversion
-    // still fails an empty NSString is returned.
-    NSString *string = nil;
-    if (s) {
-#ifdef FEAT_MBYTE
-        s = CONVERT_TO_UTF8(s);
-#endif
-        string = [NSString stringWithUTF8String:(char*)s];
-        if (!string) {
-            // HACK! Apparently 's' is not a valid utf-8 string, maybe it is
-            // latin-1?
-            string = [NSString stringWithCString:(char*)s
-                                        encoding:NSISOLatin1StringEncoding];
-        }
-#ifdef FEAT_MBYTE
-        CONVERT_TO_UTF8_FREE(s);
-#endif
-    }
-
-    return string != nil ? string : [NSString string];
-}
-
-- (char_u *)vimStringSave
-{
-    char_u *s = (char_u*)[self UTF8String], *ret = NULL;
-
-#ifdef FEAT_MBYTE
-    s = CONVERT_FROM_UTF8(s);
-#endif
-    ret = vim_strsave(s);
-#ifdef FEAT_MBYTE
-    CONVERT_FROM_UTF8_FREE(s);
+#ifdef FEAT_BEVAL
+// Seconds to delay balloon evaluation after mouse event (subtracted from
+// p_bdlay so that this effectively becomes the smallest possible delay).
+NSTimeInterval MMBalloonEvalInternalDelay = 0.1;
 #endif
 
-    return ret;
-}
-
-@end // NSString (VimStrings)
