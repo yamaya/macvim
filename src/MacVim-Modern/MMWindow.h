@@ -10,16 +10,9 @@
 
 #import "MacVim.h"
 
+@interface MMWindow : NSWindow
 
-
-@interface MMWindow : NSWindow {
-    NSBox       *tablineSeparator;
-}
-
-- (id)initWithContentRect:(NSRect)rect
-                styleMask:(NSUInteger)style
-                  backing:(NSBackingStoreType)bufferingType
-                    defer:(BOOL)flag;
+- (instancetype)initWithContentRect:(NSRect)rect styleMask:(NSUInteger)style backing:(NSBackingStoreType)bufferingType defer:(BOOL)flag;
 
 - (BOOL)hideTablineSeparator:(BOOL)hide;
 

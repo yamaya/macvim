@@ -33,9 +33,10 @@
 
 typedef CGError CGSSetWindowBackgroundBlurRadiusFunction(CGSConnectionID cid, CGSWindowID wid, NSUInteger blur);
 
-static void *GetFunctionByName(NSString *library, char *func) {
+static void *GetFunctionByName(NSString *library, char *func)
+{
     CFBundleRef bundle;
-    CFURLRef bundleURL = CFURLCreateWithFileSystemPath(kCFAllocatorDefault, (CFStringRef) library, kCFURLPOSIXPathStyle, true);
+    CFURLRef bundleURL = CFURLCreateWithFileSystemPath(kCFAllocatorDefault, (CFStringRef)library, kCFURLPOSIXPathStyle, true);
     CFStringRef functionName = CFStringCreateWithCString(kCFAllocatorDefault, func, kCFStringEncodingASCII);
     bundle = CFBundleCreate(kCFAllocatorDefault, bundleURL);
     void *f = NULL;
@@ -48,58 +49,44 @@ static void *GetFunctionByName(NSString *library, char *func) {
     return f;
 }
 
-static CGSSetWindowBackgroundBlurRadiusFunction* GetCGSSetWindowBackgroundBlurRadiusFunction(void) {
+static CGSSetWindowBackgroundBlurRadiusFunction* GetCGSSetWindowBackgroundBlurRadiusFunction(void)
+{
     static BOOL tried = NO;
-    static CGSSetWindowBackgroundBlurRadiusFunction *function = NULL;
+    static CGSSetWindowBackgroundBlurRadiusFunction *f = NULL;
+
     if (!tried) {
-        function = GetFunctionByName(@"/System/Library/Frameworks/ApplicationServices.framework",
-                                      "CGSSetWindowBackgroundBlurRadius");
+        f = GetFunctionByName(@"/System/Library/Frameworks/ApplicationServices.framework", "CGSSetWindowBackgroundBlurRadius");
         tried = YES;
     }
-    return function;
+    return f;
 }
 
 
-@implementation MMWindow
+@implementation MMWindow {
+    NSBox       *_tablineSeparator;
+}
 
-- (id)initWithContentRect:(NSRect)rect
-                styleMask:(NSUInteger)style
-                  backing:(NSBackingStoreType)bufferingType
-                    defer:(BOOL)flag
+- (instancetype)initWithContentRect:(NSRect)rect styleMask:(NSUInteger)style backing:(NSBackingStoreType)bufferingType defer:(BOOL)flag
 {
-    self = [super initWithContentRect:rect
-                            styleMask:style
-                              backing:bufferingType
-                                defer:flag];
+    self = [super initWithContentRect:rect styleMask:style backing:bufferingType defer:flag];
     if (!self) return nil;
 
-    [self setReleasedWhenClosed:NO];
+    self.releasedWhenClosed = NO;
 
-    NSRect tabSepRect = { {0, rect.size.height - 1}, {rect.size.width, 1} };
-    tablineSeparator = [[NSBox alloc] initWithFrame:tabSepRect];
-    
-    [tablineSeparator setBoxType:NSBoxSeparator];
-    [tablineSeparator setHidden:YES];
-    [tablineSeparator setAutoresizingMask:NSViewWidthSizable|NSViewMinYMargin];
+    _tablineSeparator = [[NSBox alloc] initWithFrame:(NSRect){
+        {0, rect.size.height - 1}, {rect.size.width, 1}
+    }];
+    _tablineSeparator.boxType = NSBoxSeparator;
+    _tablineSeparator.hidden = YES;
+    _tablineSeparator.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
 
-    NSView *contentView = [self contentView];
-    [contentView setAutoresizesSubviews:YES];
-    [contentView addSubview:tablineSeparator];
+    self.contentView.autoresizesSubviews = YES;
+    [self.contentView addSubview:_tablineSeparator];
 
     // NOTE: Vim needs to process mouse moved events, so enable them here.
-    [self setAcceptsMouseMovedEvents:YES];
+    self.acceptsMouseMovedEvents = YES;
 
     return self;
-}
-
-- (void)dealloc
-{
-    ASLogDebug(@"");
-
-    // TODO: Is there any reason why we would want the following call?
-    //[tablineSeparator removeFromSuperviewWithoutNeedingDisplay];
-    [tablineSeparator release];  tablineSeparator = nil;
-    [super dealloc];
 }
 
 - (BOOL) canBecomeMainWindow {
@@ -112,17 +99,17 @@ static CGSSetWindowBackgroundBlurRadiusFunction* GetCGSSetWindowBackgroundBlurRa
 
 - (BOOL)hideTablineSeparator:(BOOL)hide
 {
-    BOOL isHidden = [tablineSeparator isHidden];
-    [tablineSeparator setHidden:hide];
+    const BOOL old = _tablineSeparator.isHidden;
+    _tablineSeparator.hidden = hide;
 
     // Return YES if visibility state was toggled, NO if it was unchanged.
-    return isHidden != hide;
+    return old != hide;
 }
 
 - (NSRect)contentRectForFrameRect:(NSRect)frame
 {
     NSRect rect = [super contentRectForFrameRect:frame];
-    if (![tablineSeparator isHidden])
+    if (!_tablineSeparator.isHidden)
         --rect.size.height;
 
     return rect;
@@ -131,32 +118,28 @@ static CGSSetWindowBackgroundBlurRadiusFunction* GetCGSSetWindowBackgroundBlurRa
 - (NSRect)frameRectForContentRect:(NSRect)rect
 {
     NSRect frame = [super frameRectForContentRect:rect];
-    if (![tablineSeparator isHidden])
-        ++frame.size.height;
+    if (!_tablineSeparator.isHidden) ++frame.size.height;
 
     return frame;
 }
 
 - (void)setContentMinSize:(NSSize)size
 {
-    if (![tablineSeparator isHidden])
-        ++size.height;
+    if (!_tablineSeparator.isHidden) ++size.height;
 
     [super setContentMinSize:size];
 }
 
 - (void)setContentMaxSize:(NSSize)size
 {
-    if (![tablineSeparator isHidden])
-        ++size.height;
+    if (!_tablineSeparator.isHidden) ++size.height;
 
     [super setContentMaxSize:size];
 }
 
 - (void)setContentSize:(NSSize)size
 {
-    if (![tablineSeparator isHidden])
-        ++size.height;
+    if (!_tablineSeparator.isHidden) ++size.height;
 
     [super setContentSize:size];
 }
@@ -168,16 +151,14 @@ static CGSSetWindowBackgroundBlurRadiusFunction* GetCGSSetWindowBackgroundBlurRa
         if (!con) {
             return;
         }
-        CGSSetWindowBackgroundBlurRadiusFunction* function = GetCGSSetWindowBackgroundBlurRadiusFunction();
-        if (function) {
-            function(con, [self windowNumber], radius);
-        }
+        CGSSetWindowBackgroundBlurRadiusFunction* f = GetCGSSetWindowBackgroundBlurRadiusFunction();
+        if (f) f(con, self.windowNumber, radius);
     }
 }
 
 - (void)performClose:(id)sender
 {
-    id wc = [self windowController];
+    id wc = self.windowController;
     if ([wc respondsToSelector:@selector(performClose:)])
         [wc performClose:sender];
     else
@@ -186,10 +167,8 @@ static CGSSetWindowBackgroundBlurRadiusFunction* GetCGSSetWindowBackgroundBlurRa
 
 - (BOOL)validateMenuItem:(NSMenuItem *)item
 {
-    if ([item action] == @selector(vimMenuItemAction:)
-            || [item action] == @selector(performClose:))
-        return [item tag];
-
+    if (item.action == @selector(vimMenuItemAction:) || item.action == @selector(performClose:))
+        return item.tag != 0;
     return YES;
 }
 
@@ -199,7 +178,7 @@ static CGSSetWindowBackgroundBlurRadiusFunction* GetCGSSetWindowBackgroundBlurRa
     // in the window controller.
 
     // (Use performSelector:: to avoid compilation warning.)
-    [[self delegate] performSelector:@selector(zoom:) withObject:sender];
+    [self.delegate performSelector:@selector(zoom:) withObject:sender];
 }
 
 - (IBAction)toggleFullScreen:(id)sender
@@ -213,7 +192,7 @@ static CGSSetWindowBackgroundBlurRadiusFunction* GetCGSSetWindowBackgroundBlurRa
     // call realToggleFullScreen: defined below.
 
     // (Use performSelector:: to avoid compilation warning.)
-    [[self delegate] performSelector:@selector(invFullScreen:) withObject:nil];
+    [self.delegate performSelector:@selector(invFullScreen:) withObject:nil];
 }
 
 - (IBAction)realToggleFullScreen:(id)sender
@@ -227,8 +206,7 @@ static CGSSetWindowBackgroundBlurRadiusFunction* GetCGSSetWindowBackgroundBlurRa
 
 - (void)setToolbar:(NSToolbar *)toolbar
 {
-    if ([[NSUserDefaults standardUserDefaults] 
-            boolForKey:MMNoTitleBarWindowKey]) {
+    if ([NSUserDefaults.standardUserDefaults boolForKey:MMNoTitleBarWindowKey]) {
         // MacVim can't have toolbar with No title bar setting.
         return;
     }
