@@ -25,69 +25,66 @@
 
 #import <dlfcn.h>
 
-
-NSString* nsImageNamePreferencesGeneral = nil;
-NSString* nsImageNamePreferencesAdvanced = nil;
-
+static NSString* nsImageNamePreferencesGeneral;
+static NSString* nsImageNamePreferencesAdvanced;
 
 static void loadSymbols()
 {
     // use dlfcn() instead of the deprecated NSModule api.
-    void *ptr;
-    if ((ptr = dlsym(RTLD_DEFAULT, "NSImageNamePreferencesGeneral")) != NULL)
-        nsImageNamePreferencesGeneral = *(NSString**)ptr;
-    if ((ptr = dlsym(RTLD_DEFAULT, "NSImageNamePreferencesAdvanced")) != NULL)
-        nsImageNamePreferencesAdvanced = *(NSString**)ptr;
+    void *p;
+    if ((p = dlsym(RTLD_DEFAULT, "NSImageNamePreferencesGeneral")) != NULL)
+        nsImageNamePreferencesGeneral = [*((NSString * __autoreleasing *)p) copy];
+    if ((p = dlsym(RTLD_DEFAULT, "NSImageNamePreferencesAdvanced")) != NULL)
+        nsImageNamePreferencesAdvanced = [*((NSString * __autoreleasing *)p) copy];
 }
 
 
 @implementation MMPreferenceController
+{
+    IBOutlet NSView *_generalPreferences;
+    IBOutlet NSView *_advancedPreferences;
+    IBOutlet NSPopUpButton *_layoutPopUpButton;
+}
 
 - (void)setupToolbar
 {
     loadSymbols();
 
-    if (nsImageNamePreferencesGeneral != NULL) {
-        [self addView:generalPreferences
+    if (nsImageNamePreferencesGeneral) {
+        [self addView:_generalPreferences
                 label:@"General"
                 image:[NSImage imageNamed:nsImageNamePreferencesGeneral]];
     } else {
-        [self addView:generalPreferences label:@"General"];
+        [self addView:_generalPreferences label:@"General"];
     }
 
-    if (nsImageNamePreferencesAdvanced != NULL) {
-        [self addView:advancedPreferences
+    if (nsImageNamePreferencesAdvanced) {
+        [self addView:_advancedPreferences
                 label:@"Advanced"
                 image:[NSImage imageNamed:nsImageNamePreferencesAdvanced]];
     } else {
-        [self addView:advancedPreferences label:@"Advanced"];
+        [self addView:_advancedPreferences label:@"Advanced"];
     }
-
 }
-
 
 - (NSString *)currentPaneIdentifier
 {
     // We override this to persist the current pane.
-    return [[NSUserDefaults standardUserDefaults]
-        stringForKey:MMCurrentPreferencePaneKey];
+    return [NSUserDefaults.standardUserDefaults stringForKey:MMCurrentPreferencePaneKey];
 }
 
 - (void)setCurrentPaneIdentifier:(NSString *)identifier
 {
     // We override this to persist the current pane.
-    [[NSUserDefaults standardUserDefaults]
-        setObject:identifier forKey:MMCurrentPreferencePaneKey];
+    [NSUserDefaults.standardUserDefaults setObject:identifier forKey:MMCurrentPreferencePaneKey];
 }
-
 
 - (IBAction)openInCurrentWindowSelectionChanged:(id)sender
 {
     BOOL openInCurrentWindowSelected = ([[sender selectedCell] tag] != 0);
-    BOOL useWindowsLayout =
-            ([[layoutPopUpButton selectedItem] tag] == MMLayoutWindows);
+    BOOL useWindowsLayout = (_layoutPopUpButton.selectedItem.tag == MMLayoutWindows);
     if (openInCurrentWindowSelected && useWindowsLayout)
-        [layoutPopUpButton selectItemWithTag:MMLayoutTabs];
+        [_layoutPopUpButton selectItemWithTag:MMLayoutTabs];
 }
 
 @end

@@ -11,15 +11,5 @@
 #import <Cocoa/Cocoa.h>
 #import <DBPrefsWindowController.h>
 
-@interface MMPreferenceController : DBPrefsWindowController {
-    IBOutlet NSView *generalPreferences;
-    IBOutlet NSView *advancedPreferences;
-
-    // General pane
-    IBOutlet NSPopUpButton *layoutPopUpButton;
-}
-
-// General pane
-- (IBAction)openInCurrentWindowSelectionChanged:(id)sender;
-
+@interface MMPreferenceController : DBPrefsWindowController
 @end
