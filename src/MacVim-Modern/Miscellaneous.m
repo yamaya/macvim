@@ -99,7 +99,7 @@ NSString *const MMUseCGLayerAlwaysKey         = @"MMUseCGLayerAlways";
  */
 @implementation NSMenu (MMExtras)
 
-- (int)indexOfItemWithAction:(SEL)action
+- (NSInteger)indexOfItemWithAction:(SEL)action
 {
     for (NSUInteger n = self.numberOfItems, i = 0; i < n; ++i) {
         NSMenuItem *item = [self itemAtIndex:i];

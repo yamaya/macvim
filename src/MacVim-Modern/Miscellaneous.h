@@ -110,7 +110,7 @@ enum {
 /**
  */
 @interface NSMenu (MMExtras)
-- (int)indexOfItemWithAction:(SEL)action;
+- (NSInteger)indexOfItemWithAction:(SEL)action;
 - (NSMenuItem *)itemWithAction:(SEL)action;
 - (NSMenu *)findMenuContainingItemWithAction:(SEL)action;
 - (NSMenu *)findWindowsMenu;
