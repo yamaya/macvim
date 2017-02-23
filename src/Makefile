@@ -2118,6 +2118,7 @@ test_arglist \
 	test_cdo \
 	test_channel \
 	test_charsearch \
+	test_changedtick \
 	test_cmdline \
 	test_command_count \
 	test_crypt \
@@ -2151,6 +2152,7 @@ test_arglist \
 	test_goto \
 	test_gui \
 	test_hardcopy \
+	test_help \
 	test_help_tagjump \
 	test_hide \
 	test_history \
@@ -2194,6 +2196,7 @@ test_arglist \
 	test_pyx2 \
 	test_pyx3 \
 	test_quickfix \
+	test_recover \
 	test_regexp_latin \
 	test_regexp_utf8 \
 	test_reltime \
@@ -2779,7 +2782,7 @@ SHADOWDIR = shadow
 
 shadow:	runtime pixmaps
 	mkdir $(SHADOWDIR)
-	cd $(SHADOWDIR); ln -s ../*.[ch] ../*.in ../*.sh ../*.xs ../*.xbm ../gui_gtk_res.xml ../toolcheck ../proto ../vimtutor ../gvimtutor ../mkinstalldirs .
+	cd $(SHADOWDIR); ln -s ../*.[chm] ../*.in ../*.sh ../*.xs ../*.xbm ../gui_gtk_res.xml ../toolcheck ../proto ../vimtutor ../gvimtutor ../mkinstalldirs .
 	mkdir $(SHADOWDIR)/auto
 	cd $(SHADOWDIR)/auto; ln -s ../../auto/configure .
 	mkdir $(SHADOWDIR)/po
