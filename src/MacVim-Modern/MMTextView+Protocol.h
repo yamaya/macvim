@@ -9,6 +9,7 @@
  */
 
 #import <Cocoa/Cocoa.h>
+#import "MMPoint.h"
 
 /**
  */
@@ -18,8 +19,7 @@
 @property (nonatomic, readonly) NSSize cellSize;
 @property (nonatomic, readonly) NSSize desiredSize;
 @property (nonatomic, readonly) NSSize minSize;
-@property (nonatomic, readonly) int maxRows;
-@property (nonatomic, readonly) int maxColumns;
+@property (nonatomic, assign) MMPoint maxSize;
 @property (nonatomic, readonly) NSColor *defaultForegroundColor;
 @property (nonatomic, readonly) NSColor *defaultBackgroundColor;
 @property (nonatomic, copy) NSFont *font;
@@ -34,8 +34,6 @@
 @property (nonatomic) BOOL IMControlled;
 @property (nonatomic, retain) NSDictionary *markedTextAttributes;
 
-- (void)getMaxRows:(int *)rows columns:(int *)cols;
-- (void)setMaxRows:(int)rows columns:(int)columns;
 - (NSSize)constrainRows:(int *)rows columns:(int *)columns toSize:(NSSize)size;
 - (BOOL)convertPoint:(NSPoint)point toRow:(int *)row column:(int *)column;
 - (void)setDefaultColorsBackground:(NSColor *)bg foreground:(NSColor *)fg;

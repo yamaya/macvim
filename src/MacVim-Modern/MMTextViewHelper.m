@@ -156,7 +156,7 @@ KeyboardInputSourcesEqual(TISInputSourceRef a, TISInputSourceRef b)
         [self doKeyDown:@"\x1e"];
         string = nil;
 #if (MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_X_VERSION_10_10)
-    } else if ((flags & NSShiftKeyMask) && [string isEqualToString:@" "]) {
+    } else if ((flags & NSEventModifierFlagShift) && [string isEqualToString:@" "]) {
         // HACK! for Yosemite - Fix for Shift+Space inputing
         // do nothing
 #endif
@@ -603,16 +603,16 @@ KeyboardInputSourcesEqual(TISInputSourceRef a, TISInputSourceRef b)
     NSFont *font = _textView.markedTextAttributes[NSFontAttributeName];
     if (font == _textView.fontWide) {
         col += _inputMethodRange.location * 2;
-        if (col >= _textView.maxColumns - 1) {
-            row += (col / _textView.maxColumns);
-            col = col % 2 ? col % _textView.maxColumns + 1 :
-                            col % _textView.maxColumns;
+        if (col >= _textView.maxSize.col - 1) {
+            row += (col / _textView.maxSize.col);
+            col = col % 2 ? col % _textView.maxSize.col + 1 :
+                            col % _textView.maxSize.col;
         }
     } else {
         col += _inputMethodRange.location;
-        if (col >= _textView.maxColumns) {
-            row += (col / _textView.maxColumns);
-            col = col % _textView.maxColumns;
+        if (col >= _textView.maxSize.col) {
+            row += (col / _textView.maxSize.col);
+            col = col % _textView.maxSize.col;
         }
     }
 
@@ -805,7 +805,7 @@ KeyboardInputSourcesEqual(TISInputSourceRef a, TISInputSourceRef b)
 
     _isAutoscrolling = NO;
 
-    if (_isDragging && (_dragRow < 0 || _dragRow >= _textView.maxRows)) {
+    if (_isDragging && (_dragRow < 0 || _dragRow >= _textView.maxSize.row)) {
         // HACK! If the mouse cursor is outside the text area, then send a
         // dragged event.  However, if row&col hasn't changed since the last
         // dragged event, Vim won't do anything (see gui_send_mouse_event()).

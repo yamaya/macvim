@@ -136,8 +136,7 @@
     NSRect              _preFullScreenFrame;
     MMWindow            *_decoratedWindow;
     NSString            *_lastSetTitle;
-    int                 _userRows;
-    int                 _userCols;
+    MMPoint             _userSize;
     NSPoint             _userTopLeft;
     NSPoint             _defaultTopLeft;
     BOOL                _resizingDueToMove;
@@ -984,25 +983,23 @@
     NSRect contentRect = [_decoratedWindow contentRectForFrameRect:maxFrame];
     [_vimView constrainRows:&rowsZoomed columns:&colsZoomed toSize:contentRect.size];
 
-    int curRows, curCols;
-    [_vimView.textView getMaxRows:&curRows columns:&curCols];
+    const MMPoint currentSize = _vimView.textView.maxSize;
 
     int rows, cols;
-    const BOOL isZoomed = zoomBoth ? curRows >= rowsZoomed && curCols >= colsZoomed : curRows >= rowsZoomed;
+    const BOOL isZoomed = zoomBoth ? currentSize.row >= rowsZoomed && currentSize.col >= colsZoomed : currentSize.row >= rowsZoomed;
     if (isZoomed) {
-        rows = _userRows > 0 ? _userRows : curRows;
-        cols = _userCols > 0 ? _userCols : curCols;
+        rows = _userSize.row > 0 ? _userSize.row : currentSize.row;
+        cols = _userSize.col > 0 ? _userSize.col : currentSize.col;
     } else {
         rows = rowsZoomed;
-        cols = zoomBoth ? colsZoomed : curCols;
-        if (curRows + 2 < rows || curCols + 2 < cols) {
+        cols = zoomBoth ? colsZoomed : currentSize.col;
+        if (currentSize.row + 2 < rows || currentSize.col + 2 < cols) {
             // The window is being zoomed so save the current "user state".
             // Note that if the window does not enlarge by a 'significant'
             // number of rows/columns then we don't save the current state.
             // This is done to take into account toolbar/scrollbars
             // showing/hiding.
-            _userRows = curRows;
-            _userCols = curCols;
+            _userSize = currentSize;
             NSRect frame = _decoratedWindow.frame;
             _userTopLeft = NSMakePoint(frame.origin.x, NSMaxY(frame));
         }
@@ -1454,8 +1451,7 @@
         return NO;
     }
 
-    int currRows, currColumns;
-    [_vimView.textView getMaxRows:&currRows columns:&currColumns];
+    const MMPoint currentSize = _vimView.textView.maxSize;
 
     // NOTE: Do not use [NSScreen visibleFrame] when determining the screen
     // size since it compensates for menu and dock.
@@ -1467,38 +1463,37 @@
     }
     [_vimView constrainRows:&maxRows columns:&maxColumns toSize:screen.frame.size];
 
-    ASLogDebug(@"Window dimensions max: %dx%d  current: %dx%d",
-            maxRows, maxColumns, currRows, currColumns);
+    ASLogDebug(@"Window dimensions max: %dx%d  current: %dx%d", maxRows, maxColumns, currentSize.row, currentSize.col);
 
     // Compute current fu size
-    int fuRows = currRows, fuColumns = currColumns;
-    if (options & FUOPT_MAXVERT) fuRows = maxRows;
-    if (options & FUOPT_MAXHORZ) fuColumns = maxColumns;
+    MMPoint fullscreenSize = currentSize;
+    if (options & FUOPT_MAXVERT) fullscreenSize.row = maxRows;
+    if (options & FUOPT_MAXHORZ) fullscreenSize.col = maxColumns;
 
     // If necessary, resize vim to target fu size
-    if (currRows != fuRows || currColumns != fuColumns) {
+    if (!MMPointIsEqual(fullscreenSize, currentSize)) {
         // The size sent here is queued and sent to vim when it's in
         // event processing mode again. Make sure to only send the values we
         // care about, as they override any changes that were made to 'lines'
         // and 'columns' after 'fu' was set but before the event loop is run.
         NSData *data = nil;
         int msgid = 0;
-        if (currRows != fuRows && currColumns != fuColumns) {
-            int newSize[2] = {fuRows, fuColumns};
-            data = [NSData dataWithBytes:newSize length:2 * sizeof(int)];
+        if (currentSize.row != fullscreenSize.row && currentSize.col != fullscreenSize.col) {
+            const int newSize[] = {fullscreenSize.row, fullscreenSize.col};
+            data = [NSData dataWithBytes:newSize length:sizeof(newSize)];
             msgid = SetTextDimensionsMsgID;
-        } else if (currRows != fuRows) {
-            data = [NSData dataWithBytes:&fuRows length:sizeof(int)];
+        } else if (currentSize.row != fullscreenSize.row) {
+            data = [NSData dataWithBytes:&fullscreenSize.row length:sizeof(int)];
             msgid = SetTextRowsMsgID;
-        } else if (currColumns != fuColumns) {
-            data = [NSData dataWithBytes:&fuColumns length:sizeof(int)];
+        } else if (currentSize.col != fullscreenSize.col) {
+            data = [NSData dataWithBytes:&fullscreenSize.col length:sizeof(int)];
             msgid = SetTextColumnsMsgID;
         }
         NSParameterAssert(data && msgid != 0);
 
-        ASLogDebug(@"%s: %dx%d", MessageStrings[msgid], fuRows, fuColumns);
+        ASLogDebug(@"%s: %dx%d", MessageStrings[msgid], fullscreenSize.row, fullscreenSize.col);
         [_vimController sendMessage:msgid data:data];
-        [_vimView.textView setMaxRows:fuRows columns:fuColumns];
+        _vimView.textView.maxSize = fullscreenSize;
 
         // Indicate that window was resized
         return YES;

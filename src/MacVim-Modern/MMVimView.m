@@ -253,7 +253,7 @@ enum {
 
 - (void)setDesiredRows:(int)r columns:(int)c
 {
-    [_textView setMaxRows:r columns:c];
+    _textView.maxSize = (MMPoint){r, c};
 }
 
 - (IBAction)addNewTab:(id)sender
@@ -781,14 +781,13 @@ enum {
     int constrained[2];
     [_textView constrainRows:&constrained[0] columns:&constrained[1] toSize:_textView.frame.size];
 
-    int rows, cols;
-    [_textView getMaxRows:&rows columns:&cols];
+    const MMPoint maxSize = _textView.maxSize;
 
-    if (constrained[0] != rows || constrained[1] != cols) {
-        NSData *data = [NSData dataWithBytes:constrained length:2 * sizeof(int)];
+    if (constrained[0] != _textView.maxSize.row || constrained[1] != _textView.maxSize.col) {
+        NSData *data = [NSData dataWithBytes:constrained length:sizeof(constrained)];
         int msgid = self.inLiveResize ? LiveResizeMsgID : SetTextDimensionsMsgID;
 
-        ASLogDebug(@"Notify Vim that text dimensions changed from %dx%d to %dx%d (%s)", cols, rows, constrained[1], constrained[0], MessageStrings[msgid]);
+        ASLogDebug(@"Notify Vim that text dimensions changed from %dx%d to %dx%d (%s)", maxSize.col, maxSize.row, constrained[1], constrained[0], MessageStrings[msgid]);
 
         [_vimController sendMessage:msgid data:data];
 

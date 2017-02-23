@@ -106,7 +106,7 @@ defaultAdvanceForFont(NSFont *font)
     NSMutableData       *_characters;
 }
 
-@synthesize maxRows = _maxRows, maxColumns = _maxColumns, cellSize = _cellSize,
+@synthesize maxSize = _maxSize, cellSize = _cellSize,
     defaultForegroundColor = _defaultForegroundColor, defaultBackgroundColor = _defaultBackgroundColor,
     font = _font, fontWide = _fontWide,
     linespace = _linespace, textContainerInset = _textContainerInset,
@@ -156,19 +156,6 @@ defaultAdvanceForFont(NSFont *font)
     }
 }
 
-- (void)getMaxRows:(int *)rows columns:(int *)cols
-{
-    if (rows) *rows = _maxRows;
-    if (cols) *cols = _maxColumns;
-}
-
-- (void)setMaxRows:(int)rows columns:(int)cols
-{
-    // NOTE: Just remember the new values, the actual resizing is done lazily.
-    _maxRows = rows;
-    _maxColumns = cols;
-}
-
 - (void)setDefaultColorsBackground:(NSColor *)bg foreground:(NSColor *)fg
 {
     if (_defaultBackgroundColor != bg) _defaultBackgroundColor = bg;
@@ -188,8 +175,8 @@ defaultAdvanceForFont(NSFont *font)
     // scrollbars inside MMVimView.)
 
     NSRect rect = NSZeroRect;
-    const NSUInteger start = (range.location > _maxRows) ? _maxRows : range.location;
-    const NSUInteger length = (start + range.length > _maxRows) ? _maxRows - start : range.length;
+    const NSUInteger start = (range.location > _maxSize.row) ? _maxSize.row : range.location;
+    const NSUInteger length = (start + range.length > _maxSize.row) ? _maxSize.row - start : range.length;
 
     if (start > 0) {
         rect.origin.y = _cellSize.height * start + _textContainerInset.height;
@@ -209,10 +196,10 @@ defaultAdvanceForFont(NSFont *font)
     // only used to place the scrollbars inside MMVimView.)
 
     NSRect rect = NSZeroRect;
-    unsigned start = range.location > _maxColumns ? _maxColumns : range.location;
+    unsigned start = range.location > _maxSize.col ? _maxSize.col : range.location;
     unsigned length = range.length;
 
-    if (start + length > _maxColumns) length = _maxColumns - start;
+    if (start + length > _maxSize.col) length = _maxSize.col - start;
 
     if (start > 0) {
         rect.origin.x = _cellSize.width * start + _textContainerInset.width;
@@ -599,8 +586,8 @@ defaultAdvanceForFont(NSFont *font)
     // Constrain the desired size to the given size.  Values for the minimum
     // rows and columns are taken from Vim.
     NSSize desiredSize = self.desiredSize;
-    NSInteger desiredRows = _maxRows;
-    NSInteger desiredCols = _maxColumns;
+    NSInteger desiredRows = _maxSize.row;
+    NSInteger desiredCols = _maxSize.col;
 
     if (size.height != desiredSize.height) {
         const NSInteger inset = [NSUserDefaults.standardUserDefaults integerForKey:MMTextInsetBottomKey];
@@ -633,8 +620,8 @@ defaultAdvanceForFont(NSFont *font)
     const NSInteger right = [NSUserDefaults.standardUserDefaults integerForKey:MMTextInsetRightKey];
     const NSInteger bottom = [NSUserDefaults.standardUserDefaults integerForKey:MMTextInsetBottomKey];
 
-    return NSMakeSize(_maxColumns * _cellSize.width + _textContainerInset.width + right,
-                      _maxRows * _cellSize.height + _textContainerInset.height + bottom);
+    return NSMakeSize(_maxSize.col * _cellSize.width + _textContainerInset.width + right,
+                      _maxSize.row * _cellSize.height + _textContainerInset.height + bottom);
 }
 
 - (NSSize)minSize

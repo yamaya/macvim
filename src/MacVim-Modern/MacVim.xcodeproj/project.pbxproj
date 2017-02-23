@@ -21,7 +21,7 @@
 		1D493DBA0C52534300AB718C /* PSMTabBarControl.framework in Copy Frameworks */ = {isa = PBXBuildFile; fileRef = 1D493DB90C52533B00AB718C /* PSMTabBarControl.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		1D60088B0E96A0B2003763F0 /* MMFindReplaceController.m in Sources */ = {isa = PBXBuildFile; fileRef = 1D60088A0E96A0B2003763F0 /* MMFindReplaceController.m */; settings = {COMPILER_FLAGS = "-fobjc-arc"; }; };
 		1D80591F0E1185EA001699D1 /* Miscellaneous.m in Sources */ = {isa = PBXBuildFile; fileRef = 1D80591D0E1185EA001699D1 /* Miscellaneous.m */; };
-		1D80FBD40CBBD3B700102A1C /* MMFullScreenWindow.m in Sources */ = {isa = PBXBuildFile; fileRef = 1D80FBD00CBBD3B700102A1C /* MMFullScreenWindow.m */; };
+		1D80FBD40CBBD3B700102A1C /* MMFullScreenWindow.m in Sources */ = {isa = PBXBuildFile; fileRef = 1D80FBD00CBBD3B700102A1C /* MMFullScreenWindow.m */; settings = {COMPILER_FLAGS = "-fobjc-arc"; }; };
 		1D80FBD60CBBD3B700102A1C /* MMVimView.m in Sources */ = {isa = PBXBuildFile; fileRef = 1D80FBD20CBBD3B700102A1C /* MMVimView.m */; settings = {COMPILER_FLAGS = "-fobjc-arc"; }; };
 		1D8B5A53104AF9FF002E59D5 /* Carbon.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1D8B5A52104AF9FF002E59D5 /* Carbon.framework */; };
 		1D8BEA74104992290069B072 /* FindAndReplace.nib in Resources */ = {isa = PBXBuildFile; fileRef = 1D8BEA73104992290069B072 /* FindAndReplace.nib */; };
