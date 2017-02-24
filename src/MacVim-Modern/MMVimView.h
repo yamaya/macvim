@@ -10,6 +10,7 @@
 
 #import <Cocoa/Cocoa.h>
 #import "MMTextView+Protocol.h"
+#import "MMScroller.h"
 
 @class PSMTabBarControl;
 @class MMTextView;
@@ -33,7 +34,7 @@
 - (void)updateTabsWithData:(NSData *)data;
 - (void)selectTabWithIndex:(int)idx;
 - (NSTabViewItem *)addNewTabViewItem;
-- (void)createScrollbarWithIdentifier:(int32_t)ident type:(int)type;
+- (void)createScrollbarWithIdentifier:(int32_t)ident type:(MMScrollerType)type;
 - (BOOL)destroyScrollbarWithIdentifier:(int32_t)ident;
 - (BOOL)showScrollbarWithIdentifier:(int32_t)ident state:(BOOL)visible;
 - (void)setScrollbarThumbValue:(float)val proportion:(float)prop identifier:(int32_t)ident;

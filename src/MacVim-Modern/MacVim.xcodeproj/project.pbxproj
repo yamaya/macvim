@@ -67,6 +67,7 @@
 		52B7ED9B1C4A4D6900AFFF15 /* dsa_pub.pem in Resources */ = {isa = PBXBuildFile; fileRef = 52B7ED9A1C4A4D6900AFFF15 /* dsa_pub.pem */; };
 		544DCE611E4F40C200E3C582 /* NSAttributedString+CoreText.m in Sources */ = {isa = PBXBuildFile; fileRef = 544DCE601E4F40C200E3C582 /* NSAttributedString+CoreText.m */; settings = {COMPILER_FLAGS = "-fobjc-arc"; }; };
 		5487106E1E4E014600D189F6 /* MMFontSmoothing.m in Sources */ = {isa = PBXBuildFile; fileRef = 5487106D1E4E014600D189F6 /* MMFontSmoothing.m */; settings = {COMPILER_FLAGS = "-fobjc-arc"; }; };
+		549EC28C1E6066DF0035DF23 /* MMScroller.m in Sources */ = {isa = PBXBuildFile; fileRef = 549EC28B1E6066DF0035DF23 /* MMScroller.m */; };
 		6279ED6C1E56DFBA000B0C79 /* MMDrawCommand.m in Sources */ = {isa = PBXBuildFile; fileRef = 6279ED6A1E56DFBA000B0C79 /* MMDrawCommand.m */; settings = {COMPILER_FLAGS = "-fobjc-arc"; }; };
 		8D11072A0486CEB800E47090 /* MainMenu.nib in Resources */ = {isa = PBXBuildFile; fileRef = 29B97318FDCFA39411CA2CEA /* MainMenu.nib */; };
 		8D11072B0486CEB800E47090 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 089C165CFE840E0CC02AAC07 /* InfoPlist.strings */; };
@@ -249,6 +250,9 @@
 		548710691E4CA73D00D189F6 /* MMCoreTextView+Compatibility.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "MMCoreTextView+Compatibility.h"; sourceTree = "<group>"; };
 		5487106C1E4E014600D189F6 /* MMFontSmoothing.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = MMFontSmoothing.h; sourceTree = "<group>"; };
 		5487106D1E4E014600D189F6 /* MMFontSmoothing.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = MMFontSmoothing.m; sourceTree = "<group>"; };
+		549EC2891E6066DF0035DF23 /* MMPoint.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = MMPoint.h; sourceTree = "<group>"; };
+		549EC28A1E6066DF0035DF23 /* MMScroller.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = MMScroller.h; sourceTree = "<group>"; };
+		549EC28B1E6066DF0035DF23 /* MMScroller.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = MMScroller.m; sourceTree = "<group>"; };
 		6279ED691E56DFBA000B0C79 /* MMDrawCommand.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = MMDrawCommand.h; sourceTree = "<group>"; };
 		6279ED6A1E56DFBA000B0C79 /* MMDrawCommand.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = MMDrawCommand.m; sourceTree = "<group>"; };
 		6279ED6B1E56DFBA000B0C79 /* MMTextView+Protocol.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "MMTextView+Protocol.h"; sourceTree = "<group>"; };
@@ -300,6 +304,9 @@
 				1D80FBD00CBBD3B700102A1C /* MMFullScreenWindow.m */,
 				1D80FBD10CBBD3B700102A1C /* MMVimView.h */,
 				1D80FBD20CBBD3B700102A1C /* MMVimView.m */,
+				549EC2891E6066DF0035DF23 /* MMPoint.h */,
+				549EC28A1E6066DF0035DF23 /* MMScroller.h */,
+				549EC28B1E6066DF0035DF23 /* MMScroller.m */,
 				1DD66ECB0C803D3600EBDAB3 /* MMApplication.h */,
 				1DD66ECC0C803D3600EBDAB3 /* MMApplication.m */,
 				1D1474B90C567A910038FA2B /* MMWindowController.h */,
@@ -628,6 +635,7 @@
 				1DD66ECE0C803D3600EBDAB3 /* MMApplication.m in Sources */,
 				1D80FBD40CBBD3B700102A1C /* MMFullScreenWindow.m in Sources */,
 				1D80FBD60CBBD3B700102A1C /* MMVimView.m in Sources */,
+				549EC28C1E6066DF0035DF23 /* MMScroller.m in Sources */,
 				1DE9B9500D341AB8008FEDD4 /* MMWindow.m in Sources */,
 				1DE3F8EB0D50F84600052B9E /* MMPreferenceController.m in Sources */,
 				6279ED6C1E56DFBA000B0C79 /* MMDrawCommand.m in Sources */,

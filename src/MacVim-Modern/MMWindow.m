@@ -89,11 +89,11 @@ static CGSSetWindowBackgroundBlurRadiusFunction* GetCGSSetWindowBackgroundBlurRa
     return self;
 }
 
-- (BOOL) canBecomeMainWindow {
+- (BOOL)canBecomeMainWindow {
     return YES;
 }
 
-- (BOOL) canBecomeKeyWindow {
+- (BOOL)canBecomeKeyWindow {
     return YES;
 }
 

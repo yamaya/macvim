@@ -23,29 +23,8 @@
 #import "MMVimController.h"
 #import "MMVimView.h"
 #import "MMWindowController.h"
+#import "MMScroller.h"
 #import <PSMTabBarControl/PSMTabBarControl.h>
-
-
-// Scroller type; these must match SBAR_* in gui.h
-enum {
-    MMScrollerTypeLeft = 0,
-    MMScrollerTypeRight,
-    MMScrollerTypeBottom
-};
-
-
-// TODO:  Move!
-@interface MMScroller : NSScroller {
-    int32_t identifier;
-    int type;
-    NSRange range;
-}
-- (instancetype)initWithIdentifier:(int32_t)ident type:(int)type;
-- (int32_t)scrollerId;
-- (int)type;
-- (NSRange)range;
-- (void)setRange:(NSRange)newRange;
-@end
 
 /**
  */
@@ -71,7 +50,8 @@ enum {
 
 /**
  */
-@implementation MMVimView {
+@implementation MMVimView
+{
     MMVimController     *_vimController;
     NSMutableArray      *_scrollbars;
     NSTabView           *_tabView;
@@ -94,10 +74,10 @@ enum {
     _textView = [[MMCoreTextView alloc] initWithFrame:frame];
 
     // Allow control of text view inset via MMTextInset* user defaults.
-    [_textView setTextContainerInset:(NSSize){
+    _textView.textContainerInset = (NSSize){
         [NSUserDefaults.standardUserDefaults integerForKey:MMTextInsetLeftKey],
         [NSUserDefaults.standardUserDefaults integerForKey:MMTextInsetTopKey],
-    }];
+    };
 
     _textView.autoresizingMask = NSViewNotSizable;
     [self addSubview:_textView];
@@ -120,16 +100,11 @@ enum {
     _tabBarControl.hidden = YES;
 
     if (shouldUseYosemiteTabBarStyle()) {
-        CGFloat screenWidth = NSScreen.mainScreen.frame.size.width;
-        int tabMaxWidth = [NSUserDefaults.standardUserDefaults integerForKey:MMTabMaxWidthKey];
-        if (tabMaxWidth == 0) tabMaxWidth = screenWidth;
-        int tabOptimumWidth = [NSUserDefaults.standardUserDefaults integerForKey:MMTabOptimumWidthKey];
-        if (tabOptimumWidth == 0) tabOptimumWidth = screenWidth;
-
+        const CGFloat screenWidth = NSScreen.mainScreen.frame.size.width;
         _tabBarControl.styleNamed = @"Yosemite";
         _tabBarControl.cellMinWidth = [NSUserDefaults.standardUserDefaults integerForKey:MMTabMinWidthKey];
-        _tabBarControl.cellMaxWidth = tabMaxWidth;
-        _tabBarControl.cellOptimumWidth = tabOptimumWidth;
+        _tabBarControl.cellMaxWidth = [NSUserDefaults.standardUserDefaults integerForKey:MMTabMaxWidthKey] ?: screenWidth;
+        _tabBarControl.cellOptimumWidth = [NSUserDefaults.standardUserDefaults integerForKey:MMTabOptimumWidthKey] ?: screenWidth;
     } else {
         _tabBarControl.cellMinWidth = [NSUserDefaults.standardUserDefaults integerForKey:MMTabMinWidthKey];
         _tabBarControl.cellMaxWidth = [NSUserDefaults.standardUserDefaults integerForKey:MMTabMaxWidthKey];
@@ -170,17 +145,18 @@ enum {
         return;
 
 #if (MAC_OS_X_VERSION_MIN_REQUIRED >= MAC_OS_X_VERSION_10_7)
-    int sw = [NSScroller scrollerWidthForControlSize:NSControlSizeRegular scrollerStyle:NSScrollerStyleLegacy];
+    const int sw = [NSScroller scrollerWidthForControlSize:NSControlSizeRegular scrollerStyle:NSScrollerStyleLegacy];
 #else
-    int sw = NSScroller.scrollerWidth;
+    const int sw = NSScroller.scrollerWidth;
 #endif
 
     // add .5 to the pixel locations to put the lines on a pixel boundary.
     // the top and right edges of the rect will be outside of the bounds rect
     // and clipped away.
-    NSRect sizerRect = NSMakeRect(self.bounds.size.width - sw + .5, -.5, sw, sw);
     //NSBezierPath* path = [NSBezierPath bezierPath];
-    NSBezierPath* path = [NSBezierPath bezierPathWithRect:sizerRect];
+    NSBezierPath* path = [NSBezierPath bezierPathWithRect:(NSRect){
+        {self.bounds.size.width - sw + .5, -.5}, {sw, sw}
+    }];
 
     // On Tiger, we have color #E8E8E8 behind the resize throbber
     // (which is windowBackgroundColor on untextured windows or controlColor in
@@ -198,8 +174,7 @@ enum {
         // Fill it in just like on the right hand corner.  The half pixel
         // offset ensures the outline goes on the top and right side of the
         // square; the left and bottom parts of the outline are clipped.
-        sizerRect = NSMakeRect(-.5, -.5, sw, sw);
-        path = [NSBezierPath bezierPathWithRect:sizerRect];
+        path = [NSBezierPath bezierPathWithRect:NSMakeRect(-.5, -.5, sw, sw)];
         [NSColor.controlBackgroundColor set];
         [path fill];
         [NSColor.secondarySelectedControlColor set];
@@ -244,16 +219,16 @@ enum {
     return [self vimViewSizeForTextViewSize:_textView.minSize];
 }
 
-- (NSSize)constrainRows:(int *)r columns:(int *)c toSize:(NSSize)size
+- (NSSize)constrainRows:(int *)outRows columns:(int *)outCols toSize:(NSSize)size
 {
     size = [self textViewRectForVimViewSize:size].size;
-    size = [_textView constrainRows:r columns:c toSize:size];
+    size = [_textView constrainRows:outRows columns:outCols toSize:size];
     return [self vimViewSizeForTextViewSize:size];
 }
 
-- (void)setDesiredRows:(int)r columns:(int)c
+- (void)setDesiredRows:(int)rows columns:(int)cols
 {
-    _textView.maxSize = (MMPoint){r, c};
+    _textView.maxSize = (MMPoint){rows, cols};
 }
 
 - (IBAction)addNewTab:(id)sender
@@ -283,7 +258,7 @@ enum {
             if (length <= 0)
                 continue;
 
-            NSString *val = [[NSString alloc] initWithBytes:(void *)p length:length encoding:NSUTF8StringEncoding];
+            NSString *val = [[NSString alloc] initWithBytes:p length:length encoding:NSUTF8StringEncoding];
             p += length;
 
             switch (i) {
@@ -344,8 +319,7 @@ enum {
 
     // The documentation claims initWithIdentifier can be given a nil identifier, but the API itself
     // is decorated such that doing so produces a warning, so the tab count is used as identifier.
-    const NSInteger n = _tabView.numberOfTabViewItems;
-    NSTabViewItem *item = [[NSTabViewItem alloc] initWithIdentifier:@(n)];
+    NSTabViewItem *item = [[NSTabViewItem alloc] initWithIdentifier:@(_tabView.numberOfTabViewItems)];
 
     // NOTE: If this is the first tab it will be automatically selected.
     _vimTaskSelectedTab = YES;
@@ -355,7 +329,7 @@ enum {
     return item;
 }
 
-- (void)createScrollbarWithIdentifier:(int32_t)identifier type:(int)type
+- (void)createScrollbarWithIdentifier:(int32_t)identifier type:(MMScrollerType)type
 {
     MMScroller *scroller = [[MMScroller alloc] initWithIdentifier:identifier type:type];
     scroller.target = self;
@@ -400,11 +374,11 @@ enum {
     scroller.enabled = (proportion != 1);
 }
 
-- (void)scroll:(MMScroller *)sender
+- (void)scroll:(MMScroller *)scroller
 {
-    const int32_t identifier = sender.scrollerId;
-    const int hitPart = sender.hitPart;
-    const float value = sender.floatValue;
+    const int32_t identifier = scroller.identifier;
+    const int hitPart = scroller.hitPart;
+    const float value = scroller.floatValue;
 
     NSMutableData *data = NSMutableData.new;
     [data appendBytes:&identifier length:sizeof(identifier)];
@@ -450,8 +424,8 @@ enum {
         // Propagate the selection message to Vim.
         const NSUInteger index = [self representedIndexOfTabViewItem:tabViewItem];
         if (NSNotFound != index) {
-            int i = (int)index;   // HACK! Never more than MAXINT tabs?!
-            NSData *data = [NSData dataWithBytes:&i length:sizeof(int)];
+            const int i = (int)index;   // HACK! Never more than MAXINT tabs?!
+            NSData *data = [NSData dataWithBytes:&i length:sizeof(i)];
             [_vimController sendMessage:SelectTabMsgID data:data];
         }
     }
@@ -461,20 +435,20 @@ enum {
     return _vimTaskSelectedTab;
 }
 
-- (BOOL)tabView:(NSTabView *)theTabView shouldCloseTabViewItem: (NSTabViewItem *)tabViewItem
+- (BOOL)tabView:(NSTabView *)theTabView shouldCloseTabViewItem:(NSTabViewItem *)tabViewItem
 {
     // HACK!  This method is only called when the user clicks the close button
     // on the tab.  Instead of letting the tab bar close the tab, we return NO
     // and pass a message on to Vim to let it handle the closing.
     NSUInteger index = [self representedIndexOfTabViewItem:tabViewItem];
-    int i = (int)index;   // HACK! Never more than MAXINT tabs?!
-    NSData *data = [NSData dataWithBytes:&i length:sizeof(int)];
+    const int i = (int)index;   // HACK! Never more than MAXINT tabs?!
+    NSData *data = [NSData dataWithBytes:&i length:sizeof(i)];
     [_vimController sendMessage:CloseTabMsgID data:data];
 
     return NO;
 }
 
-- (void)tabView:(NSTabView *)theTabView didDragTabViewItem: (NSTabViewItem *)tabViewItem toIndex:(int)index
+- (void)tabView:(NSTabView *)theTabView didDragTabViewItem:(NSTabViewItem *)tabViewItem toIndex:(int)index
 {
     NSMutableData *data = NSMutableData.new;
     [data appendBytes:&index length:sizeof(int)];
@@ -483,20 +457,21 @@ enum {
 
 - (NSDragOperation)tabBarControl:(PSMTabBarControl *)theTabBarControl draggingEntered:(id <NSDraggingInfo>)sender forTabAtIndex:(NSUInteger)tabIndex
 {
-    NSPasteboard *pb = [sender draggingPasteboard];
+    NSPasteboard *pb = sender.draggingPasteboard;
     return [pb.types containsObject:NSFilenamesPboardType] ? NSDragOperationCopy : NSDragOperationNone;
 }
 
 - (BOOL)tabBarControl:(PSMTabBarControl *)theTabBarControl performDragOperation:(id <NSDraggingInfo>)sender forTabAtIndex:(NSUInteger)tabIndex
 {
-    NSPasteboard *pb = [sender draggingPasteboard];
+    NSPasteboard *pb = sender.draggingPasteboard;
     if ([pb.types containsObject:NSFilenamesPboardType]) {
         NSArray *filenames = [pb propertyListForType:NSFilenamesPboardType];
-        if (filenames.count == 0)
+        if (filenames.count == 0) {
             return NO;
+        }
         if (tabIndex != NSNotFound) {
             // If dropping on a specific tab, only open one file
-            [_vimController file:filenames[0] draggedToTabAtIndex:tabIndex];
+            [_vimController file:filenames.firstObject draggedToTabAtIndex:tabIndex];
         } else {
             // Files were dropped on empty part of tab bar; open them all
             [_vimController filesDraggedToTabBar:filenames];
@@ -506,9 +481,7 @@ enum {
     return NO;
 }
 
-
 // -- NSView customization ---------------------------------------------------
-
 
 - (void)viewWillStartLiveResize
 {
@@ -543,8 +516,9 @@ enum {
 - (BOOL)bottomScrollbarVisible
 {
     for (MMScroller *scroller in _scrollbars) {
-        if (scroller.type == MMScrollerTypeBottom && !scroller.isHidden)
+        if (scroller.type == MMScrollerTypeBottom && !scroller.isHidden) {
             return YES;
+        }
     }
     return NO;
 }
@@ -552,8 +526,9 @@ enum {
 - (BOOL)leftScrollbarVisible
 {
     for (MMScroller *scroller in _scrollbars) {
-        if (scroller.type == MMScrollerTypeLeft && !scroller.isHidden)
+        if (scroller.type == MMScrollerTypeLeft && !scroller.isHidden) {
             return YES;
+        }
     }
     return NO;
 }
@@ -561,8 +536,9 @@ enum {
 - (BOOL)rightScrollbarVisible
 {
     for (MMScroller *scroller in _scrollbars) {
-        if (scroller.type == MMScrollerTypeRight && !scroller.isHidden)
+        if (scroller.type == MMScrollerTypeRight && !scroller.isHidden) {
             return YES;
+        }
     }
     return NO;
 }
@@ -582,7 +558,7 @@ enum {
     unsigned i = 0;
     for (MMScroller *scroller in _scrollbars) {
         if (!scroller.isHidden) {
-            NSRange range = scroller.range;
+            const NSRange range = scroller.range;
             if (scroller.type == MMScrollerTypeLeft && range.location >= rowMaxLeft) {
                 rowMaxLeft = range.location;
                 lowestLeftSbIdx = i;
@@ -697,7 +673,7 @@ enum {
 {
     unsigned i = 0;
     for (MMScroller *scroller in _scrollbars) {
-        if (scroller.scrollerId == identifier) {
+        if (scroller.identifier == identifier) {
             if (outIndex) *outIndex = i;
             return scroller;
         }
@@ -800,76 +776,3 @@ enum {
 }
 
 @end // MMVimView (Private)
-
-/**
- */
-@implementation MMScroller
-
-- (instancetype)initWithIdentifier:(int32_t)ident type:(int)theType
-{
-    // HACK! NSScroller creates a horizontal scroller if it is init'ed with a
-    // frame whose with exceeds its height; so create a bogus rect and pass it
-    // to initWithFrame.
-    NSRect frame = theType == MMScrollerTypeBottom ? NSMakeRect(0, 0, 1, 0) : NSMakeRect(0, 0, 0, 1);
-
-    self = [super initWithFrame:frame];
-    if (!self) return nil;
-
-    identifier = ident;
-    type = theType;
-    self.hidden = YES;
-    self.enabled = YES;
-    self.autoresizingMask = NSViewNotSizable;
-
-    return self;
-}
-
-- (int32_t)scrollerId
-{
-    return identifier;
-}
-
-- (int)type
-{
-    return type;
-}
-
-- (NSRange)range
-{
-    return range;
-}
-
-- (void)setRange:(NSRange)newRange
-{
-    range = newRange;
-}
-
-- (void)scrollWheel:(NSEvent *)event
-{
-    // HACK! Pass message on to the text view.
-    NSView *vimView = [self superview];
-    if ([vimView isKindOfClass:[MMVimView class]])
-        [[(MMVimView*)vimView textView] scrollWheel:event];
-}
-
-- (void)mouseDown:(NSEvent *)event
-{
-    // TODO: This is an ugly way of getting the connection to the backend.
-    NSConnection *connection = nil;
-    id wc = [[self window] windowController];
-    if ([wc isKindOfClass:[MMWindowController class]]) {
-        MMVimController *vc = [(MMWindowController*)wc vimController];
-        id proxy = [vc backendProxy];
-        connection = [(NSDistantObject*)proxy connectionForProxy];
-    }
-
-    // NOTE: The scroller goes into "event tracking mode" when the user clicks
-    // (and holds) the mouse button.  We have to manually add the backend
-    // connection to this mode while the mouse button is held, else DO messages
-    // from Vim will not be processed until the mouse button is released.
-    [connection addRequestMode:NSEventTrackingRunLoopMode];
-    [super mouseDown:event];
-    [connection removeRequestMode:NSEventTrackingRunLoopMode];
-}
-
-@end // MMScroller
