@@ -40,14 +40,6 @@
 - (void)frameSizeMayHaveChanged;
 @end
 
-
-// This is an informal protocol implemented by MMWindowController (maybe it
-// shold be a formal protocol, but ...).
-@interface NSWindowController (MMVimViewDelegate)
-- (void)liveResizeWillStart;
-- (void)liveResizeDidEnd;
-@end
-
 /**
  */
 @implementation MMVimView
