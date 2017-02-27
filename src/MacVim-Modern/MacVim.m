@@ -107,16 +107,14 @@ const char * const MessageStrings[] =
     "END OF MESSAGE IDs"     // NOTE: Must be last!
 };
 
-const NSString *MMLogLevelKey           = @"MMLogLevel";
-const NSString *MMLogToStdErrKey        = @"MMLogToStdErr";
-const NSString *MMNoWindowKey           = @"MMNoWindow";
-const NSString *MMAutosaveRowsKey       = @"MMAutosaveRows";
-const NSString *MMAutosaveColumnsKey    = @"MMAutosaveColumns";
-const NSString *VimFindPboardType       = @"VimFindPboardType";
+NSString *const MMLogLevelKey           = @"MMLogLevel";
+NSString *const MMLogToStdErrKey        = @"MMLogToStdErr";
+NSString *const MMNoWindowKey           = @"MMNoWindow";
+NSString *const MMAutosaveRowsKey       = @"MMAutosaveRows";
+NSString *const MMAutosaveColumnsKey    = @"MMAutosaveColumns";
+NSString *const VimFindPboardType       = @"VimFindPboardType";
 
 int ASLogLevel = MM_ASL_LEVEL_DEFAULT;
-
-
 
 // Create a string holding the labels of all messages in message queue for
 // debugging purposes (condense some messages since there may typically be LOTS

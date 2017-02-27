@@ -305,15 +305,15 @@ extern NSString *debugStringForMessageQueue(NSArray *queue);
 // Contrary to the user defaults in Miscellaneous.h these defaults are not
 // intitialized to any default values.  That is, unless the user sets them
 // these keys will not be present in the user default database.
-extern const NSString *MMLogLevelKey;
-extern const NSString *MMLogToStdErrKey;
+extern NSString *const MMLogLevelKey;
+extern NSString *const MMLogToStdErrKey;
 
 // Argument used to stop MacVim from opening an empty window on startup
 // (techincally this is a user default but should not be used as such).
-extern const NSString *MMNoWindowKey;
+extern NSString *const MMNoWindowKey;
 
-extern const NSString *MMAutosaveRowsKey;
-extern const NSString *MMAutosaveColumnsKey;
+extern NSString *const MMAutosaveRowsKey;
+extern NSString *const MMAutosaveColumnsKey;
 
 enum {
     MMRendererDefault = 0,
@@ -321,9 +321,7 @@ enum {
 };
 
 
-extern NSString *VimFindPboardType;
-
-
+extern NSString *const VimFindPboardType;
 
 
 @interface NSString (MMExtras)
