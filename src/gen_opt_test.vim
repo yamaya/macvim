@@ -1,10 +1,10 @@
 " Script to generate testdir/opt_test.vim from option.c
 
-if 0
-  finish
-endif
-
 set cpo=&vim
+
+" Only do this when build with the +eval feature.
+if 1
+
 set nomore
 
 let script = [
@@ -130,13 +130,17 @@ let test_values = {
       \ 'winaltkeys': [['menu', 'no'], ['', 'xxx']],
       \
       \ 'luadll': [[], []],
-      \ 'macatsui': [[], []],
       \ 'perldll': [[], []],
       \ 'pythondll': [[], []],
       \ 'pythonthreedll': [[], []],
       \ 'pyxversion': [[], []],
       \ 'rubydll': [[], []],
       \ 'tcldll': [[], []],
+      \
+      \ 'blurradius': [[], [-1]],
+      \ 'fuoptions': [[], ['xxx']],
+      \ 'guifont': [[], ['xxx']],
+      \ 'transparency': [[], ['-1']],
       \
       \ 'othernum': [[-1, 0, 100], ['']],
       \ 'otherstring': [['', 'xxx'], []],
@@ -191,5 +195,7 @@ call add(script, 'let &columns = save_columns')
 call add(script, 'let &lines = save_lines')
 
 call writefile(script, 'testdir/opt_test.vim')
+
+endif
 
 qa!
