@@ -56,13 +56,13 @@ macvim_early_init()
 
     char_u *p = mch_getenv((char_u *)"VIM");
     if (!p || *p == NUL) {
-        vim_setenv((char_u*)"VIM", (char_u*)[path UTF8String]);
+        vim_setenv((char_u *)"VIM", (char_u *)path.UTF8String);
     }
 
     p = mch_getenv((char_u *)"VIMRUNTIME");
     if (!p || *p == NUL) {
         path = [path stringByAppendingPathComponent:@"runtime"];
-        vim_setenv((char_u*)"VIMRUNTIME", (char_u*)[path UTF8String]);
+        vim_setenv((char_u *)"VIMRUNTIME", (char_u *)path.UTF8String);
     }
 }
 
@@ -92,7 +92,7 @@ gui_mch_prepare(int *argc, char **argv)
         BOOL delarg = NO;
         if (strncmp(argv[i], "--mmwaitforack", 14) == 0) {
             // Implies -f (only called from front end)
-            [MMBackend.shared setWaitForAck:YES];
+            MMBackend.shared.waitForAck = YES;
             delarg = YES;
         }
 #ifdef FEAT_NETBEANS_INTG
@@ -195,7 +195,7 @@ gui_mch_init(void)
     if (!MMNoMRU && GARGCOUNT > 0) {
         // Add files passed on command line to MRU.
         NSMutableArray *filenames = NSMutableArray.new;
-        for (int i = 0, count = GARGCOUNT > MMMaxMRU ? MMMaxMRU : GARGCOUNT; i < count; ++i) {
+        for (int i = 0, count = MIN(MMMaxMRU, GARGCOUNT); i < count; ++i) {
             char_u *fname = GARGLIST[i].ae_fname;
             if (!fname) continue;
 
@@ -302,8 +302,7 @@ gui_macvim_flush(void)
     // flush.
     if (++scrolls > gui.num_rows) {
         delay <<= 1;
-        if (delay > 2048)
-            delay = 2048; // なんだこれ？2048以上はビット反転するまで何もしないのか？
+        delay = MIN(delay, 2048);
         scrolls = 0;
     }
 
