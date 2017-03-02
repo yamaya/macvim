@@ -3080,7 +3080,7 @@ objects/gui_mac.o: gui_mac.c
 	$(CCC) -o $@ gui_mac.c
 
 objects/gui_macvim.o: MacVim-Modern/gui_macvim.m
-	$(CCC) -fobjc-exceptions -o $@ MacVim-Modern/gui_macvim.m
+	$(CCC) -fobjc-exceptions -fobjc-arc -o $@ MacVim-Modern/gui_macvim.m
 
 objects/hangulin.o: hangulin.c
 	$(CCC) -o $@ hangulin.c

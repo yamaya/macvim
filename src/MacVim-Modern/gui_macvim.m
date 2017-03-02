@@ -51,44 +51,19 @@ vimmenu_T *menu_for_descriptor(NSArray *desc);
     void
 macvim_early_init()
 {
-    NSBundle *bundle = [NSBundle mainBundle];
-    if (bundle) {
-        // Set environment variables $VIM and $VIMRUNTIME
-        NSString *path = [[bundle resourcePath]
-                                        stringByAppendingPathComponent:@"vim"];
+    // Set environment variables $VIM and $VIMRUNTIME
+    NSString *path = [NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"vim"];
 
-        char_u *p = mch_getenv((char_u *)"VIM");
-        if (p == NULL || *p == NUL) {
-            vim_setenv((char_u*)"VIM", (char_u*)[path UTF8String]);
-        }
-
-        p = mch_getenv((char_u *)"VIMRUNTIME");
-        if (p == NULL || *p == NUL) {
-            path = [path stringByAppendingPathComponent:@"runtime"];
-            vim_setenv((char_u*)"VIMRUNTIME", (char_u*)[path UTF8String]);
-        }
+    char_u *p = mch_getenv((char_u *)"VIM");
+    if (!p || *p == NUL) {
+        vim_setenv((char_u*)"VIM", (char_u*)[path UTF8String]);
     }
 
-#if 0   // NOTE: setlocale(LC_ALL, "") seems to work after a restart so this is
-        // not necessary.  The locale used depends on what "Region" is set
-        // inside the "Formats" tab of the "International" System Preferences
-        // pane.
-    // Try to ensure that the locale is set to match that used by NSBundle to
-    // load localized resources.  If there is a mismatch e.g. between the
-    // MacVim menu and other menus, then this code needs to change (nb. the
-    // MacVim menu is set up inside a nib file so the locale used for it is
-    // chosen by NSBundle and the other menus are set up by Vim so their locale
-    // matches whatever we set here).
-    NSLocale *loc = [NSLocale currentLocale];
-    if (loc) {
-        NSString *s = [NSString stringWithFormat:@"%@_%@.UTF-8",
-                                    [loc objectForKey:NSLocaleLanguageCode],
-                                    [loc objectForKey:NSLocaleCountryCode]];
-        setlocale(LC_ALL, [s UTF8String]);
-        fprintf(stderr, "locale=%s\n", [s UTF8String]);
-        fflush(stderr);
+    p = mch_getenv((char_u *)"VIMRUNTIME");
+    if (!p || *p == NUL) {
+        path = [path stringByAppendingPathComponent:@"runtime"];
+        vim_setenv((char_u*)"VIMRUNTIME", (char_u*)[path UTF8String]);
     }
-#endif
 }
 
 
@@ -136,7 +111,7 @@ gui_mch_prepare(int *argc, char **argv)
             // NOTE: See comment above about when to delete arguments!
             --*argc;
             if (*argc > i)
-                mch_memmove(&argv[i], &argv[i+1], (*argc-i) * sizeof(char*));
+                mch_memmove(&argv[i], &argv[i + 1], (*argc - i) * sizeof(char *));
         } else
             ++i;
     }
@@ -151,16 +126,10 @@ gui_macvim_after_fork_init()
     ASLogDebug(@"");
 
     // Restore autosaved rows & columns
-    CFIndex rows, cols;
     Boolean rowsValid, colsValid;
-    rows = CFPreferencesGetAppIntegerValue((CFStringRef)MMAutosaveRowsKey,
-                                        kCFPreferencesCurrentApplication,
-                                        &rowsValid);
-    cols = CFPreferencesGetAppIntegerValue((CFStringRef)MMAutosaveColumnsKey,
-                                        kCFPreferencesCurrentApplication,
-                                        &colsValid);
-    if (rowsValid && colsValid
-            && (rows > 4 && rows < 1000 && cols > 29 && cols < 4000)) {
+    CFIndex const rows = CFPreferencesGetAppIntegerValue((CFStringRef)MMAutosaveRowsKey, kCFPreferencesCurrentApplication, &rowsValid);
+    CFIndex const cols = CFPreferencesGetAppIntegerValue((CFStringRef)MMAutosaveColumnsKey, kCFPreferencesCurrentApplication, &colsValid);
+    if (rowsValid && colsValid && (rows > 4 && rows < 1000 && cols > 29 && cols < 4000)) {
         gui.num_rows = rows;
         gui.num_cols = cols;
     } else {
@@ -192,7 +161,7 @@ gui_mch_init(void)
 {
     ASLogDebug(@"");
 
-    if (![MMBackend.shared checkin]) {
+    if (!MMBackend.shared.checkin) {
         // TODO: Kill the process if there is no terminal to fall back on,
         // otherwise the process will run outputting to the console.
         return FAIL;
@@ -212,10 +181,9 @@ gui_mch_init(void)
 
     gui_mch_def_colors();
 
-    [MMBackend.shared
-        setDefaultColorsBackground:gui.back_pixel foreground:gui.norm_pixel];
-    [MMBackend.shared setBackgroundColor:gui.back_pixel];
-    [MMBackend.shared setForegroundColor:gui.norm_pixel];
+    [MMBackend.shared setDefaultColorsBackground:gui.back_pixel foreground:gui.norm_pixel];
+    MMBackend.shared.backgroundColor = gui.back_pixel;
+    MMBackend.shared.foregroundColor = gui.norm_pixel;
 
     // NOTE: If this call is left out the cursor is opaque.
     highlight_gui_started();
@@ -226,9 +194,8 @@ gui_mch_init(void)
 
     if (!MMNoMRU && GARGCOUNT > 0) {
         // Add files passed on command line to MRU.
-        NSMutableArray *filenames = [NSMutableArray array];
-        int i, count = GARGCOUNT > MMMaxMRU ? MMMaxMRU : GARGCOUNT;
-        for (i = 0; i < count; ++i) {
+        NSMutableArray *filenames = NSMutableArray.new;
+        for (int i = 0, count = GARGCOUNT > MMMaxMRU ? MMMaxMRU : GARGCOUNT; i < count; ++i) {
             char_u *fname = GARGLIST[i].ae_fname;
             if (!fname) continue;
 
@@ -240,12 +207,11 @@ gui_mch_init(void)
             vim_free(ffname);
         }
 
-        [MMBackend.shared addToMRU:filenames];
+        [MMBackend.shared addToMRU:filenames.copy];
     }
 
     return OK;
 }
-
 
 
     void
@@ -290,12 +256,12 @@ gui_mch_update(void)
     // As a compromise we check for new input only every now and then. Note
     // that Cmd-. sends SIGINT so it has higher success rate at interrupting
     // Vim than Ctrl-C.
-    static CFAbsoluteTime lastTime = 0;
+    static CFAbsoluteTime updatedAt = 0;
 
-    CFAbsoluteTime nowTime = CFAbsoluteTimeGetCurrent();
-    if (nowTime - lastTime > 0.2) {
+    const CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    if (now - updatedAt > 0.2) {
         [MMBackend.shared update];
-        lastTime = nowTime;
+        updatedAt = now;
     }
 }
 
@@ -323,15 +289,13 @@ gui_macvim_flush(void)
     // often Vim needs to flush.  It was written to handle output from external
     // commands (see mch_call_shell() in os_unix.c).
 
-    static CFAbsoluteTime lastTime = 0;
+    static CFAbsoluteTime last = 0;
     static int delay = 1;
     static int counter = 0;
     static int scrolls = 0;
 
-    CFAbsoluteTime nowTime = CFAbsoluteTimeGetCurrent();
-    CFAbsoluteTime delta = nowTime - lastTime;
-    if (delta > 1.0)
-        delay = 1;
+    const CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    if (now - last > 1) delay = 1;
 
     // We assume that each call corresponds roughly to one line of output.
     // When one page has scrolled by we increase the delay before the next
@@ -339,7 +303,7 @@ gui_macvim_flush(void)
     if (++scrolls > gui.num_rows) {
         delay <<= 1;
         if (delay > 2048)
-            delay = 2048;
+            delay = 2048; // なんだこれ？2048以上はビット反転するまで何もしないのか？
         scrolls = 0;
     }
 
@@ -348,7 +312,7 @@ gui_macvim_flush(void)
         counter = 0;
     }
 
-    lastTime = nowTime;
+    last = now;
 }
 
 
@@ -405,8 +369,7 @@ gui_mch_clear_all(void)
     void
 gui_mch_clear_block(int row1, int col1, int row2, int col2)
 {
-    [MMBackend.shared clearBlockFromRow:row1 column:col1
-                                                    toRow:row2 column:col2];
+    [MMBackend.shared clearBlockFromRow:row1 column:col1 toRow:row2 column:col2];
 }
 
 
@@ -417,10 +380,11 @@ gui_mch_clear_block(int row1, int col1, int row2, int col2)
     void
 gui_mch_delete_lines(int row, int num_lines)
 {
-    [MMBackend.shared deleteLinesFromRow:row count:num_lines
-            scrollBottom:gui.scroll_region_bot
-                    left:gui.scroll_region_left
-                   right:gui.scroll_region_right];
+    [MMBackend.shared deleteLinesFromRow:row
+                                   count:num_lines
+                            scrollBottom:gui.scroll_region_bot
+                                    left:gui.scroll_region_left
+                                   right:gui.scroll_region_right];
 }
 
 
@@ -436,12 +400,8 @@ gui_mch_draw_string(int row, int col, char_u *s, int len, int cells, int flags)
     }
 #endif
 
-    [MMBackend.shared drawString:s
-                                    length:len
-                                       row:row
-                                    column:col
-                                     cells:cells
-                                     flags:flags];
+    [MMBackend.shared drawString:s length:len row:row column:col cells:cells flags:flags];
+
 #ifdef FEAT_MBYTE
     if (conv_str)
         vim_free(conv_str);
@@ -452,52 +412,44 @@ gui_mch_draw_string(int row, int col, char_u *s, int len, int cells, int flags)
     int
 gui_macvim_draw_string(int row, int col, char_u *s, int len, int flags)
 {
-    int c, cn, cl, i;
-    int start = 0;
-    int endcol = col;
-    int startcol = col;
-    BOOL wide = NO;
-    MMBackend *backend = MMBackend.shared;
 #ifdef FEAT_MBYTE
     char_u *conv_str = NULL;
-
     if (output_conv.vc_type != CONV_NONE) {
         conv_str = string_convert(&output_conv, s, &len);
         if (conv_str)
             s = conv_str;
     }
 #endif
+    int start = 0;
+    int endcol = col, startcol = col;
+    BOOL widden = NO;
+    const int wflags = DRAW_WIDE | flags;
 
     // Loop over each character and output text when it changes from normal to
     // wide and vice versa.
-    for (i = 0; i < len; i += cl) {
-        c = utf_ptr2char(s + i);
-        cn = utf_char2cells(c);
-        cl = utf_ptr2len(s + i);
-        if (0 == cl)
+    for (int i = 0, nbytes = 0; i < len; i += nbytes) {
+        const int charcode = utf_ptr2char(s + i);
+        const int ncells = utf_char2cells(charcode);
+        nbytes = utf_ptr2len(s + i);
+        if (0 == nbytes)
             len = i;    // len must be wrong (shouldn't happen)
 
-        if (!utf_iscomposing(c)) {
-            if ((cn > 1 && !wide) || (cn <= 1 && wide)) {
+        if (!utf_iscomposing(charcode)) {
+            if ((ncells > 1 && !widden) || (ncells <= 1 && widden)) {
                 // Changed from normal to wide or vice versa.
-                [backend drawString:(s+start) length:i-start
-                                   row:row column:startcol
-                                 cells:endcol-startcol
-                                 flags:(wide ? flags|DRAW_WIDE : flags)];
+                [MMBackend.shared drawString:s + start length:i - start row:row column:startcol cells:endcol - startcol flags:(widden ? wflags : flags)];
 
                 start = i;
                 startcol = endcol;
             }
 
-            wide = cn > 1;
-            endcol += cn;
+            widden = ncells > 1;
+            endcol += ncells;
         }
     }
 
     // Output remaining characters.
-    [backend drawString:(s+start) length:len-start
-                    row:row column:startcol cells:endcol-startcol
-                  flags:(wide ? flags|DRAW_WIDE : flags)];
+    [MMBackend.shared drawString:s + start length:len - start row:row column:startcol cells:endcol - startcol flags:(widden ? wflags : flags)];
 
 #ifdef FEAT_MBYTE
     if (conv_str)
@@ -515,10 +467,11 @@ gui_macvim_draw_string(int row, int col, char_u *s, int len, int flags)
     void
 gui_mch_insert_lines(int row, int num_lines)
 {
-    [MMBackend.shared insertLinesFromRow:row count:num_lines
-            scrollBottom:gui.scroll_region_bot
-                    left:gui.scroll_region_left
-                   right:gui.scroll_region_right];
+    [MMBackend.shared insertLinesFromRow:row
+                                   count:num_lines
+                            scrollBottom:gui.scroll_region_bot
+                                    left:gui.scroll_region_left
+                                   right:gui.scroll_region_right];
 }
 
 
@@ -528,7 +481,7 @@ gui_mch_insert_lines(int row, int num_lines)
     void
 gui_mch_set_fg_color(guicolor_T color)
 {
-    [MMBackend.shared setForegroundColor:color];
+    MMBackend.shared.foregroundColor = color;
 }
 
 
@@ -538,7 +491,7 @@ gui_mch_set_fg_color(guicolor_T color)
     void
 gui_mch_set_bg_color(guicolor_T color)
 {
-    [MMBackend.shared setBackgroundColor:color];
+    MMBackend.shared.backgroundColor = color;
 }
 
 
@@ -548,7 +501,7 @@ gui_mch_set_bg_color(guicolor_T color)
     void
 gui_mch_set_sp_color(guicolor_T color)
 {
-    [MMBackend.shared setSpecialColor:color];
+    MMBackend.shared.specialColor = color;
 }
 
 
@@ -558,13 +511,9 @@ gui_mch_set_sp_color(guicolor_T color)
     void
 gui_mch_def_colors()
 {
-    MMBackend *backend = MMBackend.shared;
-
     // The default colors are taken from system values
-    gui.def_norm_pixel = gui.norm_pixel = 
-        [backend lookupColorWithKey:@"MacTextColor"];
-    gui.def_back_pixel = gui.back_pixel = 
-        [backend lookupColorWithKey:@"MacTextBackgroundColor"];
+    gui.def_norm_pixel = gui.norm_pixel = [MMBackend.shared lookupColorWithKey:@"MacTextColor"];
+    gui.def_back_pixel = gui.back_pixel = [MMBackend.shared lookupColorWithKey:@"MacTextBackgroundColor"];
 }
 
 
@@ -579,9 +528,7 @@ gui_mch_new_colors(void)
 
     ASLogDebug(@"back=%ld norm=%ld", gui.def_back_pixel, gui.def_norm_pixel);
 
-    [MMBackend.shared
-        setDefaultColorsBackground:gui.def_back_pixel
-                        foreground:gui.def_norm_pixel];
+    [MMBackend.shared setDefaultColorsBackground:gui.def_back_pixel foreground:gui.def_norm_pixel];
 }
 
 /*
@@ -590,10 +537,8 @@ gui_mch_new_colors(void)
     void
 gui_mch_invert_rectangle(int r, int c, int nr, int nc, int invert)
 {
-    [MMBackend.shared drawInvertedRectAtRow:r column:c numRows:nr
-            numColumns:nc invert:invert];
+    [MMBackend.shared drawInvertedRectAtRow:r column:c numRows:nr numColumns:nc invert:invert];
 }
-
 
 
 // -- Tabline ---------------------------------------------------------------
@@ -648,12 +593,10 @@ gui_mch_show_tabline(int showit)
 descriptor_for_menu(vimmenu_T *menu)
 {
     if (!menu) return nil;
-
-    NSMutableArray *desc = [NSMutableArray array];
-    while (menu) {
-        NSString *name = [NSString stringWithVimString:menu->dname];
-        [desc insertObject:name atIndex:0];
-        menu = menu->parent;
+    
+    NSMutableArray *desc;
+    for (desc = NSMutableArray.new; menu; menu = menu->parent) {
+        [desc insertObject:[NSString stringWithVimString:menu->dname] atIndex:0];
     }
 
     return desc;
@@ -662,22 +605,18 @@ descriptor_for_menu(vimmenu_T *menu)
     vimmenu_T *
 menu_for_descriptor(NSArray *desc)
 {
-    if (!(desc && [desc count] > 0)) return NULL;
+    if (desc.count == 0) return NULL;
 
     vimmenu_T *menu = root_menu;
-    int i, count = [desc count];
 
-    for (i = 0; i < count; ++i) {
-        NSString *component = [desc objectAtIndex:i];
-        while (menu) {
-            NSString *name = [NSString stringWithVimString:menu->dname];
+    for (NSString *component in desc) {
+        for (NSString *name = [NSString stringWithVimString:menu->dname]; menu; menu = menu->next) {
             if ([component isEqual:name]) {
-                if (i+1 == count)
+                if (desc.lastObject == component)
                     return menu;    // Matched all components, so return menu
                 menu = menu->children;
                 break;
             }
-            menu = menu->next;
         }
     }
 
@@ -691,11 +630,7 @@ menu_for_descriptor(NSArray *desc)
 gui_mch_add_menu(vimmenu_T *menu, int idx)
 {
     NSArray *desc = descriptor_for_menu(menu);
-    [MMBackend.shared queueMessage:AddMenuMsgID properties:
-        [NSDictionary dictionaryWithObjectsAndKeys:
-            desc, @"descriptor",
-            [NSNumber numberWithInt:idx], @"index",
-            nil]];
+    [MMBackend.shared queueMessage:AddMenuMsgID properties:@{@"descriptor": desc, @"index": @(idx)}];
 }
 
 
@@ -706,17 +641,17 @@ lookup_menu_iconfile(char_u *iconfile, char_u *dest)
     expand_env(iconfile, dest, MAXPATHL);
 
     if (mch_isFullName(dest))
-	return vim_fexists(dest);
+        return vim_fexists(dest);
 
-    static const char   suffixes[][4] = {"png", "bmp"};
-    char_u		buf[MAXPATHL];
-    unsigned int	i;
+    static const char suffixes[][4] = {"png", "bmp"};
+    char_u buf[MAXPATHL];
 
-    for (i = 0; i < sizeof(suffixes)/sizeof(suffixes[0]); ++i)
+    for (size_t i = 0; i < sizeof(suffixes) / sizeof(suffixes[0]); ++i) {
         if (gui_find_bitmap(dest, buf, (char *)suffixes[i]) == OK) {
             STRCPY(dest, buf);
             return TRUE;
         }
+    }
 
     return FALSE;
 }
@@ -728,14 +663,10 @@ lookup_menu_iconfile(char_u *iconfile, char_u *dest)
     void
 gui_mch_add_menu_item(vimmenu_T *menu, int idx)
 {
-    char_u *tip = menu->strings[MENU_INDEX_TIP]
-            ? menu->strings[MENU_INDEX_TIP] : menu->actext;
+    char_u *tip = menu->strings[MENU_INDEX_TIP] ?: menu->actext;
     NSArray *desc = descriptor_for_menu(menu);
-    NSString *keyEquivalent = menu->mac_key
-        ? [NSString stringWithFormat:@"%C",
-                            (unsigned short)specialKeyToNSKey(menu->mac_key)]
-        : [NSString string];
-    int modifierMask = vimModMaskToEventModifierFlags(menu->mac_mods);
+    NSString *keyEquivalent = menu->mac_key ? [NSString stringWithFormat:@"%C", (unsigned short)specialKeyToNSKey(menu->mac_key)] : @"";
+    const int modifierMask = vimModMaskToEventModifierFlags(menu->mac_mods);
     char_u *icon = NULL;
 
     if (menu_is_toolbar(menu->parent->name)) {
@@ -746,8 +677,7 @@ gui_mch_add_menu_item(vimmenu_T *menu, int idx)
             icon = fname;
 
         // If not found and not builtin specified try using the menu name
-        if (!icon && !menu->icon_builtin
-                                    && lookup_menu_iconfile(menu->name, fname))
+        if (!icon && !menu->icon_builtin && lookup_menu_iconfile(menu->name, fname))
             icon = fname;
 
         // Still no icon found, try using a builtin icon.  (If this also fails,
@@ -756,17 +686,16 @@ gui_mch_add_menu_item(vimmenu_T *menu, int idx)
             icon = lookup_toolbar_item(menu->iconidx);
     }
 
-    [MMBackend.shared queueMessage:AddMenuItemMsgID properties:
-        [NSDictionary dictionaryWithObjectsAndKeys:
-            desc, @"descriptor",
-            [NSNumber numberWithInt:idx], @"index",
-            [NSString stringWithVimString:tip], @"tip",
-            [NSString stringWithVimString:icon], @"icon",
-            keyEquivalent, @"keyEquivalent",
-            [NSNumber numberWithInt:modifierMask], @"modifierMask",
-            [NSString stringWithVimString:menu->mac_action], @"action",
-            [NSNumber numberWithBool:menu->mac_alternate], @"isAlternate",
-            nil]];
+    [MMBackend.shared queueMessage:AddMenuItemMsgID properties:@{
+        @"descriptor": desc,
+        @"index": @(idx),
+        @"tip": [NSString stringWithVimString:tip],
+        @"icon": [NSString stringWithVimString:icon],
+        @"keyEquivalent": keyEquivalent,
+        @"modifierMask": @(modifierMask),
+        @"action": [NSString stringWithVimString:menu->mac_action],
+        @"isAlternate": @(menu->mac_alternate),
+    }];
 }
 
 
@@ -776,9 +705,9 @@ gui_mch_add_menu_item(vimmenu_T *menu, int idx)
     void
 gui_mch_destroy_menu(vimmenu_T *menu)
 {
-    NSArray *desc = descriptor_for_menu(menu);
-    [MMBackend.shared queueMessage:RemoveMenuItemMsgID properties:
-        [NSDictionary dictionaryWithObject:desc forKey:@"descriptor"]];
+    [MMBackend.shared queueMessage:RemoveMenuItemMsgID properties:@{
+        @"descriptor": descriptor_for_menu(menu)
+    }];
 }
 
 
@@ -797,11 +726,10 @@ gui_mch_menu_grey(vimmenu_T *menu, int grey)
 
     menu->was_grey = grey;
 
-    [MMBackend.shared queueMessage:EnableMenuItemMsgID properties:
-        [NSDictionary dictionaryWithObjectsAndKeys:
-            desc, @"descriptor",
-            [NSNumber numberWithInt:!grey], @"enable",
-            nil]];
+    [MMBackend.shared queueMessage:EnableMenuItemMsgID properties:@{
+        @"descriptor": desc,
+        @"enable": @(!grey)
+    }];
 }
 
 
@@ -823,9 +751,9 @@ gui_mch_menu_hidden(vimmenu_T *menu, int hidden)
     void
 gui_mch_show_popupmenu(vimmenu_T *menu)
 {
-    NSArray *desc = descriptor_for_menu(menu);
-    [MMBackend.shared queueMessage:ShowPopupMenuMsgID properties:
-        [NSDictionary dictionaryWithObject:desc forKey:@"descriptor"]];
+    [MMBackend.shared queueMessage:ShowPopupMenuMsgID properties:@{
+        @"descriptor": descriptor_for_menu(menu)
+    }];
 }
 
 
@@ -839,13 +767,9 @@ gui_make_popup(char_u *path_name, int mouse_pos)
     if (!(menu && menu->children)) return;
 
     NSArray *desc = descriptor_for_menu(menu);
-    NSDictionary *p = (mouse_pos || NULL == curwin)
-        ? [NSDictionary dictionaryWithObject:desc forKey:@"descriptor"]
-        : [NSDictionary dictionaryWithObjectsAndKeys:
-            desc, @"descriptor",
-            [NSNumber numberWithInt:curwin->w_wrow], @"row",
-            [NSNumber numberWithInt:curwin->w_wcol], @"column",
-            nil];
+    NSDictionary *p = (mouse_pos || !curwin) ?
+        @{@"descriptor": desc} :
+        @{@"descriptor": desc, @"row": @(curwin->w_wrow), @"column": @(curwin->w_wcol)};
 
     [MMBackend.shared queueMessage:ShowPopupMenuMsgID properties:p];
 }
@@ -889,8 +813,6 @@ gui_mch_show_toolbar(int showit)
 }
 
 
-
-
 // -- Fonts -----------------------------------------------------------------
 
 
@@ -901,17 +823,13 @@ gui_mch_show_toolbar(int showit)
 gui_mch_free_font(font)
     GuiFont	font;
 {
-    if (font != NOFONT) {
-        ASLogDebug(@"font=%p", font);
-        [(id)font release];
-    }
 }
 
 
     GuiFont
 gui_mch_retain_font(GuiFont font)
 {
-    return (GuiFont)[(id)font retain];
+    return font;
 }
 
 
@@ -941,8 +859,7 @@ gui_mch_get_font(char_u *name, int giveErrorIfMissing)
     char_u *
 gui_mch_get_fontname(GuiFont font, char_u *name)
 {
-    return font ? [(NSString *)font vimStringSave]
-                : (name ? vim_strsave(name) : NULL);
+    return font ? [(__bridge NSString *)font vimStringSave] : name ? vim_strsave(name) : NULL;
 }
 #endif
 
@@ -975,9 +892,7 @@ gui_mch_init_font(char_u *font_name, int fontset)
     // set, the advancement may change so the wide font needs to be updated
     // as well (so that it is always twice the width of the normal font).
     [MMBackend.shared setFont:font wide:NO];
-    [MMBackend.shared setFont:(NOFONT != gui.wide_font ? gui.wide_font
-                                                                 : font)
-                                   wide:YES];
+    [MMBackend.shared setFont:(NOFONT != gui.wide_font ? gui.wide_font : font) wide:YES];
 
     return OK;
 }
@@ -1001,45 +916,41 @@ gui_mch_set_font(GuiFont font)
 gui_macvim_font_with_name(char_u *name)
 {
     if (!name)
-        return (GuiFont)[[NSString alloc] initWithFormat:@"%@:h%d",
-                                        MMDefaultFontName, MMDefaultFontSize];
+        return (__bridge_retained GuiFont)[[NSString alloc] initWithFormat:@"%@:h%d", MMDefaultFontName, MMDefaultFontSize];
 
     NSString *fontName = [NSString stringWithVimString:name];
     int size = MMDefaultFontSize;
     BOOL parseFailed = NO;
 
     NSArray *components = [fontName componentsSeparatedByString:@":"];
-    if ([components count] == 2) {
-        NSString *sizeString = [components lastObject];
-        if ([sizeString length] > 0
-                && [sizeString characterAtIndex:0] == 'h') {
+    if (components.count == 2) {
+        NSString *sizeString = components.lastObject;
+        if (sizeString.length != 0 && [sizeString characterAtIndex:0] == 'h') {
             sizeString = [sizeString substringFromIndex:1];
-            if ([sizeString length] > 0) {
-                size = (int)round([sizeString floatValue]);
-                fontName = [components objectAtIndex:0];
+            if (sizeString.length != 0) {
+                size = (int)round(sizeString.floatValue);
+                fontName = components[0];
             }
         } else {
             parseFailed = YES;
         }
-    } else if ([components count] > 2) {
+    } else if (components.count > 2) {
         parseFailed = YES;
     }
 
     if (!parseFailed) {
         // Replace underscores with spaces.
-        fontName = [[fontName componentsSeparatedByString:@"_"]
-                                 componentsJoinedByString:@" "];
+        fontName = [[fontName componentsSeparatedByString:@"_"] componentsJoinedByString:@" "];
     }
 
-    if (!parseFailed && [fontName length] > 0) {
+    if (!parseFailed && fontName.length > 0) {
         if (size < MMMinFontSize) size = MMMinFontSize;
         if (size > MMMaxFontSize) size = MMMaxFontSize;
 
         // If the default font is requested we don't need to check if NSFont
         // can load it.  Otherwise we ask NSFont if it can load it.
-        if ([fontName isEqualToString:MMDefaultFontName]
-                || [NSFont fontWithName:fontName size:size])
-            return [[NSString alloc] initWithFormat:@"%@:h%d", fontName, size];
+        if ([fontName isEqualToString:MMDefaultFontName] || [NSFont fontWithName:fontName size:size])
+            return (__bridge_retained GuiFont)[[NSString alloc] initWithFormat:@"%@:h%d", fontName, size];
     }
 
     return NOFONT;
@@ -1057,40 +968,28 @@ gui_macvim_font_with_name(char_u *name)
 // really used?).
 
     void
-gui_mch_create_scrollbar(
-	scrollbar_T *sb,
-	int orient)	/* SBAR_VERT or SBAR_HORIZ */
+gui_mch_create_scrollbar(scrollbar_T *sb, int orient)	/* SBAR_VERT or SBAR_HORIZ */
 {
-    [MMBackend.shared 
-            createScrollbarWithIdentifier:(int32_t)sb->ident type:sb->type];
+    [MMBackend.shared createScrollbarWithIdentifier:(int32_t)sb->ident type:sb->type];
 }
 
 
     void
 gui_mch_destroy_scrollbar(scrollbar_T *sb)
 {
-    [MMBackend.shared 
-            destroyScrollbarWithIdentifier:(int32_t)sb->ident];
+    [MMBackend.shared destroyScrollbarWithIdentifier:(int32_t)sb->ident];
 }
 
 
     void
-gui_mch_enable_scrollbar(
-	scrollbar_T	*sb,
-	int		flag)
+gui_mch_enable_scrollbar(scrollbar_T *sb, int flag)
 {
-    [MMBackend.shared 
-            showScrollbarWithIdentifier:(int32_t)sb->ident state:flag];
+    [MMBackend.shared showScrollbarWithIdentifier:(int32_t)sb->ident state:flag];
 }
 
 
     void
-gui_mch_set_scrollbar_pos(
-	scrollbar_T *sb,
-	int x,
-	int y,
-	int w,
-	int h)
+gui_mch_set_scrollbar_pos(scrollbar_T *sb, int x, int y, int w, int h)
 {
     int pos = y;
     int len = h;
@@ -1099,23 +998,14 @@ gui_mch_set_scrollbar_pos(
         len = w; 
     }
 
-    [MMBackend.shared 
-            setScrollbarPosition:pos length:len identifier:(int32_t)sb->ident];
+    [MMBackend.shared setScrollbarPosition:pos length:len identifier:(int32_t)sb->ident];
 }
 
 
     void
-gui_mch_set_scrollbar_thumb(
-	scrollbar_T *sb,
-	long val,
-	long size,
-	long max)
+gui_mch_set_scrollbar_thumb(scrollbar_T *sb, long val, long size, long max)
 {
-    [MMBackend.shared 
-            setScrollbarThumbValue:val
-                              size:size
-                               max:max
-                        identifier:(int32_t)sb->ident];
+    [MMBackend.shared setScrollbarThumbValue:val size:size max:max identifier:(int32_t)sb->ident];
 }
 
 
@@ -1128,9 +1018,7 @@ gui_mch_set_scrollbar_thumb(
     void
 gui_mch_draw_hollow_cursor(guicolor_T color)
 {
-    return [MMBackend.shared
-        drawCursorAtRow:gui.row column:gui.col shape:MMInsertionPointHollow
-               fraction:100 color:color];
+    return [MMBackend.shared drawCursorAtRow:gui.row column:gui.col shape:MMInsertionPointHollow fraction:100 color:color];
 }
 
 
@@ -1154,17 +1042,15 @@ gui_mch_draw_part_cursor(int w, int h, guicolor_T color)
         case SHAPE_VER:
             shape =
 #ifdef FEAT_RIGHTLEFT
-                    // If 'rl' is set the insert mode cursor may be drawn on
-                    // the right-hand side of a text cell.
-                    CURSOR_BAR_RIGHT ? MMInsertionPointVerticalRight :
+                // If 'rl' is set the insert mode cursor may be drawn on
+                // the right-hand side of a text cell.
+                CURSOR_BAR_RIGHT ? MMInsertionPointVerticalRight :
 #endif
                     MMInsertionPointVertical;
             break;
     }
 
-    return [MMBackend.shared
-        drawCursorAtRow:gui.row column:gui.col shape:shape
-               fraction:shape_table[idx].percentage color:color];
+    return [MMBackend.shared drawCursorAtRow:gui.row column:gui.col shape:shape fraction:shape_table[idx].percentage color:color];
 }
 
 
@@ -1241,10 +1127,8 @@ gui_mch_setmouse(int x, int y)
     void
 mch_set_mouse_shape(int shape)
 {
-    [MMBackend.shared setMouseShape:shape];
+    MMBackend.shared.mouseShape = shape;
 }
-
-
 
 
 // -- Input Method ----------------------------------------------------------
@@ -1264,7 +1148,7 @@ im_set_control(int enable)
 {
     // Tell frontend whether it should notify us when the input method changes
     // or not (called when 'imd' is toggled).
-    int msgid = enable ? EnableImControlMsgID : DisableImControlMsgID;
+    const int msgid = enable ? EnableImControlMsgID : DisableImControlMsgID;
     [MMBackend.shared queueMessage:msgid properties:nil];
 }
 
@@ -1274,8 +1158,8 @@ im_set_active(int active)
 {
     // Tell frontend to enable/disable IM (called e.g. when the mode changes).
     if (!p_imdisable) {
-        int msgid = active ? ActivateKeyScriptMsgID : DeactivateKeyScriptMsgID;
-        [MMBackend.shared setImState:active];
+        const int msgid = active ? ActivateKeyScriptMsgID : DeactivateKeyScriptMsgID;
+        MMBackend.shared.imState = active;
         [MMBackend.shared queueMessage:msgid properties:nil];
     }
 }
@@ -1284,12 +1168,10 @@ im_set_active(int active)
     int
 im_get_status(void)
 {
-    return [MMBackend.shared imState];
+    return MMBackend.shared.imState;
 }
 
 #endif // defined(USE_IM_CONTROL)
-
-
 
 
 // -- Find & Replace dialog -------------------------------------------------
@@ -1308,13 +1190,10 @@ macvim_find_and_replace(char_u *arg, BOOL replace)
     if (wholeWord) flags |= FRD_WHOLE_WORD;
     if (matchCase) flags |= FRD_MATCH_CASE;
 
-    NSDictionary *args = [NSDictionary dictionaryWithObjectsAndKeys:
-            [NSString stringWithVimString:text],    @"text",
-            [NSNumber numberWithInt:flags],         @"flags",
-            nil];
-
-    [MMBackend.shared queueMessage:ShowFindReplaceDialogMsgID
-                                  properties:args];
+    [MMBackend.shared queueMessage:ShowFindReplaceDialogMsgID properties:@{
+        @"text": [NSString stringWithVimString:text],
+        @"flags": @(flags)
+    }];
 }
 
     void
@@ -1332,14 +1211,11 @@ gui_mch_replace_dialog(exarg_T *eap)
 #endif // FIND_REPLACE_DIALOG
 
 
-
-
 // -- Unsorted --------------------------------------------------------------
 
 
     void
-ex_macaction(eap)
-    exarg_T	*eap;
+ex_macaction(exarg_T *eap)
 {
     if (!gui.in_use) {
         EMSG(_("E???: Command only available in GUI mode"));
@@ -1351,9 +1227,8 @@ ex_macaction(eap)
     arg = CONVERT_TO_UTF8(arg);
 #endif
 
-    NSDictionary *actions = MMBackend.shared.actions;
-    NSString *name = [NSString stringWithUTF8String:(char*)arg];
-    if (actions[name]) {
+    NSString *name = [NSString stringWithUTF8String:(char *)arg];
+    if (MMBackend.shared.actions[name]) {
         [MMBackend.shared executeActionWithName:name];
     } else {
         EMSG2(_("E???: Invalid action: %s"), eap->arg);
@@ -1404,30 +1279,17 @@ gui_mch_beep(void)
  *  *NOTE* - the filter string must be terminated with TWO nulls.
  */
     char_u *
-gui_mch_browse(
-    int saving,
-    char_u *title,
-    char_u *dflt,
-    char_u *ext,
-    char_u *initdir,
-    char_u *filter)
+gui_mch_browse(int saving, char_u *title, char_u *dflt, char_u *ext, char_u *initdir, char_u *filter)
 {
-    ASLogDebug(@"saving=%d title='%s' dflt='%s' ext='%s' initdir='%s' "
-               "filter='%s'", saving, title, dflt, ext, initdir, filter);
+    ASLogDebug(@"saving=%d title='%s' dflt='%s' ext='%s' initdir='%s' filter='%s'", saving, title, dflt, ext, initdir, filter);
 
     // Ensure no data is on the output queue before presenting the dialog.
     gui_macvim_force_flush();
 
-    NSMutableDictionary *attr = [NSMutableDictionary
-        dictionaryWithObject:[NSNumber numberWithBool:saving]
-                      forKey:@"saving"];
-    if (initdir)
-        [attr setObject:[NSString stringWithVimString:initdir] forKey:@"dir"];
+    NSMutableDictionary *attr = [@{@"saving": @(saving != 0)} mutableCopy];
+    if (initdir) attr[@"dir"] = [NSString stringWithVimString:initdir];
 
-    char_u *s = (char_u*)[MMBackend.shared
-                            browseForFileWithAttributes:attr];
-
-    return s;
+    return (char_u *)[MMBackend.shared browseForFileWithAttributes:attr];
 }
 
 /*
@@ -1437,28 +1299,20 @@ gui_mch_browse(
  * initdir			initial directory, NULL for current dir
  */
     char_u *
-gui_mch_browsedir(
-	       char_u *title,
-	       char_u *initdir)
+gui_mch_browsedir(char_u *title, char_u *initdir)
 {
     ASLogDebug(@"title='%s' initdir='%s'", title, initdir);
 
     // Ensure no data is on the output queue before presenting the dialog.
     gui_macvim_force_flush();
 
-    NSMutableDictionary *attr = [NSMutableDictionary
-        dictionaryWithObject:[NSNumber numberWithBool:YES]
-                      forKey:@"browsedir"];
+    NSMutableDictionary *attr = @{@"browsedir": @YES}.mutableCopy;
     if (initdir)
-        [attr setObject:[NSString stringWithVimString:initdir] forKey:@"dir"];
+        attr[@"dir"] = [NSString stringWithVimString:initdir];
 
-    char_u *s = (char_u*)[MMBackend.shared
-                            browseForFileWithAttributes:attr];
-
-    return s;
+    return (char_u *)[MMBackend.shared browseForFileWithAttributes:attr];
 }
 #endif /* FEAT_BROWSE */
-
 
 
     int
@@ -1471,9 +1325,7 @@ gui_mch_dialog(
     char_u	*textfield,
     int         ex_cmd)     // UNUSED
 {
-    ASLogDebug(@"type=%d title='%s' message='%s' buttons='%s' dfltbutton=%d "
-               "textfield='%s'", type, title, message, buttons, dfltbutton,
-               textfield);
+    ASLogDebug(@"type=%d title='%s' message='%s' buttons='%s' dfltbutton=%d textfield='%s'", type, title, message, buttons, dfltbutton, textfield);
 
     // Ensure no data is on the output queue before presenting the dialog.
     gui_macvim_force_flush();
@@ -1482,20 +1334,14 @@ gui_mch_dialog(
     if (VIM_WARNING == type) style = NSAlertStyleWarning;
     else if (VIM_ERROR == type) style = NSAlertStyleCritical;
 
-    NSMutableDictionary *attr = [NSMutableDictionary
-                        dictionaryWithObject:[NSNumber numberWithInt:style]
-                                      forKey:@"alertStyle"];
-
+    NSMutableDictionary *attr = @{@"alertStyle": @(style)}.mutableCopy;
     if (buttons) {
         // 'buttons' is a string of '\n'-separated button titles 
         NSString *string = [NSString stringWithVimString:buttons];
-        NSArray *array = [string componentsSeparatedByString:@"\n"];
-        [attr setObject:array forKey:@"buttonTitles"];
+        attr[@"buttonTitles"] = [string componentsSeparatedByString:@"\n"];
     }
 
-    NSString *messageText = nil;
-    if (title)
-        messageText = [NSString stringWithVimString:title];
+    NSString *messageText = title ? [NSString stringWithVimString:title] : nil;
 
     if (message) {
         NSString *informativeText = [NSString stringWithVimString:message];
@@ -1509,26 +1355,18 @@ gui_mch_dialog(
             if (NSNotFound == eolRange.location)
                 eolRange = [informativeText rangeOfString:@"\n"];
             if (NSNotFound != eolRange.location) {
-                messageText = [informativeText substringToIndex:
-                                                        eolRange.location];
-                informativeText = [informativeText substringFromIndex:
-                                                        NSMaxRange(eolRange)];
+                messageText = [informativeText substringToIndex: eolRange.location];
+                informativeText = [informativeText substringFromIndex:NSMaxRange(eolRange)];
             }
         }
 
-        [attr setObject:informativeText forKey:@"informativeText"];
+        attr[@"informativeText"] = informativeText;
     }
 
-    if (messageText)
-        [attr setObject:messageText forKey:@"messageText"];
+    if (messageText) attr[@"messageText"] = messageText;
+    if (textfield) attr[@"textFieldString"] = [NSString stringWithVimString:textfield];
 
-    if (textfield) {
-        NSString *string = [NSString stringWithVimString:textfield];
-        [attr setObject:string forKey:@"textFieldString"];
-    }
-
-    return [MMBackend.shared showDialogWithAttributes:attr
-                                                    textField:(char*)textfield];
+    return [MMBackend.shared showDialogWithAttributes:attr textField:(char*)textfield];
 }
 
 
@@ -1548,14 +1386,14 @@ gui_mch_flash(int msec)
 gui_mch_get_color(char_u *name)
 {
     if (!MMBackend.shared)
-	return INVALCOLOR;
+        return INVALCOLOR;
 
 #ifdef FEAT_MBYTE
     name = CONVERT_TO_UTF8(name);
 #endif
 
-    NSString *key = [NSString stringWithUTF8String:(char*)name];
-    guicolor_T col = [MMBackend.shared lookupColorWithKey:key];
+    NSString *key = [NSString stringWithUTF8String:(char *)name];
+    const guicolor_T col = [MMBackend.shared lookupColorWithKey:key];
 
 #ifdef FEAT_MBYTE
     CONVERT_TO_UTF8_FREE(name);
@@ -1626,7 +1464,6 @@ gui_mch_set_foreground(void)
 #endif
 
 
-
     void
 gui_mch_set_shellsize(
     int		width,
@@ -1637,9 +1474,7 @@ gui_mch_set_shellsize(
     int		base_height,
     int		direction)
 {
-    ASLogDebug(@"width=%d height=%d min_width=%d min_height=%d base_width=%d "
-               "base_height=%d direction=%d", width, height, min_width,
-               min_height, base_width, base_height, direction);
+    ASLogDebug(@"width=%d height=%d min_width=%d min_height=%d base_width=%d base_height=%d direction=%d", width, height, min_width, min_height, base_width, base_height, direction);
     [MMBackend.shared setRows:height columns:width];
 }
 
@@ -1688,12 +1523,10 @@ gui_mch_settitle(char_u *title, char_u *icon)
     title = CONVERT_TO_UTF8(title);
 #endif
 
-    MMBackend *backend = MMBackend.shared;
-    [backend setWindowTitle:(char*)title];
+    MMBackend.shared.windowTitle = (char *)title;
 
     // TODO: Convert filename to UTF-8?
-    if (curbuf)
-        [backend setDocumentFilename:(char*)curbuf->b_ffname];
+    if (curbuf) MMBackend.shared.documentFilename = (char *)curbuf->b_ffname;
 
 #ifdef FEAT_MBYTE
     CONVERT_TO_UTF8_FREE(title);
@@ -1706,7 +1539,6 @@ gui_mch_settitle(char_u *title, char_u *icon)
 gui_mch_toggle_tearoffs(int enable)
 {
 }
-
 
 
     void
@@ -1736,7 +1568,7 @@ gui_mch_fuopt_update()
         bg = fuoptions_bgcolor;
     }
 
-    [MMBackend.shared setFullScreenBackgroundColor:bg];
+    MMBackend.shared.fullScreenBackgroundColor = bg;
 }
 
 
@@ -1759,7 +1591,7 @@ gui_macvim_add_to_find_pboard(char_u *pat)
 #ifdef FEAT_MBYTE
     pat = CONVERT_TO_UTF8(pat);
 #endif
-    NSString *s = [NSString stringWithUTF8String:(char*)pat];
+    NSString *s = [NSString stringWithUTF8String:(char *)pat];
 #ifdef FEAT_MBYTE
     CONVERT_TO_UTF8_FREE(pat);
 #endif
@@ -1767,9 +1599,7 @@ gui_macvim_add_to_find_pboard(char_u *pat)
     if (!s) return;
 
     NSPasteboard *pb = [NSPasteboard pasteboardWithName:NSFindPboard];
-    NSArray *supportedTypes = [NSArray arrayWithObjects:VimFindPboardType,
-            NSStringPboardType, nil];
-    [pb declareTypes:supportedTypes owner:nil];
+    [pb declareTypes:@[VimFindPboardType, NSStringPboardType] owner:nil];
 
     // Put two entries on the Find pasteboard:
     //   * the pattern Vim uses
@@ -1783,26 +1613,25 @@ gui_macvim_add_to_find_pboard(char_u *pat)
     void
 gui_macvim_set_antialias(int antialias)
 {
-    [MMBackend.shared setAntialias:antialias];
+    MMBackend.shared.antialias = antialias;
 }
 
     void
 gui_macvim_set_ligatures(int ligatures)
 {
-    [MMBackend.shared setLigatures:ligatures];
+    MMBackend.shared.ligatures = ligatures;
 }
     void
 gui_macvim_set_thinstrokes(int thinStrokes)
 {
-    [MMBackend.shared setThinStrokes:thinStrokes];
+    MMBackend.shared.thinStrokes = thinStrokes;
 }
 
     void
 gui_macvim_wait_for_startup()
 {
-    MMBackend *backend = MMBackend.shared;
-    if ([backend waitForAck])
-        [backend waitForConnectionAcknowledgement];
+    if (MMBackend.shared.waitForAck)
+        [MMBackend.shared waitForConnectionAcknowledgement];
 }
 
 void gui_macvim_get_window_layout(int *count, int *layout)
@@ -1811,7 +1640,7 @@ void gui_macvim_get_window_layout(int *count, int *layout)
 
     // NOTE: Only set 'layout' if the backend has requested a != 0 layout, else
     // any command line arguments (-p/-o) would be ignored.
-    int window_layout = [MMBackend.shared initialWindowLayout];
+    const int window_layout = MMBackend.shared.initialWindowLayout;
     if (window_layout > 0 && window_layout < 4) {
         // The window_layout numbers must match the WIN_* defines in main.c.
         *count = 0;
@@ -1821,12 +1650,11 @@ void gui_macvim_get_window_layout(int *count, int *layout)
 
 void *gui_macvim_new_autoreleasepool()
 {
-    return (void *)[[NSAutoreleasePool alloc] init];
+    return nil;
 }
 
 void gui_macvim_release_autoreleasepool(void *pool)
 {
-    [(id)pool release];
 }
 
 // -- Client/Server ---------------------------------------------------------
@@ -1869,27 +1697,22 @@ serverRegisterName(char_u *name)
  * Returns 0 for OK, negative for an error.
  */
     int
-serverSendToVim(char_u *name, char_u *cmd, char_u **result,
-        int *port, int asExpr, int silent)
+serverSendToVim(char_u *name, char_u *cmd, char_u **result, int *port, int asExpr, int silent)
 {
 #ifdef FEAT_MBYTE
     name = CONVERT_TO_UTF8(name);
     cmd = CONVERT_TO_UTF8(cmd);
 #endif
-
-    BOOL ok = [MMBackend.shared
-            sendToServer:[NSString stringWithUTF8String:(char*)name]
-                  string:[NSString stringWithUTF8String:(char*)cmd]
-                   reply:result
-                    port:port
-              expression:asExpr
-                  silent:silent];
-
+    const BOOL ok = [MMBackend.shared sendToServer:[NSString stringWithUTF8String:(char *)name]
+                                            string:[NSString stringWithUTF8String:(char *)cmd]
+                                             reply:result
+                                              port:port
+                                        expression:asExpr
+                                            silent:silent];
 #ifdef FEAT_MBYTE
     CONVERT_TO_UTF8_FREE(name);
     CONVERT_TO_UTF8_FREE(cmd);
 #endif
-
     return ok ? 0 : -1;
 }
 
@@ -1901,11 +1724,11 @@ serverSendToVim(char_u *name, char_u *cmd, char_u **result,
 serverGetVimNames(void)
 {
     char_u *names = NULL;
-    NSArray *list = [MMBackend.shared serverList];
+    NSArray *list = MMBackend.shared.serverList;
 
     if (list) {
         NSString *string = [list componentsJoinedByString:@"\n"];
-        names = [string vimStringSave];
+        names = string.vimStringSave;
     }
 
     return names;
@@ -1939,21 +1762,18 @@ serverPeekReply(int port, char_u **str)
     int len = [reply lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
 
     if (str && len > 0) {
-        *str = (char_u*)[reply UTF8String];
-
+        *str = (char_u*)reply.UTF8String;
 #ifdef FEAT_MBYTE
         if (input_conv.vc_type != CONV_NONE) {
             char_u *s = string_convert(&input_conv, *str, &len);
-
             if (len > 0) {
                 // HACK! Since 's' needs to be freed we cannot simply set
                 // '*str = s' or memory will leak.  Instead, create a dummy
                 // NSData and return its 'bytes' pointer, then autorelease the
                 // NSData.
-                NSData *data = [NSData dataWithBytes:s length:len+1];
-                *str = (char_u*)[data bytes];
+                NSData *data = [NSData dataWithBytes:s length:len + 1];
+                *str = (char_u*)data.bytes;
             }
-
             vim_free(s);
         }
 #endif
@@ -1973,10 +1793,9 @@ serverReadReply(int port, char_u **str)
 {
     NSString *reply = [MMBackend.shared waitForReplyOnPort:port];
     if (reply && str) {
-        *str = [reply vimStringSave];
+        *str = reply.vimStringSave;
         return 0;
     }
-
     return -1;
 }
 
@@ -1994,9 +1813,7 @@ serverSendReply(char_u *serverid, char_u *reply)
 #ifdef FEAT_MBYTE
         reply = CONVERT_TO_UTF8(reply);
 #endif
-        BOOL ok = [MMBackend.shared
-                sendReply:[NSString stringWithUTF8String:(char*)reply]
-                   toPort:port];
+        const BOOL ok = [MMBackend.shared sendReply:[NSString stringWithUTF8String:(char *)reply] toPort:port];
         retval = ok ? 0 : -1;
 #ifdef FEAT_MBYTE
         CONVERT_TO_UTF8_FREE(reply);
@@ -2007,8 +1824,6 @@ serverSendReply(char_u *serverid, char_u *reply)
 }
 
 #endif // MAC_CLIENTSERVER
-
-
 
 
 // -- ODB Editor Support ----------------------------------------------------
@@ -2032,32 +1847,21 @@ odb_event(buf_T *buf, const AEEventID action)
     if (!(buf->b_odb_server_id && buf->b_ffname))
         return noErr;
 
-    NSAppleEventDescriptor *targetDesc = [NSAppleEventDescriptor
-            descriptorWithDescriptorType:typeApplSignature
-                                   bytes:&buf->b_odb_server_id
-                                  length:sizeof(uint32_t)];
+    NSAppleEventDescriptor *desc = [NSAppleEventDescriptor descriptorWithDescriptorType:typeApplSignature bytes:&buf->b_odb_server_id length:sizeof(uint32_t)];
 
     // TODO: Convert b_ffname to UTF-8?
-    NSString *path = [NSString stringWithUTF8String:(char*)buf->b_ffname];
-    NSData *pathData = [[[NSURL fileURLWithPath:path] absoluteString]
-            dataUsingEncoding:NSUTF8StringEncoding];
-    NSAppleEventDescriptor *pathDesc = [NSAppleEventDescriptor
-            descriptorWithDescriptorType:typeFileURL data:pathData];
+    NSString *path = [NSString stringWithUTF8String:(char *)buf->b_ffname];
+    NSData *data = [[[NSURL fileURLWithPath:path] absoluteString] dataUsingEncoding:NSUTF8StringEncoding];
 
-    NSAppleEventDescriptor *event = [NSAppleEventDescriptor
-            appleEventWithEventClass:kODBEditorSuite
-                             eventID:action
-                    targetDescriptor:targetDesc
-                            returnID:kAutoGenerateReturnID
-                       transactionID:kAnyTransactionID];
+    NSAppleEventDescriptor *event = [NSAppleEventDescriptor appleEventWithEventClass:kODBEditorSuite eventID:action targetDescriptor:desc returnID:kAutoGenerateReturnID transactionID:kAnyTransactionID];
 
-    [event setParamDescriptor:pathDesc forKeyword:keyDirectObject];
+    [event setParamDescriptor:[NSAppleEventDescriptor descriptorWithDescriptorType:typeFileURL data:data]
+                   forKeyword:keyDirectObject];
 
     if (buf->b_odb_token)
-        [event setParamDescriptor:buf->b_odb_token forKeyword:keySenderToken];
+        [event setParamDescriptor:(__bridge NSAppleEventDescriptor *)buf->b_odb_token forKeyword:keySenderToken];
 
-    return AESendMessage([event aeDesc], NULL, kAENoReply | kAENeverInteract,
-            kAEDefaultTimeout);
+    return AESendMessage(event.aeDesc, NULL, kAENoReply | kAENeverInteract, kAEDefaultTimeout);
 }
 
     int16_t
@@ -2070,7 +1874,6 @@ odb_buffer_close(buf_T *buf)
         buf->b_odb_server_id = 0;
 
         if (buf->b_odb_token) {
-            [(NSAppleEventDescriptor *)(buf->b_odb_token) release];
             buf->b_odb_token = NULL;
         }
 
@@ -2219,18 +2022,13 @@ static int vimModMaskToEventModifierFlags(int mods)
 {
     int flags = 0;
 
-    if (mods & MOD_MASK_SHIFT)
-        flags |= NSEventModifierFlagShift;
-    if (mods & MOD_MASK_CTRL)
-        flags |= NSEventModifierFlagControl;
-    if (mods & MOD_MASK_ALT)
-        flags |= NSEventModifierFlagOption;
-    if (mods & MOD_MASK_CMD)
-        flags |= NSEventModifierFlagCommand;
+    if (mods & MOD_MASK_SHIFT) flags |= NSEventModifierFlagShift;
+    if (mods & MOD_MASK_CTRL) flags |= NSEventModifierFlagControl;
+    if (mods & MOD_MASK_ALT) flags |= NSEventModifierFlagOption;
+    if (mods & MOD_MASK_CMD) flags |= NSEventModifierFlagCommand;
 
     return flags;
 }
-
 
 
 // -- Channel Support ------------------------------------------------------
@@ -2238,26 +2036,24 @@ static int vimModMaskToEventModifierFlags(int mods)
     void *
 gui_macvim_add_channel(channel_T *channel, ch_part_T part)
 {
-    dispatch_source_t s =
+    dispatch_source_t source =
         dispatch_source_create(DISPATCH_SOURCE_TYPE_READ,
                                channel->ch_part[part].ch_fd,
                                0,
                                dispatch_get_main_queue());
-    dispatch_source_set_event_handler(s, ^{
+    dispatch_source_set_event_handler(source, ^{
         channel_read(channel, part, "gui_macvim_add_channel");
     });
-    dispatch_resume(s);
-    return s;
+    dispatch_resume(source);
+    return (__bridge_retained void *)source;
 }
 
     void
 gui_macvim_remove_channel(void *cookie)
 {
-    dispatch_source_t s = (dispatch_source_t)cookie;
-    dispatch_source_cancel(s);
-    dispatch_release(s);
+    dispatch_source_t source = (__bridge_transfer dispatch_source_t)cookie;
+    dispatch_source_cancel(source);
 }
-
 
 
 // -- Graphical Sign Support ------------------------------------------------
@@ -2269,18 +2065,14 @@ gui_mch_drawsign(int row, int col, int typenr)
     if (!gui.in_use)
         return;
 
-    NSString *imgName = (NSString *)sign_get_image(typenr);
-    if (!imgName)
+    NSString *name = (__bridge NSString *)sign_get_image(typenr);
+    if (!name)
         return;
 
-    char_u *txt = sign_get_text(typenr);
-    int txtSize = txt ? strlen((char*)txt) : 2;
+    char_u *const txt = sign_get_text(typenr);
+    const int txtSize = txt ? strlen((char *)txt) : 2;
 
-    [MMBackend.shared drawSign:imgName
-                                   atRow:row
-                                  column:col
-                                   width:txtSize
-                                  height:1];
+    [MMBackend.shared drawSign:name atRow:row column:col width:txtSize height:1];
 }
 
     void *
@@ -2289,34 +2081,26 @@ gui_mch_register_sign(char_u *signfile)
     if (!use_graphical_sign)
         return NULL;
 
-    NSString *imgName = [NSString stringWithVimString:signfile];
-    NSImage *img = [[NSImage alloc] initWithContentsOfFile:imgName];
+    NSString *name = [NSString stringWithVimString:signfile];
+    NSImage *img = [[NSImage alloc] initWithContentsOfFile:name];
     if (!img) {
         EMSG(_(e_signdata));
         return NULL;
     }
 
-    [img release];
-
-    return (void*)[imgName retain];
+    return (__bridge_retained void *)name;
 }
 
     void
 gui_mch_destroy_sign(void *sign)
 {
-    NSString *imgName = (NSString *)sign;
-    if (!imgName)
-        return;
+    NSString *name = (__bridge_transfer NSString *)sign;
+    if (!name) return;
 
-    [MMBackend.shared
-            queueMessage:DeleteSignMsgID
-              properties:[NSDictionary dictionaryWithObjectsAndKeys:
-                                                    imgName, @"imgName", nil]];
-    [imgName release];
+    [MMBackend.shared queueMessage:DeleteSignMsgID properties:@{@"imgName": name}];
 }
 
 #endif // FEAT_SIGN_ICONS
-
 
 
 // -- Balloon Eval Support ---------------------------------------------------
@@ -2324,56 +2108,44 @@ gui_mch_destroy_sign(void *sign)
 #ifdef FEAT_BEVAL
 
     BalloonEval *
-gui_mch_create_beval_area(target, mesg, mesgCB, clientData)
-    void	*target;
-    char_u	*mesg;
-    void	(*mesgCB)(BalloonEval *, int);
-    void	*clientData;
+gui_mch_create_beval_area(
+    void	*target,
+    char_u	*mesg,
+    void	(*mesgCB)(BalloonEval *, int),
+    void	*clientData)
 {
-    BalloonEval	*beval;
-
-    beval = (BalloonEval *)calloc(1, sizeof(BalloonEval));
-    if (NULL == beval)
-        return NULL;
-
-    beval->msg = mesg;
-    beval->msgCB = mesgCB;
-    beval->clientData = clientData;
-
+    BalloonEval	*beval = (BalloonEval *)calloc(1, sizeof(BalloonEval));
+    if (beval) {
+        beval->msg = mesg;
+        beval->msgCB = mesgCB;
+        beval->clientData = clientData;
+    }
     return beval;
 }
 
     void
-gui_mch_enable_beval_area(beval)
-    BalloonEval	*beval;
+gui_mch_enable_beval_area(BalloonEval *beval)
 {
     // Set the balloon delay when enabling balloon eval.
-    float delay = p_bdlay/1000.0f - MMBalloonEvalInternalDelay;
-    if (delay < 0) delay = 0;
-    [MMBackend.shared queueMessage:SetTooltipDelayMsgID properties:
-        [NSDictionary dictionaryWithObject:[NSNumber numberWithFloat:delay]
-                                    forKey:@"delay"]];
+    const float delay = MAX(p_bdlay / 1000.f - MMBalloonEvalInternalDelay, 0);
+    [MMBackend.shared queueMessage:SetTooltipDelayMsgID properties:@{@"delay": @(delay)}];
 }
 
     void
-gui_mch_disable_beval_area(beval)
-    BalloonEval	*beval;
+gui_mch_disable_beval_area(BalloonEval *beval)
 {
     // NOTE: An empty tool tip indicates that the tool tip window should hide.
-    [MMBackend.shared queueMessage:SetTooltipMsgID properties:
-        [NSDictionary dictionaryWithObject:@"" forKey:@"toolTip"]];
+    [MMBackend.shared queueMessage:SetTooltipMsgID properties:@{@"toolTip": @""}];
 }
 
 /*
  * Show a balloon with "mesg".
  */
     void
-gui_mch_post_balloon(beval, mesg)
-    BalloonEval	*beval;
-    char_u	*mesg;
+gui_mch_post_balloon(BalloonEval *beval, char_u *mesg)
 {
-    NSString *toolTip = [NSString stringWithVimString:mesg];
-    [MMBackend.shared setLastToolTip:toolTip];
+    NSString *tip = [NSString stringWithVimString:mesg];
+    [MMBackend.shared setLastToolTip:tip];
 }
 
 #endif // FEAT_BEVAL
@@ -2381,5 +2153,5 @@ gui_mch_post_balloon(beval, mesg)
     void
 gui_macvim_set_blur(int radius)
 {
-    [MMBackend.shared setBlurRadius:radius];
+    MMBackend.shared.blurRadius = radius;
 }
