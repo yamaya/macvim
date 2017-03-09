@@ -569,12 +569,12 @@ defaultAdvanceForFont(NSFont *font)
 
 - (void)setNeedsDisplayCGLayerInRect:(CGRect)rect
 {
-    if (_CGLayerEnabled) [self setNeedsDisplayInRect:rect];
+    if (_CGLayerEnabled) self.needsDisplayInRect = rect;
 }
 
-- (void)setNeedsDisplayCGLayer:(BOOL)flag
+- (void)setNeedsDisplayCGLayer:(BOOL)needs
 {
-    if (_CGLayerEnabled) [self setNeedsDisplay:flag];
+    if (_CGLayerEnabled) self.needsDisplay = needs;
 }
 
 - (NSSize)constrainRows:(int *)rows columns:(int *)cols toSize:(NSSize)size
@@ -983,7 +983,7 @@ defaultAdvanceForFont(NSFont *font)
         CGContextSetBlendMode(context, kCGBlendModeCopy);
         CGContextDrawLayerAtPoint(context, (CGPoint){0, -yOffset}, [self getCGLayer]);
         CGContextRestoreGState(context);
-        [self setNeedsDisplayCGLayerInRect:clipRect];
+        self.needsDisplayCGLayerInRect = clipRect;
     } else {
         [self scrollRect:rect by:(NSSize){0, -count * _cellSize.height}];
     }

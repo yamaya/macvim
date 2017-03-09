@@ -365,7 +365,7 @@ static BOOL isUnsafeMessage(int msgid);
 
     const NSUInteger count = queue.count;
     if (count % 2) {
-        ASLogWarn(@"Uneven number of components (%d) in command queue.  Skipping...", (int)count);
+        ASLogWarn(@"Uneven number of components (%d) in command queue. Skipping...", (int)count);
         return;
     }
 
@@ -374,8 +374,7 @@ static BOOL isUnsafeMessage(int msgid);
         NSData *data = queue[i + 1];
 
         const int msgid = *((int *)value.bytes);
-        const BOOL inDefaultMode = [NSRunLoop.currentRunLoop.currentMode isEqual:NSDefaultRunLoopMode];
-        if (!inDefaultMode && isUnsafeMessage(msgid)) {
+        if (![NSRunLoop.currentRunLoop.currentMode isEqual:NSDefaultRunLoopMode] && isUnsafeMessage(msgid)) {
             // NOTE: Because we may be listening to DO messages in "event
             // tracking mode" we have to take extra care when doing things
             // like releasing view items (and other Cocoa objects).
@@ -401,7 +400,8 @@ static BOOL isUnsafeMessage(int msgid);
 
     if (delayQueue) {
         ASLogDebug(@"    Flushing delay queue (%ld items)", delayQueue.count / 2);
-        [self performSelector:@selector(processInputQueue:) withObject:delayQueue afterDelay:0];
+        __weak typeof(self) zelf = self;
+        dispatch_async(dispatch_get_main_queue(), ^{ [zelf processInputQueue:delayQueue]; });
     }
 }
 
@@ -414,8 +414,10 @@ static BOOL isUnsafeMessage(int msgid);
         // processing the queue since it contains drawing commands that need to
         // be issued before presentation; otherwise the window may flash white
         // just as it opens.
-        if (!_isPreloading)
-            [_windowController performSelector:@selector(presentWindow:) withObject:nil afterDelay:0];
+        if (!_isPreloading) {
+            __weak typeof(_windowController) controller = _windowController;
+            dispatch_async(dispatch_get_main_queue(), ^{ [controller presentWindow:nil]; });
+        }
     } else if (BatchDrawMsgID == msgid) {
         [_windowController.vimView.textView performBatchDrawWithData:data];
     } else if (SelectTabMsgID == msgid) {
@@ -559,9 +561,9 @@ static BOOL isUnsafeMessage(int msgid);
     } else if (ExecuteActionMsgID == msgid) {
         const void *bytes = data.bytes;
         const int len = *((int *)bytes);  bytes += sizeof(int);
-        NSString *actionName = [[NSString alloc] initWithBytes:(void *)bytes length:len encoding:NSUTF8StringEncoding];
+        NSString *name = [[NSString alloc] initWithBytes:(void *)bytes length:len encoding:NSUTF8StringEncoding];
 
-        [NSApp sendAction:NSSelectorFromString(actionName) to:nil from:self];
+        [NSApp sendAction:NSSelectorFromString(name) to:nil from:self];
     } else if (ShowPopupMenuMsgID == msgid) {
         NSDictionary *attrs = [NSDictionary dictionaryWithData:data];
 

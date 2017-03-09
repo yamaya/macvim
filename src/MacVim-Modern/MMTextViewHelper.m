@@ -23,12 +23,11 @@
 #import "MMTextView+Protocol.h"
 
 // The max/min drag timer interval in seconds
-static NSTimeInterval MMDragTimerMaxInterval = 0.3;
-static NSTimeInterval MMDragTimerMinInterval = 0.01;
+static const NSTimeInterval MMDragTimerMaxInterval = 0.3;
+static const NSTimeInterval MMDragTimerMinInterval = 0.01;
 
 // The number of pixels in which the drag timer interval changes
-static float MMDragAreaSize = 73.0f;
-
+static const float MMDragAreaSize = 73.0f;
 
 @interface MMTextViewHelper ()
 @property (nonatomic, readonly) MMWindowController *windowController;
@@ -36,7 +35,6 @@ static float MMDragAreaSize = 73.0f;
 
 - (void)doKeyDown:(NSString *)key;
 - (void)doInsertText:(NSString *)text;
-- (void)hideMouseCursor;
 - (void)startDragTimerWithInterval:(NSTimeInterval)t;
 - (void)dragTimerFired:(NSTimer *)timer;
 - (void)setCursor;
@@ -128,10 +126,14 @@ KeyboardInputSourcesEqual(TISInputSourceRef a, TISInputSourceRef b)
         _textView.needsDisplay = YES;
     }
 
-    [self hideMouseCursor];
+    NSDictionary *states = self.vimController.vimState;
+    const BOOL mouseHidden = [states[@"p_mh"] boolValue];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSCursor.hiddenUntilMouseMoves = mouseHidden;
+    });
 
     const unsigned flags = event.modifierFlags;
-    const id mmta = self.vimController.vimState[@"p_mmta"];
+    const id mmta = states[@"p_mmta"];
     NSString *string = event.characters;
     NSString *unmod  = event.charactersIgnoringModifiers;
 
@@ -717,7 +719,7 @@ KeyboardInputSourcesEqual(TISInputSourceRef a, TISInputSourceRef b)
 {
     id windowController = _textView.window.windowController;
     if ([windowController isKindOfClass:MMWindowController.class])
-        return (MMWindowController*)windowController;
+        return (MMWindowController *)windowController;
     return nil;
 }
 
@@ -784,13 +786,6 @@ KeyboardInputSourcesEqual(TISInputSourceRef a, TISInputSourceRef b)
     [data appendBytes:text.UTF8String length:length];
 
     [self.vimController sendMessage:KeyDownMsgID data:data];
-}
-
-- (void)hideMouseCursor
-{
-    // Check 'mousehide' option
-    NSNumber *hide = self.vimController.vimState[@"p_mh"];
-    NSCursor.hiddenUntilMouseMoves = (hide && hide.boolValue);
 }
 
 - (void)startDragTimerWithInterval:(NSTimeInterval)t
