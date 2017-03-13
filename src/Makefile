@@ -2118,6 +2118,7 @@ test_arglist \
 	test_cdo \
 	test_channel \
 	test_charsearch \
+	test_charsearch_utf8 \
 	test_changedtick \
 	test_cindent \
 	test_cmdline \
@@ -2130,6 +2131,7 @@ test_arglist \
 	test_digraph \
 	test_functions \
 	test_display \
+	test_edit \
 	test_ex_undo \
 	test_execute_func \
 	test_expand \

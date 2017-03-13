@@ -4240,7 +4240,6 @@ set_init_3(void)
 	    options[idx3].def_val[VI_DEFAULT] = p_shcf;
 	}
 
-# ifdef WIN3264
 	/* Somehow Win32 requires the quotes around the redirection too */
 	idx3 = findoption((char_u *)"sxq");
 	if (idx3 >= 0 && !(options[idx3].flags & P_WAS_SET))
@@ -4248,14 +4247,6 @@ set_init_3(void)
 	    p_sxq = (char_u *)"\"";
 	    options[idx3].def_val[VI_DEFAULT] = p_sxq;
 	}
-# else
-	idx3 = findoption((char_u *)"shq");
-	if (idx3 >= 0 && !(options[idx3].flags & P_WAS_SET))
-	{
-	    p_shq = (char_u *)"\"";
-	    options[idx3].def_val[VI_DEFAULT] = p_shq;
-	}
-# endif
     }
     else if (strstr((char *)gettail(p_sh), "cmd.exe") != NULL)
     {
@@ -4290,7 +4281,7 @@ set_init_3(void)
     }
 #endif
 
-    if (bufempty())
+    if (BUFEMPTY())
     {
 	int idx_ffs = findoption((char_u *)"ffs");
 
@@ -4558,7 +4549,7 @@ do_set(
 	    afterchar = arg[len];
 
 	    /* skip white space, allow ":set ai  ?" */
-	    while (vim_iswhite(arg[len]))
+	    while (VIM_ISWHITE(arg[len]))
 		++len;
 
 	    adding = FALSE;
@@ -4682,7 +4673,7 @@ do_set(
 		    }
 		}
 		if (vim_strchr((char_u *)"?!&<", nextchar) != NULL
-			&& arg[1] != NUL && !vim_iswhite(arg[1]))
+			&& arg[1] != NUL && !VIM_ISWHITE(arg[1]))
 		{
 		    errmsg = e_trailing;
 		    goto skip;
@@ -4740,7 +4731,7 @@ do_set(
 			(void)show_one_termcode(key_name, p, TRUE);
 		}
 		if (nextchar != '?'
-			&& nextchar != NUL && !vim_iswhite(afterchar))
+			&& nextchar != NUL && !VIM_ISWHITE(afterchar))
 		    errmsg = e_trailing;
 	    }
 	    else
@@ -4780,7 +4771,7 @@ do_set(
 			 * ":set invopt": invert
 			 * ":set opt" or ":set noopt": set or reset
 			 */
-			if (nextchar != NUL && !vim_iswhite(afterchar))
+			if (nextchar != NUL && !VIM_ISWHITE(afterchar))
 			{
 			    errmsg = e_trailing;
 			    goto skip;
@@ -4834,7 +4825,8 @@ do_set(
 				    || (long *)varp == &p_wcm)
 				&& (*arg == '<'
 				    || *arg == '^'
-				    || (*arg != NUL && (!arg[1] || vim_iswhite(arg[1]))
+				    || (*arg != NUL
+					&& (!arg[1] || VIM_ISWHITE(arg[1]))
 					&& !VIM_ISDIGIT(*arg))))
 			{
 			    value = string_to_key(arg);
@@ -4850,7 +4842,7 @@ do_set(
 			     * hex numbers. */
 			    vim_str2nr(arg, NULL, &i, STR2NR_ALL,
 							     &value, NULL, 0);
-			    if (arg[i] != NUL && !vim_iswhite(arg[i]))
+			    if (arg[i] != NUL && !VIM_ISWHITE(arg[i]))
 			    {
 				errmsg = e_invarg;
 				goto skip;
@@ -5042,7 +5034,7 @@ do_set(
 			     * do remove it for "\\\\machine\\path".
 			     * The reverse is found in ExpandOldSetting().
 			     */
-			    while (*arg && !vim_iswhite(*arg))
+			    while (*arg && !VIM_ISWHITE(*arg))
 			    {
 				if (*arg == '\\' && arg[1] != NUL
 #ifdef BACKSLASH_IN_FILENAME
@@ -5282,7 +5274,7 @@ do_set(
 			else
 			{
 			    ++arg; /* jump to after the '=' or ':' */
-			    for (p = arg; *p && !vim_iswhite(*p); ++p)
+			    for (p = arg; *p && !VIM_ISWHITE(*p); ++p)
 				if (*p == '\\' && p[1] != NUL)
 				    ++p;
 			    nextchar = *p;
@@ -5310,7 +5302,7 @@ skip:
 	     */
 	    for (i = 0; i < 2 ; ++i)
 	    {
-		while (*arg != NUL && !vim_iswhite(*arg))
+		while (*arg != NUL && !VIM_ISWHITE(*arg))
 		    if (*arg++ == '\\' && *arg != NUL)
 			++arg;
 		arg = skipwhite(arg);
@@ -6913,7 +6905,7 @@ did_set_string_option(
 	{
 	    if (ptr2cells(s) != 1)
 		errmsg = (char_u *)N_("E595: contains unprintable or wide character");
-	    mb_ptr_adv(s);
+	    MB_PTR_ADV(s);
 	}
     }
 #endif
@@ -11888,7 +11880,7 @@ ExpandOldSetting(int *num_file, char_u ***file)
 #ifdef BACKSLASH_IN_FILENAME
     /* For MS-Windows et al. we don't double backslashes at the start and
      * before a file name character. */
-    for (var = buf; *var != NUL; mb_ptr_adv(var))
+    for (var = buf; *var != NUL; MB_PTR_ADV(var))
 	if (var[0] == '\\' && var[1] == '\\'
 		&& expand_option_idx >= 0
 		&& (options[expand_option_idx].flags & P_EXPAND)
@@ -12088,7 +12080,7 @@ langmap_set(void)
     for (p = p_langmap; p[0] != NUL; )
     {
 	for (p2 = p; p2[0] != NUL && p2[0] != ',' && p2[0] != ';';
-							       mb_ptr_adv(p2))
+							       MB_PTR_ADV(p2))
 	{
 	    if (p2[0] == '\\' && p2[1] != NUL)
 		++p2;
@@ -12114,7 +12106,7 @@ langmap_set(void)
 	    to = NUL;
 	    if (p2 == NULL)
 	    {
-		mb_ptr_adv(p);
+		MB_PTR_ADV(p);
 		if (p[0] != ',')
 		{
 		    if (p[0] == '\\')
@@ -12154,10 +12146,10 @@ langmap_set(void)
 		langmap_mapchar[from & 255] = to;
 
 	    /* Advance to next pair */
-	    mb_ptr_adv(p);
+	    MB_PTR_ADV(p);
 	    if (p2 != NULL)
 	    {
-		mb_ptr_adv(p2);
+		MB_PTR_ADV(p2);
 		if (*p == ';')
 		{
 		    p = p2;
