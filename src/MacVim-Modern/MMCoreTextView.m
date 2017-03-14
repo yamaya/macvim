@@ -850,7 +850,7 @@ defaultAdvanceForFont(NSFont *font)
 
     if (flags & DRAW_UNDERL) {
         attributes[NSUnderlineColorAttributeName] = [NSColor colorWithDeviceRed:RED(sp) green:GREEN(sp) blue:BLUE(sp) alpha:ALPHA(sp)];
-        attributes[NSUnderlineStyleAttributeName] = @(NSUnderlineStyleThick);
+        attributes[NSUnderlineStyleAttributeName] = @(NSUnderlineStyleSingle);
     }
 
     NSAttributedString *attributedString = [[NSAttributedString alloc] initWithString:string attributes:attributes.copy];
