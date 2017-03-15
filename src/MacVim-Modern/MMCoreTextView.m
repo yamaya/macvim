@@ -272,18 +272,6 @@ defaultAdvanceForFont(NSFont *font)
     }
 }
 
-- (void)setLinespace:(float)newLinespace
-{
-    _linespace = newLinespace;
-
-    // NOTE: The linespace is added to the cell height in order for a multiline
-    // selection not to have white (background color) gaps between lines.  Also
-    // this simplifies the code a lot because there is no need to check the
-    // linespace when calculating the size of the text view etc.  When the
-    // linespace is non-zero the baseline will be adjusted as well; check
-    // MMTypesetter. _cellSize.height = _linespace + defaultLineHeightForFont(_font);
-}
-
 - (void)deleteSign:(NSString *)signName
 {
     [_helper deleteImage:signName];
