@@ -2115,12 +2115,14 @@ test_arglist \
 	test_backspace_opt \
 	test_breakindent \
 	test_bufwintabinfo \
+	test_cd \
 	test_cdo \
+	test_changedtick \
 	test_channel \
 	test_charsearch \
 	test_charsearch_utf8 \
-	test_changedtick \
 	test_cindent \
+	test_clientserver \
 	test_cmdline \
 	test_command_count \
 	test_crypt \
@@ -2203,6 +2205,7 @@ test_arglist \
 	test_pyx2 \
 	test_pyx3 \
 	test_quickfix \
+	test_quotestar \
 	test_recover \
 	test_regexp_latin \
 	test_regexp_utf8 \

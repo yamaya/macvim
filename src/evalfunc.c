@@ -52,6 +52,7 @@ static void f_assert_inrange(typval_T *argvars, typval_T *rettv);
 static void f_assert_match(typval_T *argvars, typval_T *rettv);
 static void f_assert_notequal(typval_T *argvars, typval_T *rettv);
 static void f_assert_notmatch(typval_T *argvars, typval_T *rettv);
+static void f_assert_report(typval_T *argvars, typval_T *rettv);
 static void f_assert_true(typval_T *argvars, typval_T *rettv);
 #ifdef FEAT_FLOAT
 static void f_asin(typval_T *argvars, typval_T *rettv);
@@ -307,6 +308,7 @@ static void f_remote_foreground(typval_T *argvars, typval_T *rettv);
 static void f_remote_peek(typval_T *argvars, typval_T *rettv);
 static void f_remote_read(typval_T *argvars, typval_T *rettv);
 static void f_remote_send(typval_T *argvars, typval_T *rettv);
+static void f_remote_startserver(typval_T *argvars, typval_T *rettv);
 static void f_remove(typval_T *argvars, typval_T *rettv);
 static void f_rename(typval_T *argvars, typval_T *rettv);
 static void f_repeat(typval_T *argvars, typval_T *rettv);
@@ -482,6 +484,7 @@ static struct fst
     {"assert_match",	2, 3, f_assert_match},
     {"assert_notequal",	2, 3, f_assert_notequal},
     {"assert_notmatch",	2, 3, f_assert_notmatch},
+    {"assert_report",	1, 1, f_assert_report},
     {"assert_true",	1, 2, f_assert_true},
 #ifdef FEAT_FLOAT
     {"atan",		1, 1, f_atan},
@@ -736,11 +739,12 @@ static struct fst
     {"reltimefloat",	1, 1, f_reltimefloat},
 #endif
     {"reltimestr",	1, 1, f_reltimestr},
-    {"remote_expr",	2, 3, f_remote_expr},
+    {"remote_expr",	2, 4, f_remote_expr},
     {"remote_foreground", 1, 1, f_remote_foreground},
     {"remote_peek",	1, 2, f_remote_peek},
-    {"remote_read",	1, 1, f_remote_read},
+    {"remote_read",	1, 2, f_remote_read},
     {"remote_send",	2, 3, f_remote_send},
+    {"remote_startserver", 1, 1, f_remote_startserver},
     {"remove",		2, 3, f_remove},
     {"rename",		2, 2, f_rename},
     {"repeat",		2, 2, f_repeat},
@@ -1309,6 +1313,15 @@ f_assert_match(typval_T *argvars, typval_T *rettv UNUSED)
 f_assert_notmatch(typval_T *argvars, typval_T *rettv UNUSED)
 {
     assert_match_common(argvars, ASSERT_NOTMATCH);
+}
+
+/*
+ * "assert_report(msg)" function
+ */
+    static void
+f_assert_report(typval_T *argvars, typval_T *rettv UNUSED)
+{
+    assert_report(argvars);
 }
 
 /*
@@ -8506,7 +8519,7 @@ check_connection(void)
     make_connection();
     if (X_DISPLAY == NULL)
     {
-	EMSG(_("E240: No connection to Vim server"));
+	EMSG(_("E240: No connection to the X server"));
 	return FAIL;
     }
     return OK;
@@ -8521,6 +8534,7 @@ remote_common(typval_T *argvars, typval_T *rettv, int expr)
     char_u	*keys;
     char_u	*r = NULL;
     char_u	buf[NUMBUFLEN];
+    int		timeout = 0;
 # ifdef WIN32
     HWND	w;
 # elif defined(FEAT_X11)
@@ -8536,18 +8550,19 @@ remote_common(typval_T *argvars, typval_T *rettv, int expr)
     if (check_connection() == FAIL)
 	return;
 # endif
+    if (argvars[2].v_type != VAR_UNKNOWN
+	    && argvars[3].v_type != VAR_UNKNOWN)
+	timeout = get_tv_number(&argvars[3]);
 
     server_name = get_tv_string_chk(&argvars[0]);
     if (server_name == NULL)
 	return;		/* type error; errmsg already given */
     keys = get_tv_string_buf(&argvars[1], buf);
-# ifdef WIN32
-    if (serverSendToVim(server_name, keys, &r, &w, expr, TRUE) < 0)
-# elif defined(FEAT_X11)
-    if (serverSendToVim(X_DISPLAY, server_name, keys, &r, &w, expr, 0, TRUE)
-									  < 0)
-# elif defined(MAC_CLIENTSERVER)
-    if (serverSendToVim(server_name, keys, &r, &w, expr, TRUE) < 0)
+# if defined(WIN32) || defined(MAC_CLIENTSERVER)
+    if (serverSendToVim(server_name, keys, &r, &w, expr, timeout, TRUE) < 0)
+# else
+    if (serverSendToVim(X_DISPLAY, server_name, keys, &r, &w, expr, timeout,
+								  0, TRUE) < 0)
 # endif
     {
 	if (r != NULL)
@@ -8565,13 +8580,15 @@ remote_common(typval_T *argvars, typval_T *rettv, int expr)
 	char_u		str[30];
 	char_u		*idvar;
 
-	sprintf((char *)str, PRINTF_HEX_LONG_U, (long_u)w);
-	v.di_tv.v_type = VAR_STRING;
-	v.di_tv.vval.v_string = vim_strsave(str);
 	idvar = get_tv_string_chk(&argvars[2]);
-	if (idvar != NULL)
+	if (idvar != NULL && *idvar != NUL)
+	{
+	    sprintf((char *)str, PRINTF_HEX_LONG_U, (long_u)w);
+	    v.di_tv.v_type = VAR_STRING;
+	    v.di_tv.vval.v_string = vim_strsave(str);
 	    set_var(idvar, &v.di_tv, FALSE);
-	vim_free(v.di_tv.vval.v_string);
+	    vim_free(v.di_tv.vval.v_string);
+	}
     }
 }
 #endif
@@ -8643,7 +8660,7 @@ f_remote_peek(typval_T *argvars UNUSED, typval_T *rettv)
 	rettv->vval.v_number = -1;
     else
     {
-	s = serverGetReply((HWND)n, FALSE, FALSE, FALSE);
+	s = serverGetReply((HWND)n, FALSE, FALSE, FALSE, 0);
 	rettv->vval.v_number = (s != NULL);
     }
 # elif defined(FEAT_X11)
@@ -8682,19 +8699,26 @@ f_remote_read(typval_T *argvars UNUSED, typval_T *rettv)
 
     if (serverid != NULL && !check_restricted() && !check_secure())
     {
+	int timeout = 0;
 # ifdef WIN32
 	/* The server's HWND is encoded in the 'id' parameter */
 	long_u		n = 0;
+# endif
 
+	if (argvars[1].v_type != VAR_UNKNOWN)
+	    timeout = get_tv_number(&argvars[1]);
+
+# ifdef WIN32
 	sscanf((char *)serverid, SCANF_HEX_LONG_U, &n);
 	if (n != 0)
-	    r = serverGetReply((HWND)n, FALSE, TRUE, TRUE);
+	    r = serverGetReply((HWND)n, FALSE, TRUE, TRUE, timeout);
 	if (r == NULL)
-# elif defined(FEAT_X11)
-	if (check_connection() == FAIL || serverReadReply(X_DISPLAY,
-		serverStrToWin(serverid), &r, FALSE) < 0)
 # elif defined(MAC_CLIENTSERVER)
         if (serverReadReply(serverStrToPort(serverid), &r) < 0)
+# else
+	if (check_connection() == FAIL
+		|| serverReadReply(X_DISPLAY, serverStrToWin(serverid),
+						       &r, FALSE, timeout) < 0)
 # endif
 	    EMSG(_("E277: Unable to read a server reply"));
     }
@@ -8713,6 +8737,35 @@ f_remote_send(typval_T *argvars UNUSED, typval_T *rettv)
     rettv->vval.v_string = NULL;
 #ifdef FEAT_CLIENTSERVER
     remote_common(argvars, rettv, FALSE);
+#endif
+}
+
+/*
+ * "remote_startserver()" function
+ */
+    static void
+f_remote_startserver(typval_T *argvars UNUSED, typval_T *rettv UNUSED)
+{
+#ifdef FEAT_CLIENTSERVER
+    char_u	*server = get_tv_string_chk(&argvars[0]);
+
+    if (server == NULL)
+	return;		/* type error; errmsg already given */
+    if (serverName != NULL)
+	EMSG(_("E941: already started a server"));
+    else
+    {
+# ifdef FEAT_X11
+	if (check_connection() == OK)
+	    serverRegisterName(X_DISPLAY, server);
+# elif defined(MAC_CLIENTSERVER)
+	serverRegisterName(server);
+# else
+	serverSetName(server);
+# endif
+    }
+#else
+    EMSG(_("E942: +clientserver feature not available"));
 #endif
 }
 

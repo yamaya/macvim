@@ -1,6 +1,6 @@
 " Tests specifically for the GUI
 
-if !has('gui') || ($DISPLAY == "" && !has('gui_running'))
+if !has('gui') || (($DISPLAY == "" || has('gui_macvim')) && !has('gui_running'))
   finish
 endif
 
@@ -505,7 +505,7 @@ func Test_set_guifontwide()
       " Case 2: guifontset is invalid
       try
         set guifontset=-*-notexist-*
-        call assert_false(1, "'set guifontset=-*-notexist-*' should have failed")
+        call assert_report("'set guifontset=-*-notexist-*' should have failed")
       catch
         call assert_exception('E598')
       endtry
@@ -558,6 +558,11 @@ func Test_set_guioptions()
     " Default Value
     set guioptions&
     call assert_equal('egmrLtT', &guioptions)
+
+  elseif has('gui_macvim')
+    " Default Value
+    set guioptions&
+    call assert_equal('egmrL', &guioptions)
 
   else
     " Default Value
