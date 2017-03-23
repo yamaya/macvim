@@ -2232,6 +2232,7 @@ test_arglist \
 	test_tabpage \
 	test_tagcase \
 	test_tagjump \
+	test_taglist \
 	test_tcl \
 	test_textobjects \
 	test_timers \
@@ -3380,7 +3381,6 @@ macvim-dmg: macvim
 		--window-size 650 470 \
 		--icon-size 80 \
 		--icon MacVim.app 240 320 \
-		--icon mvim 570 80 \
 		--app-drop-link 410 320 \
 		$(RELEASEDIR)/$(DMGFILE) $(DMGDIR)
 
