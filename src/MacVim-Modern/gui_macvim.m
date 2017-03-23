@@ -1696,7 +1696,7 @@ serverRegisterName(char_u *name)
  * Returns 0 for OK, negative for an error.
  */
     int
-serverSendToVim(char_u *name, char_u *cmd, char_u **result, int *port, int asExpr, int silent)
+serverSendToVim(char_u *name, char_u *cmd, char_u **result, int *server, int asExpr, int timeout, int silent)
 {
 #ifdef FEAT_MBYTE
     name = CONVERT_TO_UTF8(name);
@@ -1705,7 +1705,7 @@ serverSendToVim(char_u *name, char_u *cmd, char_u **result, int *port, int asExp
     const BOOL ok = [MMBackend.shared sendToServer:[NSString stringWithUTF8String:(char *)name]
                                             string:[NSString stringWithUTF8String:(char *)cmd]
                                              reply:result
-                                              port:port
+                                              port:server
                                         expression:asExpr
                                             silent:silent];
 #ifdef FEAT_MBYTE
