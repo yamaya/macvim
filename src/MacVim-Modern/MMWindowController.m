@@ -599,8 +599,16 @@
 
 - (void)adjustLinespace:(int)linespace
 {
-    if (_vimView && _vimView.textView) {
+    if (_vimView.textView) {
         _vimView.textView.linespace = (float)linespace;
+        _shouldMaximizeWindow = _shouldResizeVimView = YES;
+    }
+}
+
+- (void)adjustColumnspace:(int)columnspace
+{
+    if (_vimView.textView) {
+        _vimView.textView.columnspace = (float)columnspace;
         _shouldMaximizeWindow = _shouldResizeVimView = YES;
     }
 }

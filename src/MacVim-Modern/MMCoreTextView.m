@@ -84,12 +84,21 @@ defaultLineHeightForFont(NSFont *font)
 static double
 defaultAdvanceForFont(NSFont *font)
 {
+    const CGFloat pointSize = roundf(font.pointSize);
+    CTFontDescriptorRef fontDescriptor = CTFontDescriptorCreateWithAttributes((__bridge CFDictionaryRef)@{
+        (NSString *)kCTFontNameAttribute: font.displayName,
+        (NSString *)kCTFontSizeAttribute: @(pointSize),
+    });
+    CTFontRef fontRef = CTFontCreateWithFontDescriptor(fontDescriptor, pointSize, NULL);
+    CFRelease(fontDescriptor);
+    NSFont *newFont = (__bridge_transfer NSFont*)fontRef;
+
     // NOTE: Previously we used CTFontGetAdvancesForGlyphs() to get the advance
     // for 'm' but this sometimes returned advances that were too small making
     // the font spacing look too tight.
     // Instead use the same method to query the width of 'm' as MMTextStorage
     // uses to make things consistent across renderers.
-    return [@"m" sizeWithAttributes:@{NSFontAttributeName: font}].width;
+    return [@"m" sizeWithAttributes:@{NSFontAttributeName: newFont}].width;
 }
 
 @implementation MMCoreTextView {
@@ -109,7 +118,7 @@ defaultAdvanceForFont(NSFont *font)
 @synthesize maxSize = _maxSize, cellSize = _cellSize,
     defaultForegroundColor = _defaultForegroundColor, defaultBackgroundColor = _defaultBackgroundColor,
     font = _font, fontWide = _fontWide,
-    linespace = _linespace, textContainerInset = _textContainerInset,
+    linespace = _linespace, columnspace = _columnspace, textContainerInset = _textContainerInset,
     antialias = _antialias, ligatures = _ligatures, thinStrokes = _thinStrokes,
     CGLayerEnabled = _CGLayerEnabled,
     IMActivated = _IMActivated, IMControlled = _IMControlled;
@@ -215,11 +224,12 @@ defaultAdvanceForFont(NSFont *font)
 
 - (void)setFont:(NSFont *)newFont
 {
-    if (!(newFont && _font != newFont)) return;
+    if (newFont == _font) return;
 
     const CGFloat emSize = roundf(defaultAdvanceForFont(newFont));
     const CGFloat pointSize = roundf(newFont.pointSize);
-    const CGFloat width = ceilf(emSize * [NSUserDefaults.standardUserDefaults floatForKey:MMCellWidthMultiplierKey]);
+    const CGFloat multiplier = [NSUserDefaults.standardUserDefaults floatForKey:MMCellWidthMultiplierKey];
+    const CGFloat width = _columnspace + ceilf(emSize * multiplier);
 
     CTFontDescriptorRef fontDescriptor = CTFontDescriptorCreateWithAttributes((__bridge CFDictionaryRef)@{
         (NSString *)kCTFontNameAttribute: newFont.displayName,
@@ -270,6 +280,34 @@ defaultAdvanceForFont(NSFont *font)
         }];
         _fontWide = [NSFont fontWithDescriptor:merged size:_font.pointSize];
     }
+}
+
+- (void)setLinespace:(float)value
+{
+    _linespace = value;
+
+    // NOTE: The linespace is added to the cell height in order for a multiline
+    // selection not to have white (background color) gaps between lines.  Also
+    // this simplifies the code a lot because there is no need to check the
+    // linespace when calculating the size of the text view etc.  When the
+    // linespace is non-zero the baseline will be adjusted as well; check
+    // MMTypesetter.
+    _cellSize.height = _linespace + defaultLineHeightForFont(_font);
+}
+
+- (void)setColumnspace:(float)value
+{
+    _columnspace = value;
+
+    const double em = round(defaultAdvanceForFont(_font));
+    const float multiplier =
+        [NSUserDefaults.standardUserDefaults floatForKey:MMCellWidthMultiplierKey];
+
+    _cellSize.width = _columnspace + ceil(em * multiplier);
+
+    NSFont *font = _font.copy;
+    _font = nil;
+    self.font = font;
 }
 
 - (void)deleteSign:(NSString *)signName

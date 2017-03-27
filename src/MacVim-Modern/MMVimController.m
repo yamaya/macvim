@@ -577,9 +577,14 @@ static BOOL isUnsafeMessage(int msgid);
         _windowController.mouseShape = shape;
     } else if (AdjustLinespaceMsgID == msgid) {
         const void *bytes = data.bytes;
-        const int linespace = *((int*)bytes);
+        const int linespace = *((int *)bytes);
 
         [_windowController adjustLinespace:linespace];
+    } else if (AdjustColumnspaceMsgID == msgid) {
+        const void *bytes = data.bytes;
+        const int columnspace = *((int *)bytes);
+
+        [_windowController adjustColumnspace:columnspace];
     } else if (ActivateMsgID == msgid) {
         [NSApp activateIgnoringOtherApps:YES];
         [_windowController.window makeKeyAndOrderFront:self];

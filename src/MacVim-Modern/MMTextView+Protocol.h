@@ -26,6 +26,7 @@
 @property (nonatomic, copy) NSFont *fontWide;
 @property (nonatomic) int mouseShape;
 @property (nonatomic) float linespace;
+@property (nonatomic) float columnspace;
 @property (nonatomic) BOOL antialias;
 @property (nonatomic) BOOL ligatures;
 @property (nonatomic) BOOL thinStrokes;
