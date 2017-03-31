@@ -757,7 +757,7 @@
 
         ASLogDebug(@"Notify Vim that text dimensions changed from %dx%d to %dx%d (%s)", maxSize.col, maxSize.row, constrained[1], constrained[0], MessageStrings[msgid]);
 
-        [_vimController sendMessage:msgid data:data];
+        [_vimController sendMessageNow:msgid data:data timeout:1];
 
         // We only want to set the window title if this resize came from
         // a live-resize, not (for example) setting 'columns' or 'lines'.

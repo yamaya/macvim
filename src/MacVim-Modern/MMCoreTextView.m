@@ -113,6 +113,7 @@ defaultAdvanceForFont(NSFont *font)
     CGContextRef        _CGLayerContext;
     NSLock              *_CGLayerLock;
     NSMutableData       *_characters;
+    BOOL                _drawPending;
 }
 
 @synthesize maxSize = _maxSize, cellSize = _cellSize,
@@ -549,10 +550,10 @@ defaultAdvanceForFont(NSFont *font)
     } else {
         [_drawData addObject:data];
         self.needsDisplay = YES;
-
-        // NOTE: During resizing, Cocoa only sends draw messages before Vim's rows
-        // and columns are changed (due to ipc delays). Force a redraw here.
-        if (self.inLiveResize) [self display];
+    }
+    if (_drawPending) {
+        [NSAnimationContext endGrouping];
+        _drawPending = NO;
     }
 }
 
@@ -822,6 +823,16 @@ defaultAdvanceForFont(NSFont *font)
         [self _sendToolTipMouseEntered];
     }
 }
+
+- (void)setFrameSize:(NSSize)newSize
+{
+    if (!_drawPending && !NSEqualSizes(newSize, self.frame.size) && _drawData.count == 0) {
+        [NSAnimationContext beginGrouping];
+        _drawPending = YES;
+    }
+    [super setFrameSize:newSize];
+}
+
 @end
 
 /**

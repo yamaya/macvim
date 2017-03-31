@@ -409,14 +409,8 @@ static BOOL isUnsafeMessage(int msgid);
 {
     if (OpenWindowMsgID == msgid) {
         [_windowController openWindow];
-
-        // HACK: Delay actually presenting the window onscreen until after
-        // processing the queue since it contains drawing commands that need to
-        // be issued before presentation; otherwise the window may flash white
-        // just as it opens.
         if (!_isPreloading) {
-            __weak typeof(_windowController) controller = _windowController;
-            dispatch_async(dispatch_get_main_queue(), ^{ [controller presentWindow:nil]; });
+            [_windowController presentWindow:nil];
         }
     } else if (BatchDrawMsgID == msgid) {
         [_windowController.vimView.textView performBatchDrawWithData:data];
