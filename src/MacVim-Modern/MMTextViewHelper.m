@@ -83,13 +83,11 @@ KeyboardInputSourcesEqual(TISInputSourceRef a, TISInputSourceRef b)
 
 - (instancetype)init
 {
-    if (!(self = [super init])) return nil;
-
-    _signImages = NSMutableDictionary.new;
-
-    _useMouseTime = [NSUserDefaults.standardUserDefaults boolForKey:MMUseMouseTimeKey];
-    if (_useMouseTime) _mouseDownTime = NSDate.new;
-
+    if ((self = [super init]) != nil) {
+        _signImages = NSMutableDictionary.new;
+        _useMouseTime = [NSUserDefaults.standardUserDefaults boolForKey:MMUseMouseTimeKey];
+        if (_useMouseTime) _mouseDownTime = NSDate.new;
+    }
     return self;
 }
 
@@ -133,7 +131,7 @@ KeyboardInputSourcesEqual(TISInputSourceRef a, TISInputSourceRef b)
     });
 
     const unsigned flags = event.modifierFlags;
-    const id mmta = states[@"p_mmta"];
+    const BOOL mmta = [states[@"p_mmta"] boolValue];
     NSString *string = event.characters;
     NSString *unmod  = event.charactersIgnoringModifiers;
 
@@ -144,12 +142,12 @@ KeyboardInputSourcesEqual(TISInputSourceRef a, TISInputSourceRef b)
     // Note that this implies that 'mmta' (if enabled) breaks input methods
     // when the Alt key is held.
     if ((flags & NSEventModifierFlagOption)
-            && [mmta boolValue] && unmod.length == 1
+            && mmta && unmod.length == 1
             && [unmod characterAtIndex:0] > 0x20) {
         ASLogDebug(@"MACMETA key, don't interpret it");
         string = unmod;
     } else if (_inputSourceActivated && (flags & NSEventModifierFlagControl)
-            && !(flags & (NSEventModifierFlagOption|NSEventModifierFlagCommand))
+            && !(flags & (NSEventModifierFlagOption | NSEventModifierFlagCommand))
             && unmod.length == 1
             && ([unmod characterAtIndex:0] == '6' ||
                 [unmod characterAtIndex:0] == '^')) {
@@ -176,10 +174,8 @@ KeyboardInputSourcesEqual(TISInputSourceRef a, TISInputSourceRef b)
             // following heuristic seems to work but it may have to change.
             // Note that the Shift and Alt flags may also need to be cleared
             // (see doKeyDown:keyCode:modifiers: in MMBackend).
-            if ((flags & NSEventModifierFlagShift
-                    && !(flags & NSEventModifierFlagOption))
-                    || flags & NSEventModifierFlagControl)
-                string = unmod;
+            if (((flags & NSEventModifierFlagShift) && !(flags & NSEventModifierFlagOption)) ||
+                (flags & NSEventModifierFlagControl)) string = unmod;
         }
     }
 

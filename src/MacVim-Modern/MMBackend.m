@@ -1157,10 +1157,10 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
     if (KeyDownMsgID == msgid) {
         if (!data) return;
-        const void *bytes = [data bytes];
-        unsigned mods = *((unsigned*)bytes);  bytes += sizeof(unsigned);
-        const unsigned code = *((unsigned*)bytes);  bytes += sizeof(unsigned);
-        const unsigned len  = *((unsigned*)bytes);  bytes += sizeof(unsigned);
+        const void *bytes = data.bytes;
+        const unsigned mods = *((unsigned *)bytes);  bytes += sizeof(unsigned);
+        const unsigned code = *((unsigned *)bytes);  bytes += sizeof(unsigned);
+        const unsigned len  = *((unsigned *)bytes);  bytes += sizeof(unsigned);
 
         if (ctrl_c_interrupts && 1 == len) {
             // NOTE: the flag ctrl_c_interrupts is 0 e.g. when the user has
