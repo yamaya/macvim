@@ -1158,7 +1158,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     if (KeyDownMsgID == msgid) {
         if (!data) return;
         const void *bytes = data.bytes;
-        const unsigned mods = *((unsigned *)bytes);  bytes += sizeof(unsigned);
+        unsigned mods = *((unsigned *)bytes);  bytes += sizeof(unsigned);
         const unsigned code = *((unsigned *)bytes);  bytes += sizeof(unsigned);
         const unsigned len  = *((unsigned *)bytes);  bytes += sizeof(unsigned);
 
