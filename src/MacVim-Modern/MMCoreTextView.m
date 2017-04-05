@@ -907,7 +907,7 @@ defaultAdvanceForFont(NSFont *font)
     const CGFloat charWidth = _cellSize.width * (flags & DRAW_WIDE ? 2 : 1);
 
     // NOTE!  'cells' is zero if we're drawing a composing character
-    const CGRect clipRect = {origin, {cells > 0 ? cells*_cellSize.width : charWidth, _cellSize.height}};
+    const CGRect clipRect = {origin, {cells > 0 ? cells * _cellSize.width : charWidth, _cellSize.height}};
 
     CGContextSaveGState(context);
     {

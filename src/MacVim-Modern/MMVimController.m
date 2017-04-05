@@ -100,7 +100,7 @@ static BOOL isUnsafeMessage(int msgid);
  */
 @implementation MMVimController {
     unsigned            _identifier;
-    BOOL                _isInitialized;
+    BOOL                _initialized;
     NSMutableArray      *_popupMenuItems;
     NSToolbar           *_toolbar; // TODO: Move all toolbar code to window controller?
     NSMutableDictionary *_toolbarItemDict;
@@ -147,7 +147,7 @@ static BOOL isUnsafeMessage(int msgid);
     appMenuItem.title = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleName"];
     [_mainMenu addItem:appMenuItem];
 
-    _isInitialized = YES;
+    _initialized = YES;
 
     return self;
 }
@@ -228,9 +228,9 @@ static BOOL isUnsafeMessage(int msgid);
 
 - (void)sendMessage:(int)msgid data:(NSData *)data
 {
-    ASLogDebug(@"msg=%s (isInitialized=%d)", MessageStrings[msgid], _isInitialized);
+    ASLogDebug(@"msg=%s (initialized=%d)", MessageStrings[msgid], _initialized);
 
-    if (!_isInitialized) return;
+    if (!_initialized) return;
 
     @try {
         [_backendProxy processInput:msgid data:data];
@@ -246,9 +246,9 @@ static BOOL isUnsafeMessage(int msgid);
     // ball forever.  In almost all circumstances sendMessage:data: should be
     // used instead.
 
-    ASLogDebug(@"msg=%s (isInitialized=%d)", MessageStrings[msgid], _isInitialized);
+    ASLogDebug(@"msg=%s (initialized=%d)", MessageStrings[msgid], _initialized);
 
-    if (!_isInitialized) return NO;
+    if (!_initialized) return NO;
 
     BOOL sendOk = YES;
     NSConnection *connection = [_backendProxy connectionForProxy];
@@ -310,12 +310,12 @@ static BOOL isUnsafeMessage(int msgid);
 
 - (void)cleanup
 {
-    if (!_isInitialized) return;
+    if (!_initialized) return;
 
     // Remove any delayed calls made on this object.
     [NSObject cancelPreviousPerformRequestsWithTarget:self];
 
-    _isInitialized = NO;
+    _initialized = NO;
     _toolbar.delegate = nil;
     [NSNotificationCenter.defaultCenter removeObserver:self];
     [_windowController cleanup];
@@ -323,7 +323,7 @@ static BOOL isUnsafeMessage(int msgid);
 
 - (void)processInputQueue:(NSArray *)queue
 {
-    if (!_isInitialized) return;
+    if (!_initialized) return;
 
     // NOTE: This method must not raise any exceptions (see comment in the
     // calling method).
@@ -1132,7 +1132,7 @@ static BOOL isUnsafeMessage(int msgid);
 
 - (void)handleBrowseForFile:(NSDictionary *)attr
 {
-    if (!_isInitialized) return;
+    if (!_initialized) return;
 
     NSString *dir = attr[@"dir"];
     const BOOL saving = [attr[@"saving"] boolValue];
@@ -1179,7 +1179,7 @@ static BOOL isUnsafeMessage(int msgid);
 
 - (void)handleShowDialog:(NSDictionary *)attr
 {
-    if (!_isInitialized) return;
+    if (!_initialized) return;
 
     NSArray *buttonTitles = attr[@"buttonTitles"];
     if (!buttonTitles || buttonTitles.count == 0) return;
