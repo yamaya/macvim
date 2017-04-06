@@ -114,6 +114,7 @@ defaultAdvanceForFont(NSFont *font)
     NSLock              *_CGLayerLock;
     NSMutableData       *_characters;
     BOOL                _drawPending;
+    NSCharacterSet      *_ligaturabledCharacterSet;
 }
 
 @synthesize maxSize = _maxSize, cellSize = _cellSize,
@@ -148,6 +149,11 @@ defaultAdvanceForFont(NSFont *font)
     _helper.textView = self;
 
     [self registerForDraggedTypes:@[NSFilenamesPboardType, NSStringPboardType]];
+
+    NSMutableCharacterSet *set = NSCharacterSet.alphanumericCharacterSet.mutableCopy;
+    [set formUnionWithCharacterSet:NSCharacterSet.whitespaceCharacterSet];
+    [set invert];
+    _ligaturabledCharacterSet = set.copy;
 
     return self;
 }
@@ -878,9 +884,19 @@ defaultAdvanceForFont(NSFont *font)
 
 - (void)drawString:(NSString *)string row:(int)row column:(int)col cells:(int)cells flags:(int)flags fg:(int)fg bg:(int)bg sp:(int)sp
 {
+    // 英数字or空白の場合はリガチャを無効にして描画速度を稼ぐ（遅いんだよ!!）
+    BOOL ligatureEnabled = NO;
+    if (_ligatures && string.length > 1) {
+       const NSRange range = [string rangeOfCharacterFromSet:_ligaturabledCharacterSet];
+       if (range.location != NSNotFound) {
+           ligatureEnabled = YES;
+           //NSLog(@">>>ligatureEnabled = %@", string);
+       }
+    }
+
     NSMutableDictionary *attributes = @{
         NSFontAttributeName: [self fontWithFlags:flags],
-        NSLigatureAttributeName: (_ligatures ? @1 : @0),
+        NSLigatureAttributeName: (ligatureEnabled ? @1 : @0),
         NSKernAttributeName: @0,
         NSForegroundColorAttributeName: [NSColor colorWithDeviceRed:RED(fg) green:GREEN(fg) blue:BLUE(fg) alpha:ALPHA(fg)]
     }.mutableCopy;
