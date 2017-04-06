@@ -35,7 +35,10 @@
 
 - (void)restore
 {
-    if (_enabled) CGContextSetFontSmoothingStyle(_context, _style);
+    if (_enabled) {
+        CGContextSetFontSmoothingStyle(_context, _style);
+        _enabled = NO;
+    }
 }
 
 @end
