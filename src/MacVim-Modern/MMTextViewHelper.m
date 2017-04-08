@@ -300,6 +300,8 @@ KeyboardInputSourcesEqual(TISInputSourceRef a, TISInputSourceRef b)
 
 - (void)mouseDown:(NSEvent *)event
 {
+    return;
+
     if ([self inputManagerHandleMouseEvent:event])
         return;
 
@@ -344,6 +346,8 @@ KeyboardInputSourcesEqual(TISInputSourceRef a, TISInputSourceRef b)
 
 - (void)mouseUp:(NSEvent *)event
 {
+    return;
+
     if ([self inputManagerHandleMouseEvent:event])
         return;
 
@@ -364,6 +368,8 @@ KeyboardInputSourcesEqual(TISInputSourceRef a, TISInputSourceRef b)
 
 - (void)mouseDragged:(NSEvent *)event
 {
+    return;
+
     if ([self inputManagerHandleMouseEvent:event])
         return;
 
@@ -395,6 +401,8 @@ KeyboardInputSourcesEqual(TISInputSourceRef a, TISInputSourceRef b)
 
 - (void)mouseMoved:(NSEvent *)event
 {
+    return;
+
     if ([self inputManagerHandleMouseEvent:event])
         return;
 
@@ -430,6 +438,8 @@ KeyboardInputSourcesEqual(TISInputSourceRef a, TISInputSourceRef b)
 
 - (BOOL)performDragOperation:(id <NSDraggingInfo>)sender
 {
+    return NO;
+
     NSPasteboard *pboard = sender.draggingPasteboard;
 
     if ([pboard.types containsObject:NSStringPboardType]) {
@@ -447,6 +457,8 @@ KeyboardInputSourcesEqual(TISInputSourceRef a, TISInputSourceRef b)
 
 - (NSDragOperation)draggingEntered:(id <NSDraggingInfo>)sender
 {
+    return NSDragOperationNone;
+
     NSDragOperation sourceDragMask = sender.draggingSourceOperationMask;
     NSPasteboard *pboard = sender.draggingPasteboard;
 
@@ -460,6 +472,8 @@ KeyboardInputSourcesEqual(TISInputSourceRef a, TISInputSourceRef b)
 
 - (NSDragOperation)draggingUpdated:(id <NSDraggingInfo>)sender
 {
+    return NSDragOperationNone;
+
     NSDragOperation sourceDragMask = sender.draggingSourceOperationMask;
     NSPasteboard *pboard = sender.draggingPasteboard;
 
