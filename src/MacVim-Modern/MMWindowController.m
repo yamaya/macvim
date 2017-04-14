@@ -142,6 +142,7 @@
     BOOL                _resizingDueToMove;
     int                 _blurRadius;
     NSMutableArray      *_afterWindowPresentedQueue;
+    NSSize              _desiredWindowSize;
 }
 @synthesize windowAutosaveKey = _windowAutosaveKey, toolbar = _toolbar, vimController = _vimController, vimView = _vimView;
 
@@ -542,10 +543,11 @@
         // TODO: What if the resize message fails to make it back?
         if (!didMaximize) {
             NSSize originalSize = _vimView.frame.size;
-            NSSize contentSize = _vimView.desiredSize;
-            contentSize = [self constrainContentSizeToScreenSize:contentSize];
             int rows = 0, cols = 0;
-            contentSize = [_vimView constrainRows:&rows columns:&cols toSize:contentSize];
+            const NSSize contentSize = [_vimView constrainRows:&rows columns:&cols toSize:
+                                  _fullScreenWindow ? _fullScreenWindow.frame.size :
+                                  _fullScreenEnabled ? _desiredWindowSize :
+                                  [self constrainContentSizeToScreenSize:_vimView.desiredSize]];
             _vimView.frameSize = contentSize;
 
             if (_fullScreenWindow) {
@@ -911,6 +913,12 @@
     const int pos[2] = {(int)topLeft.x, (int)(NSMaxY(_decoratedWindow.screen.frame) - topLeft.y)};
     NSData *data = [NSData dataWithBytes:pos length:2 * sizeof(int)];
     [_vimController sendMessage:SetWindowPositionMsgID data:data];
+}
+
+- (NSSize)windowWillResize:(NSWindow *)sender toSize:(NSSize)frameSize
+{
+    _desiredWindowSize = frameSize;
+    return frameSize;
 }
 
 - (void)windowDidResize:(id)sender
