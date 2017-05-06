@@ -313,6 +313,9 @@ extern NSString *const MMLogToStdErrKey;
 // (techincally this is a user default but should not be used as such).
 extern NSString *const MMNoWindowKey;
 
+// Argument used to control MacVim sharing search text via the Find Pasteboard.
+extern NSString *const MMShareFindPboardKey;
+
 extern NSString *const MMAutosaveRowsKey;
 extern NSString *const MMAutosaveColumnsKey;
 

@@ -491,6 +491,7 @@
 				1DE608B80C58807F0055263D /* Copy Vim Runtime Files */,
 				1D1C31F00EFFBFD6003FE9A5 /* Make Document Icons */,
 				528DA6671426D456003380F1 /* Copy Scripts */,
+				549988B91EBDEA13002B363F /* Copy mvim Scripts */,
 			);
 			buildRules = (
 			);
@@ -618,6 +619,21 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "# Clear deployment target, else the python script always thinks we're building on Tiger\nunset MACOSX_DEPLOYMENT_TARGET\n\n# Generate the icons (redirect stderr to ignore warnings)\ncd \"$PROJECT_DIR\"/icons/\nmake OUTDIR=\"$TARGET_BUILD_DIR\"/$UNLOCALIZED_RESOURCES_FOLDER_PATH 2> /dev/null\n";
+			showEnvVarsInLog = 0;
+		};
+		549988B91EBDEA13002B363F /* Copy mvim Scripts */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Copy mvim Scripts";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "BINPATH=$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/bin\nmkdir -p $BINPATH\ncp -a $SRCROOT/mvim $BINPATH/mvim\nchmod 755 $BINPATH/mvim\n(cd $BINPATH; for f in vim vimdiff view gvim gvimdiff gview mvimdiff mview; do ln -fs mvim $f; done)";
 			showEnvVarsInLog = 0;
 		};
 /* End PBXShellScriptBuildPhase section */

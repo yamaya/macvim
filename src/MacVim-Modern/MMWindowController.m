@@ -1402,10 +1402,14 @@
 
         // See gui_macvim_add_to_find_pboard() for an explanation of these
         // types.
-        if ([bestType isEqual:VimFindPboardType])
+        if ([bestType isEqual:VimFindPboardType]) {
             query = [pb stringForType:VimFindPboardType];
-        else
-            query = [pb stringForType:NSStringPboardType];
+        } else {
+            const BOOL shareFindPboard = [NSUserDefaults.standardUserDefaults boolForKey:MMShareFindPboardKey];
+            if (shareFindPboard) {
+                query = [pb stringForType:NSStringPboardType];
+            }
+        }
     }
 
     NSString *input = nil;

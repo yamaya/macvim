@@ -110,6 +110,7 @@ const char * const MessageStrings[] =
 NSString *const MMLogLevelKey           = @"MMLogLevel";
 NSString *const MMLogToStdErrKey        = @"MMLogToStdErr";
 NSString *const MMNoWindowKey           = @"MMNoWindow";
+NSString *const MMShareFindPboardKey    = @"MMShareFindPboard";
 NSString *const MMAutosaveRowsKey       = @"MMAutosaveRows";
 NSString *const MMAutosaveColumnsKey    = @"MMAutosaveColumns";
 NSString *const VimFindPboardType       = @"VimFindPboardType";
