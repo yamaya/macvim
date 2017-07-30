@@ -8,11 +8,16 @@
 extern "C" {
 #endif
 
-#include <stdint.h>
 #include <stdlib.h>
-#include <stdbool.h>
 
 #include "vterm_keycodes.h"
+
+#define TRUE 1
+#define FALSE 0
+
+/* from stdint.h */
+typedef unsigned char		uint8_t;
+typedef unsigned int		uint32_t;
 
 typedef struct VTerm VTerm;
 typedef struct VTermState VTermState;
@@ -183,7 +188,7 @@ void vterm_keyboard_start_paste(VTerm *vt);
 void vterm_keyboard_end_paste(VTerm *vt);
 
 void vterm_mouse_move(VTerm *vt, int row, int col, VTermModifier mod);
-void vterm_mouse_button(VTerm *vt, int button, bool pressed, VTermModifier mod);
+void vterm_mouse_button(VTerm *vt, int button, int pressed, VTermModifier mod);
 
 /* ------------
  * Parser layer
@@ -235,6 +240,8 @@ typedef struct {
   int (*erase)(VTermRect rect, int selective, void *user);
   int (*initpen)(void *user);
   int (*setpenattr)(VTermAttr attr, VTermValue *val, void *user);
+  /* Callback for setting various properties.  Must return 1 if the property
+   * was accepted, 0 otherwise. */
   int (*settermprop)(VTermProp prop, VTermValue *val, void *user);
   int (*bell)(void *user);
   int (*resize)(int rows, int cols, VTermPos *delta, void *user);
