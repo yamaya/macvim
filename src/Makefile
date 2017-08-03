@@ -2275,6 +2275,7 @@ test_arglist \
 	test_tagjump \
 	test_taglist \
 	test_tcl \
+	test_terminal \
 	test_textobjects \
 	test_timers \
 	test_true_false \

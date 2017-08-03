@@ -9089,6 +9089,14 @@ nv_edit(cmdarg_T *cap)
 	clearopbeep(cap->oap);
 #endif
     }
+#ifdef FEAT_TERMINAL
+    else if (term_in_terminal_mode())
+    {
+	clearop(cap->oap);
+	term_leave_terminal_mode();
+	return;
+    }
+#endif
     else if (!curbuf->b_p_ma && !p_im)
     {
 	/* Only give this error when 'insertmode' is off. */
