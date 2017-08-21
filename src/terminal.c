@@ -38,6 +38,7 @@
  * in tl_scrollback are no longer used.
  *
  * TODO:
+ * - help index for winptydll, optwin entry for winptydll
  * - make [range]terminal pipe [range] lines to the terminal
  * - implement term_setsize()
  * - add test for giving error for invalid 'termsize' value.
@@ -399,6 +400,10 @@ term_start(typval_T *argvar, jobopt_T *opt, int forceit)
 	/* Get and remember the size we ended up with.  Update the pty. */
 	vterm_get_size(term->tl_vterm, &term->tl_rows, &term->tl_cols);
 	term_report_winsize(term, term->tl_rows, term->tl_cols);
+
+	/* Make sure we don't get stuck on sending keys to the job, it leads to
+	 * a deadlock if the job is waiting for Vim to read. */
+	channel_set_nonblock(term->tl_job->jv_channel, PART_IN);
 
 	if (old_curbuf != NULL)
 	{
@@ -1037,14 +1042,13 @@ term_enter_job_mode()
 
     /* Remove the terminal contents from the scrollback and the buffer. */
     gap = &term->tl_scrollback;
-    while (curbuf->b_ml.ml_line_count > term->tl_scrollback_scrolled)
+    while (curbuf->b_ml.ml_line_count > term->tl_scrollback_scrolled
+							    && gap->ga_len > 0)
     {
 	ml_delete(curbuf->b_ml.ml_line_count, FALSE);
 	line = (sb_line_T *)gap->ga_data + gap->ga_len - 1;
 	vim_free(line->sb_cells);
 	--gap->ga_len;
-	if (gap->ga_len == 0)
-	    break;
     }
     check_cursor();
 
@@ -1288,9 +1292,10 @@ may_restore_cursor_props(void)
     if (did_change_cursor)
     {
 	did_change_cursor = FALSE;
-	ui_cursor_shape_forced(TRUE);
 	term_cursor_color((char_u *)"");
 	term_cursor_blink(FALSE);
+	/* this will restore the initial cursor style, if possible */
+	ui_cursor_shape_forced(TRUE);
     }
 }
 
@@ -1368,9 +1373,6 @@ terminal_loop(void)
 	if (c == K_IGNORE)
 	    continue;
 
-#ifdef UNIX
-	may_send_sigint(c, curbuf->b_term->tl_job->jv_pid, 0);
-#endif
 #ifdef WIN3264
 	/* On Windows winpty handles CTRL-C, don't send a CTRL_C_EVENT.
 	 * Use CTRL-BREAK to kill the job. */
@@ -1405,6 +1407,11 @@ terminal_loop(void)
 		}
 		/* Send both keys to the terminal. */
 		send_keys_to_term(curbuf->b_term, prev_c, TRUE);
+	    }
+	    else if (c == Ctrl_C)
+	    {
+		/* "CTRL-W CTRL-C" or 'termkey' CTRL-C: end the job */
+		mch_signal_job(curbuf->b_term->tl_job, (char_u *)"kill");
 	    }
 	    else if (termkey == 0 && c == '.')
 	    {

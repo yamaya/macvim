@@ -1,6 +1,6 @@
 " Tests for the terminal window.
 
-if !exists('*term_start')
+if !has('terminal')
   finish
 endif
 
@@ -450,3 +450,23 @@ func Test_terminal_list_args()
   exe buf . 'bwipe!'
   call assert_equal("", bufname(buf))
 endfunction
+
+func Test_terminal_noblock()
+  let g:buf = term_start(&shell)
+
+  for c in ['a','b','c','d','e','f','g','h','i','j','k']
+    call term_sendkeys(g:buf, 'echo ' . repeat(c, 5000) . "\<cr>")
+  endfor
+  call term_sendkeys(g:buf, "echo done\<cr>")
+  let g:lnum = term_getsize(g:buf)[0] - 1
+  call WaitFor('term_getline(g:buf, g:lnum) =~ "done"', 3000)
+  call assert_match('done', term_getline(g:buf, g:lnum))
+
+  let g:job = term_getjob(g:buf)
+  call Stop_shell_in_terminal(g:buf)
+  call term_wait(g:buf)
+  unlet g:buf
+  unlet g:job
+  unlet g:lnum
+  bwipe
+endfunc
