@@ -445,9 +445,11 @@ redraw_asap(int type)
  * Invoked after an asynchronous callback is called.
  * If an echo command was used the cursor needs to be put back where
  * it belongs. If highlighting was changed a redraw is needed.
+ * If "call_update_screen" is FALSE don't call update_screen() when at the
+ * command line.
  */
     void
-redraw_after_callback(void)
+redraw_after_callback(int call_update_screen)
 {
     ++redrawing_for_callback;
 
@@ -461,7 +463,7 @@ redraw_after_callback(void)
 #ifdef FEAT_WILDMENU
 		&& wild_menu_showing == 0
 #endif
-		)
+		&& call_update_screen)
 	    update_screen(0);
 	/* Redraw in the same position, so that the user can continue
 	 * editing the command. */
@@ -3013,7 +3015,7 @@ win_line(
     int		startrow,
     int		endrow,
     int		nochange UNUSED,	/* not updating for changed text */
-    proftime_T	*syntax_tm)
+    proftime_T	*syntax_tm UNUSED)
 {
     int		col = 0;		/* visual column on screen */
     unsigned	off;			/* offset in ScreenLines/ScreenAttrs */
@@ -5195,11 +5197,11 @@ win_line(
 	/* XIM don't send preedit_start and preedit_end, but they send
 	 * preedit_changed and commit.  Thus Vim can't set "im_is_active", use
 	 * im_is_preediting() here. */
-	if (
+	if (p_imst == IM_ON_THE_SPOT
 # ifndef FEAT_GUI_MACVIM
-		xic != NULL &&
+		&& xic != NULL
 # endif
-		lnum == wp->w_cursor.lnum
+		&& lnum == wp->w_cursor.lnum
 		&& (State & INSERT)
 # ifndef FEAT_GUI_MACVIM
 		&& !p_imdisable

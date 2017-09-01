@@ -84,6 +84,7 @@ endfunc
 
 func Test_terminal_hide_buffer()
   let buf = Run_shell_in_terminal({})
+  setlocal bufhidden=hide
   quit
   for nr in range(1, winnr('$'))
     call assert_notequal(winbufnr(nr), buf)
@@ -356,13 +357,13 @@ func Test_finish_open_close()
   call assert_equal(1, winnr('$'))
 
   exe 'terminal ++open ' . cmd
-  close
+  close!
   call WaitFor("winnr('$') == 2", waittime)
   call assert_equal(2, winnr('$'))
   bwipe
 
   call term_start(cmd, {'term_finish': 'open'})
-  close
+  close!
   call WaitFor("winnr('$') == 2", waittime)
   call assert_equal(2, winnr('$'))
   bwipe
@@ -385,7 +386,7 @@ func Test_finish_open_close()
   call assert_fails("call term_start(cmd, {'term_opencmd': 'split % and %d'})", 'E475:')
 
   call term_start(cmd, {'term_finish': 'open', 'term_opencmd': '4split | buffer %d'})
-  close
+  close!
   call WaitFor("winnr('$') == 2", waittime)
   call assert_equal(2, winnr('$'))
   call assert_equal(4, winheight(0))
@@ -429,6 +430,10 @@ func Test_zz_terminal_in_gui()
   if !CanRunGui()
     return
   endif
+
+  " Ignore the "failed to create input context" error.
+  call test_ignore_error('E285:')
+
   gui -f
 
   call assert_equal(1, winnr('$'))
@@ -503,5 +508,25 @@ func Test_terminal_write_stdin()
   call assert_equal(['2', '2', '10'], nrs)
   bwipe
 
+  bwipe!
+endfunc
+
+func Test_terminal_no_cmd()
+  " Todo: make this work on all systems.
+  if !has('unix')
+    return
+  endif
+  " Todo: make this work in the GUI
+  if !has('gui_running')
+    return
+  endif
+  let buf = term_start('NONE', {})
+  call assert_notequal(0, buf)
+
+  let pty = job_info(term_getjob(buf))['tty']
+  call assert_notequal('', pty)
+  call system('echo "look here" > ' . pty)
+  call term_wait(buf)
+  call assert_equal('look here', term_getline(buf, 1))
   bwipe!
 endfunc
