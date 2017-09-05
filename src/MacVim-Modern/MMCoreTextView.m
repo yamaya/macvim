@@ -44,7 +44,7 @@
 #define DRAW_UNDERC               0x08    /* draw undercurl text */
 #define DRAW_ITALIC               0x10    /* draw italic text */
 #define DRAW_CURSOR               0x20
-#define DRAW_WIDE                 0x40    /* draw wide text */
+#define DRAW_WIDE                 0x80    /* draw wide text */
 
 @interface MMCoreTextView (Drawing)
 - (NSRect)rectFromRow:(int)row1 column:(int)col1 toRow:(int)row2 column:(int)col2;
