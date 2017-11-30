@@ -1142,6 +1142,15 @@ mch_set_mouse_shape(int shape)
 // -- Input Method ----------------------------------------------------------
 
 #if defined(FEAT_MBYTE)
+# if defined(FEAT_EVAL)
+#  ifdef FEAT_GUI
+#   define USE_IMACTIVATEFUNC (!gui.in_use && *p_imaf != NUL)
+#   define USE_IMSTATUSFUNC (!gui.in_use && *p_imsf != NUL)
+#  else
+#   define USE_IMACTIVATEFUNC (*p_imaf != NUL)
+#   define USE_IMSTATUSFUNC (*p_imsf != NUL)
+#  endif
+# endif
 
     void
 im_set_position(int row, int col)
@@ -1164,6 +1173,14 @@ im_set_control(int enable)
     void
 im_set_active(int active)
 {
+#if defined(FEAT_EVAL)
+    if (USE_IMACTIVATEFUNC) {
+        if (active != im_get_status()) {
+            call_imactivatefunc(active);
+        }
+        return;
+    }
+#endif
     // Tell frontend to enable/disable IM (called e.g. when the mode changes).
     if (!p_imdisable) {
         const int msgid = active ? ActivateKeyScriptMsgID : DeactivateKeyScriptMsgID;
@@ -1176,6 +1193,10 @@ im_set_active(int active)
     int
 im_get_status(void)
 {
+# ifdef FEAT_EVAL
+    if (USE_IMSTATUSFUNC)
+        return call_imstatusfunc();
+# endif
     return MMBackend.shared.imState;
 }
 
