@@ -2437,13 +2437,13 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
             // NOTE: This is only done when Vim is starting to avoid confusion:
             // if a window is already open the pwd is never touched.
             if (openFiles && filenames.count != 0 && !args[@"remoteID"]) {
-                char_u *cstring = [filenames.firstObject vimStringSave];
-                if (mch_isdir(cstring)) {
-                    mch_chdir((char *)cstring);
+                char_u *s = [filenames.firstObject vimStringSave];
+                if (mch_isdir(s)) {
+                    mch_chdir((char *)s);
                 } else {
-                    vim_chdirfile(cstring);
+                    vim_chdirfile(s, "drop");
                 }
-                vim_free(cstring);
+                vim_free(s);
             }
         }
     } else {
