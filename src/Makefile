@@ -2146,6 +2146,7 @@ test_arglist \
 	test_cd \
 	test_cdo \
 	test_changedtick \
+	test_changelist \
 	test_channel \
 	test_charsearch \
 	test_charsearch_utf8 \
