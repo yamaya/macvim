@@ -68,7 +68,7 @@
 - (void)setMouseShape:(int)shape;
 - (void)setBlinkWait:(int)wait on:(int)on off:(int)off;
 - (void)startBlink;
-- (void)stopBlink;
+- (void)stopBlink:(BOOL)updateCursor;
 - (void)adjustLinespace:(int)linespace;
 - (void)adjustColumnspace:(int)columnspace;
 - (void)activate;

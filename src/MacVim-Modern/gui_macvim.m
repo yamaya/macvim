@@ -1108,9 +1108,7 @@ gui_mch_start_blink(void)
     void
 gui_mch_stop_blink(int may_call_gui_update_cursor)
 {
-    if (may_call_gui_update_cursor)
-        gui_update_cursor(TRUE, FALSE);
-    [MMBackend.shared stopBlink];
+    [MMBackend.shared stopBlink:may_call_gui_update_cursor];
 }
 
 
