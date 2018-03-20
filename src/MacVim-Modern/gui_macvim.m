@@ -220,7 +220,7 @@ gui_mch_init(void)
         [MMBackend.shared addToMRU:filenames.copy];
     }
 
-#if defined(MAC_OS_X_VERSION_10_10)
+#if MAC_OS_X_VERSION_MIN_REQUIRED >= MAC_OS_X_VERSION_10_10
     {
         static NSOperatingSystemVersion version = {10, 13, 0};
 
