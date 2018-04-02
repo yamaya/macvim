@@ -302,6 +302,7 @@ $VIM_POSIX	vi_diff.txt	/*$VIM_POSIX*
 'gfw'	options.txt	/*'gfw'*
 'ghr'	options.txt	/*'ghr'*
 'go'	options.txt	/*'go'*
+'go-!'	options.txt	/*'go-!'*
 'go-A'	options.txt	/*'go-A'*
 'go-F'	options.txt	/*'go-F'*
 'go-L'	options.txt	/*'go-L'*
@@ -4653,6 +4654,7 @@ EncodingChanged	autocmd.txt	/*EncodingChanged*
 Eterm	syntax.txt	/*Eterm*
 Ex	intro.txt	/*Ex*
 Ex-mode	intro.txt	/*Ex-mode*
+ExitPre	autocmd.txt	/*ExitPre*
 Exuberant_ctags	tagsrch.txt	/*Exuberant_ctags*
 F	motion.txt	/*F*
 FALSE	eval.txt	/*FALSE*
@@ -4885,6 +4887,7 @@ Tcl	if_tcl.txt	/*Tcl*
 TermChanged	autocmd.txt	/*TermChanged*
 TermResponse	autocmd.txt	/*TermResponse*
 Terminal-mode	terminal.txt	/*Terminal-mode*
+TerminalOpen	autocmd.txt	/*TerminalOpen*
 TextChanged	autocmd.txt	/*TextChanged*
 TextChangedI	autocmd.txt	/*TextChangedI*
 TextChangedP	autocmd.txt	/*TextChangedP*
@@ -9026,6 +9029,7 @@ term_gettty()	eval.txt	/*term_gettty()*
 term_list()	eval.txt	/*term_list()*
 term_scrape()	eval.txt	/*term_scrape()*
 term_sendkeys()	eval.txt	/*term_sendkeys()*
+term_setkill()	eval.txt	/*term_setkill()*
 term_setrestore()	eval.txt	/*term_setrestore()*
 term_setsize()	eval.txt	/*term_setsize()*
 term_start()	eval.txt	/*term_start()*
@@ -9047,7 +9051,10 @@ termdebug-variables	terminal.txt	/*termdebug-variables*
 termdebug_popup	terminal.txt	/*termdebug_popup*
 termdebug_wide	terminal.txt	/*termdebug_wide*
 terminal	terminal.txt	/*terminal*
+terminal-api	terminal.txt	/*terminal-api*
+terminal-client-server	terminal.txt	/*terminal-client-server*
 terminal-colors	os_unix.txt	/*terminal-colors*
+terminal-communication	terminal.txt	/*terminal-communication*
 terminal-cursor-style	terminal.txt	/*terminal-cursor-style*
 terminal-debug	terminal.txt	/*terminal-debug*
 terminal-diff	terminal.txt	/*terminal-diff*
@@ -9065,6 +9072,7 @@ terminal-session	terminal.txt	/*terminal-session*
 terminal-size-color	terminal.txt	/*terminal-size-color*
 terminal-special-keys	terminal.txt	/*terminal-special-keys*
 terminal-testing	terminal.txt	/*terminal-testing*
+terminal-to-job	terminal.txt	/*terminal-to-job*
 terminal-typing	terminal.txt	/*terminal-typing*
 terminal-unix	terminal.txt	/*terminal-unix*
 terminal-use	terminal.txt	/*terminal-use*
@@ -9136,6 +9144,7 @@ tolower()	eval.txt	/*tolower()*
 toolbar-icon	gui.txt	/*toolbar-icon*
 toupper()	eval.txt	/*toupper()*
 tr()	eval.txt	/*tr()*
+trim()	eval.txt	/*trim()*
 trojan-horse	starting.txt	/*trojan-horse*
 true-variable	eval.txt	/*true-variable*
 trunc()	eval.txt	/*trunc()*

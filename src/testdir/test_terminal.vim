@@ -45,11 +45,17 @@ func Test_terminal_basic()
   call assert_equal('t', mode())
   call assert_equal('yes', b:done)
   call assert_match('%aR[^\n]*running]', execute('ls'))
+  call assert_match('%aR[^\n]*running]', execute('ls R'))
+  call assert_notmatch('%[^\n]*running]', execute('ls F'))
+  call assert_notmatch('%[^\n]*running]', execute('ls ?'))
 
   call Stop_shell_in_terminal(buf)
   call term_wait(buf)
   call assert_equal('n', mode())
   call assert_match('%aF[^\n]*finished]', execute('ls'))
+  call assert_match('%aF[^\n]*finished]', execute('ls F'))
+  call assert_notmatch('%[^\n]*finished]', execute('ls R'))
+  call assert_notmatch('%[^\n]*finished]', execute('ls ?'))
 
   " closing window wipes out the terminal buffer a with finished job
   close
@@ -843,71 +849,80 @@ func Test_terminal_response_to_control_sequence()
   endif
 
   let buf = Run_shell_in_terminal({})
-  call WaitFor({-> term_getline(buf, 1) != ""})
+  call WaitFor({-> term_getline(buf, 1) != ''})
 
-  call writefile(["\x1b[6n"], 'Xescape')
-  call term_sendkeys(buf, "cat Xescape\<cr>")
+  call term_sendkeys(buf, "cat\<CR>")
+  call WaitFor({-> term_getline(buf, 1) =~ 'cat'})
 
-  " wait for the response of control sequence from libvterm (and send it to tty)
-  sleep 200m
-  call term_wait(buf)
+  " Request the cursor position.
+  call term_sendkeys(buf, "\x1b[6n\<CR>")
 
   " Wait for output from tty to display, below an empty line.
-  " It should show \e3;1R, but only 1R may show up
-  call assert_match('\<\d\+R', term_getline(buf, 3))
+  call WaitFor({-> term_getline(buf, 4) =~ '3;1R'})
 
-  call term_sendkeys(buf, "\<c-c>")
-  call term_wait(buf)
+  " End "cat" gently.
+  call term_sendkeys(buf, "\<CR>\<C-D>")
+
   call Stop_shell_in_terminal(buf)
-
   exe buf . 'bwipe'
-  call delete('Xescape')
   unlet g:job
+endfunc
+
+" Run Vim, start a terminal in that Vim with the kill argument,
+" :qall works.
+func Run_terminal_qall_kill(line1, line2)
+  " 1. Open a terminal window and wait for the prompt to appear
+  " 2. set kill using term_setkill()
+  " 3. make Vim exit, it will kill the shell
+  let after = [
+	\ a:line1,
+	\ 'let buf = bufnr("%")',
+	\ 'while term_getline(buf, 1) =~ "^\\s*$"',
+	\ '  sleep 10m',
+	\ 'endwhile',
+	\ a:line2,
+	\ 'au VimLeavePre * call writefile(["done"], "Xdone")',
+	\ 'qall',
+	\ ]
+  if !RunVim([], after, '')
+    return
+  endif
+  call assert_equal("done", readfile("Xdone")[0])
+  call delete("Xdone")
 endfunc
 
 " Run Vim in a terminal, then start a terminal in that Vim with a kill
 " argument, check that :qall works.
 func Test_terminal_qall_kill_arg()
-  if !CanRunVimInTerminal()
-    return
-  endif
-  let buf = RunVimInTerminal('', {})
-
-  " Open a terminal window and wait for the prompt to appear
-  call term_sendkeys(buf, ":term ++kill=kill\<CR>")
-  call WaitFor({-> term_getline(buf, 10) =~ '\[running]'})
-  call WaitFor({-> term_getline(buf, 1) !~ '^\s*$'})
-
-  " make Vim exit, it will kill the shell
-  call term_sendkeys(buf, "\<C-W>:qall\<CR>")
-  call WaitFor({-> term_getstatus(buf) == "finished"})
-
-  " close the terminal window where Vim was running
-  quit
+  call Run_terminal_qall_kill('term ++kill=kill', '')
 endfunc
 
-" Run Vim in a terminal, then start a terminal in that Vim with a kill
-" argument, check that :qall works.
+" Run Vim, start a terminal in that Vim, set the kill argument with
+" term_setkill(), check that :qall works.
 func Test_terminal_qall_kill_func()
-  if !CanRunVimInTerminal()
+  call Run_terminal_qall_kill('term', 'call term_setkill(buf, "kill")')
+endfunc
+
+" Run Vim, start a terminal in that Vim without the kill argument,
+" check that :qall does not exit, :qall! does.
+func Test_terminal_qall_exit()
+  let after = [
+	\ 'term',
+	\ 'let buf = bufnr("%")',
+	\ 'while term_getline(buf, 1) =~ "^\\s*$"',
+	\ '  sleep 10m',
+	\ 'endwhile',
+	\ 'set nomore',
+	\ 'au VimLeavePre * call writefile(["too early"], "Xdone")',
+	\ 'qall',
+	\ 'au! VimLeavePre * exe buf . "bwipe!" | call writefile(["done"], "Xdone")',
+	\ 'cquit',
+	\ ]
+  if !RunVim([], after, '')
     return
   endif
-  let buf = RunVimInTerminal('', {})
-
-  " Open a terminal window and wait for the prompt to appear
-  call term_sendkeys(buf, ":term\<CR>")
-  call WaitFor({-> term_getline(buf, 10) =~ '\[running]'})
-  call WaitFor({-> term_getline(buf, 1) !~ '^\s*$'})
-
-  " set kill using term_setkill()
-  call term_sendkeys(buf, "\<C-W>:call term_setkill(bufnr('%'), 'kill')\<CR>")
-
-  " make Vim exit, it will kill the shell
-  call term_sendkeys(buf, "\<C-W>:qall\<CR>")
-  call WaitFor({-> term_getstatus(buf) == "finished"})
-
-  " close the terminal window where Vim was running
-  quit
+  call assert_equal("done", readfile("Xdone")[0])
+  call delete("Xdone")
 endfunc
 
 " Run Vim in a terminal, then start a terminal in that Vim without a kill
@@ -966,3 +981,180 @@ func Test_terminal_open_autocmd()
   unlet s:called
   au! repro
 endfunction
+
+func Check_dump01(off)
+  call assert_equal('one two three four five', trim(getline(a:off + 1)))
+  call assert_equal('~           Select Word', trim(getline(a:off + 7)))
+  call assert_equal(':popup PopUp', trim(getline(a:off + 20)))
+endfunc
+
+func Test_terminal_dumpwrite_composing()
+  if !CanRunVimInTerminal()
+    return
+  endif
+  let save_enc = &encoding
+  set encoding=utf-8
+  call assert_equal(1, winnr('$'))
+
+  let text = " a\u0300 e\u0302 o\u0308"
+  call writefile([text], 'Xcomposing')
+  let buf = RunVimInTerminal('Xcomposing', {})
+  call WaitFor({-> term_getline(buf, 1) =~ text})
+  call term_dumpwrite(buf, 'Xdump')
+  let dumpline = readfile('Xdump')[0]
+  call assert_match('|à| |ê| |ö', dumpline)
+
+  call StopVimInTerminal(buf)
+  call delete('Xcomposing')
+  call delete('Xdump')
+  let &encoding = save_enc
+endfunc
+
+" just testing basic functionality.
+func Test_terminal_dumpload()
+  call assert_equal(1, winnr('$'))
+  call term_dumpload('dumps/Test_popup_command_01.dump')
+  call assert_equal(2, winnr('$'))
+  call assert_equal(20, line('$'))
+  call Check_dump01(0)
+  quit
+endfunc
+
+func Test_terminal_dumpdiff()
+  call assert_equal(1, winnr('$'))
+  call term_dumpdiff('dumps/Test_popup_command_01.dump', 'dumps/Test_popup_command_02.dump')
+  call assert_equal(2, winnr('$'))
+  call assert_equal(62, line('$'))
+  call Check_dump01(0)
+  call Check_dump01(42)
+  call assert_equal('           bbbbbbbbbbbbbbbbbb ', getline(26)[0:29])
+  quit
+endfunc
+
+func Test_terminal_dumpdiff_options()
+  set laststatus=0
+  call assert_equal(1, winnr('$'))
+  let height = winheight(0)
+  call term_dumpdiff('dumps/Test_popup_command_01.dump', 'dumps/Test_popup_command_02.dump', {'vertical': 1, 'term_cols': 33})
+  call assert_equal(2, winnr('$'))
+  call assert_equal(height, winheight(winnr()))
+  call assert_equal(33, winwidth(winnr()))
+  call assert_equal('dump diff dumps/Test_popup_command_01.dump', bufname('%'))
+  quit
+
+  call assert_equal(1, winnr('$'))
+  let width = winwidth(0)
+  call term_dumpdiff('dumps/Test_popup_command_01.dump', 'dumps/Test_popup_command_02.dump', {'vertical': 0, 'term_rows': 13, 'term_name': 'something else'})
+  call assert_equal(2, winnr('$'))
+  call assert_equal(width, winwidth(winnr()))
+  call assert_equal(13, winheight(winnr()))
+  call assert_equal('something else', bufname('%'))
+  quit
+
+  call assert_equal(1, winnr('$'))
+  call term_dumpdiff('dumps/Test_popup_command_01.dump', 'dumps/Test_popup_command_02.dump', {'curwin': 1})
+  call assert_equal(1, winnr('$'))
+  bwipe
+
+  set laststatus&
+endfunc
+
+func Test_terminal_api_drop_newwin()
+  if !CanRunVimInTerminal()
+    return
+  endif
+  call assert_equal(1, winnr('$'))
+
+  " Use the title termcap entries to output the escape sequence.
+  call writefile([
+	\ 'set title',
+	\ 'exe "set t_ts=\<Esc>]51; t_fs=\x07"',
+	\ 'let &titlestring = ''["drop","Xtextfile"]''',
+	\ 'redraw',
+	\ "set t_ts=",
+	\ ], 'Xscript')
+  let buf = RunVimInTerminal('-S Xscript', {})
+  call WaitFor({-> bufnr('Xtextfile') > 0})
+  call assert_equal('Xtextfile', expand('%:t'))
+  call assert_true(winnr('$') >= 3)
+
+  call StopVimInTerminal(buf)
+  call delete('Xscript')
+  bwipe Xtextfile
+endfunc
+
+func Test_terminal_api_drop_oldwin()
+  if !CanRunVimInTerminal()
+    return
+  endif
+  let firstwinid = win_getid()
+  split Xtextfile
+  let textfile_winid = win_getid()
+  call assert_equal(2, winnr('$'))
+  call win_gotoid(firstwinid)
+
+  " Use the title termcap entries to output the escape sequence.
+  call writefile([
+	\ 'set title',
+	\ 'exe "set t_ts=\<Esc>]51; t_fs=\x07"',
+	\ 'let &titlestring = ''["drop","Xtextfile"]''',
+	\ 'redraw',
+	\ "set t_ts=",
+	\ ], 'Xscript')
+  let buf = RunVimInTerminal('-S Xscript', {'rows': 10})
+  call WaitFor({-> expand('%:t') =='Xtextfile'})
+  call assert_equal(textfile_winid, win_getid())
+
+  call StopVimInTerminal(buf)
+  call delete('Xscript')
+  bwipe Xtextfile
+endfunc
+
+func Tapi_TryThis(bufnum, arg)
+  let g:called_bufnum = a:bufnum
+  let g:called_arg = a:arg
+endfunc
+
+func WriteApiCall(funcname)
+  " Use the title termcap entries to output the escape sequence.
+  call writefile([
+	\ 'set title',
+	\ 'exe "set t_ts=\<Esc>]51; t_fs=\x07"',
+	\ 'let &titlestring = ''["call","' . a:funcname . '",["hello",123]]''',
+	\ 'redraw',
+	\ "set t_ts=",
+	\ ], 'Xscript')
+endfunc
+
+func Test_terminal_api_call()
+  if !CanRunVimInTerminal()
+    return
+  endif
+
+  call WriteApiCall('Tapi_TryThis')
+  let buf = RunVimInTerminal('-S Xscript', {})
+  call WaitFor({-> exists('g:called_bufnum')})
+  call assert_equal(buf, g:called_bufnum)
+  call assert_equal(['hello', 123], g:called_arg)
+
+  call StopVimInTerminal(buf)
+  call delete('Xscript')
+  unlet g:called_bufnum
+  unlet g:called_arg
+endfunc
+
+func Test_terminal_api_call_fails()
+  if !CanRunVimInTerminal()
+    return
+  endif
+
+  call WriteApiCall('TryThis')
+  call ch_logfile('Xlog', 'w')
+  let buf = RunVimInTerminal('-S Xscript', {})
+  call WaitFor({-> string(readfile('Xlog')) =~ 'Invalid function name: TryThis'})
+
+  call StopVimInTerminal(buf)
+  call delete('Xscript')
+  call ch_logfile('', '')
+  call delete('Xlog')
+endfunc

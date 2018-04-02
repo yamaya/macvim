@@ -1,4 +1,4 @@
-*eval.txt*	For Vim version 8.0.  Last change: 2018 Mar 10
+*eval.txt*	For Vim version 8.0.  Last change: 2018 Mar 23
 
 
 		  VIM REFERENCE MANUAL	  by Bram Moolenaar
@@ -2192,7 +2192,7 @@ gettabvar({nr}, {varname} [, {def}])
 gettabwinvar({tabnr}, {winnr}, {name} [, {def}])
 				any	{name} in {winnr} in tab page {tabnr}
 getwininfo([{winid}])		List	list of windows
-getwinpos([{tmeout}])		List	X and Y coord in pixels of the Vim window
+getwinpos([{timeout}])		List	X and Y coord in pixels of the Vim window
 getwinposx()			Number	X coord in pixels of the Vim window
 getwinposy()			Number	Y coord in pixels of the Vim window
 getwinvar({nr}, {varname} [, {def}])
@@ -2463,6 +2463,7 @@ tolower({expr})			String	the String {expr} switched to lowercase
 toupper({expr})			String	the String {expr} switched to uppercase
 tr({src}, {fromstr}, {tostr})	String	translate chars of {src} in {fromstr}
 					to chars in {tostr}
+trim({text}[, {mask}]) 		String	trim characters in {mask} from {text}
 trunc({expr})			Float	truncate Float {expr}
 type({name})			Number	type of variable {name}
 undofile({name})		String	undo file name for {name}
@@ -3172,8 +3173,8 @@ char2nr({expr} [, {utf8}])					*char2nr()*
 			char2nr("ABC")		returns 65
 <		When {utf8} is omitted or zero, the current 'encoding' is used.
 		Example for "utf-8": >
-			char2nr("แ")		returns 225
-			char2nr("แ"[0])		returns 195
+			char2nr("รก")		returns 225
+			char2nr("รก"[0])		returns 195
 <		With {utf8} set to 1, always treat as utf-8 characters.
 		A combining character is a separate character.
 		|nr2char()| does the opposite.
@@ -4468,6 +4469,7 @@ getcompletion({pat}, {type} [, {filtered}])		*getcompletion()*
 		specifies what for.  The following completion types are
 		supported:
 
+		arglist		file names in argument list
 		augroup		autocmd groups
 		buffer		buffer names
 		behave		:behave suboptions
@@ -8190,7 +8192,20 @@ term_dumpdiff({filename}, {filename} [, {options}])
 		the second file.  The middle part shows the differences.
 		The parts are separated by a line of dashes.
 
-		{options} are not implemented yet.
+		If the {options} argument is present, it must be a Dict with
+		these possible members:
+		   "term_name"	     name to use for the buffer name, instead
+				     of the first file name.
+		   "term_rows"	     vertical size to use for the terminal,
+				     instead of using 'termsize'
+		   "term_cols"	     horizontal size to use for the terminal,
+				     instead of using 'termsize'
+		   "vertical"	     split the window vertically
+		   "curwin"	     use the current window, do not split the
+				     window; fails if the current buffer
+				     cannot be |abandon|ed
+		   "norestore"	     do not add the terminal window to a
+				     session file
 
 		Each character in the middle part indicates a difference. If
 		there are multiple differences only the first in this list is
@@ -8213,7 +8228,7 @@ term_dumpload({filename} [, {options}])
 		Returns the buffer number or zero when it fails.
 		Also see |terminal-diff|.
 
-		{options} are not implemented yet.
+		For {options} see |term_dumpdiff()|.
 
 							*term_dumpwrite()*
 term_dumpwrite({buf}, {filename} [, {options}])
@@ -8645,6 +8660,22 @@ tr({src}, {fromstr}, {tostr})				*tr()*
 <		returns "Hello THere" >
 			echo tr("<blob>", "<>", "{}")
 <		returns "{blob}"
+
+trim({text}[, {mask}])						*trim()*
+		Return {text} as a String where any character in {mask} is
+		removed from the beginning and  end of {text}.
+		If {mask} is not given, {mask} is all characters up to 0x20,
+		which includes Tab, space, NL and CR, plus the non-breaking
+		space character 0xa0.
+		This code deals with multibyte characters properly.
+
+		Examples: >
+			echo trim("   some text ")
+<		returns "some text" >
+			echo trim("  \r\t\t\r RESERVE \t\n\x0B\xA0") . "_TAIL"
+<		returns "RESERVE_TAIL" >
+			echo trim("rm<Xrm<>X>rrm", "rm<>")
+<		returns "Xrm<>X" (characters in the middle are not removed)
 
 trunc({expr})							*trunc()*
 		Return the largest integral value with magnitude less than or
@@ -9240,6 +9271,8 @@ visualextra		Compiled with extra Visual mode commands.
 			|blockwise-operators|.
 vms			VMS version of Vim.
 vreplace		Compiled with |gR| and |gr| commands.
+vtp			Compiled for vcon support |+vtp| (check vcon to find
+			out if it works in the current console).
 wildignore		Compiled with 'wildignore' option.
 wildmenu		Compiled with 'wildmenu' option.
 win32			Win32 version of Vim (MS-Windows 95 and later, 32 or
@@ -9478,8 +9511,7 @@ may be larger.
 It is also possible to define a function without any arguments.  You must
 still supply the () then.
 
-It is allowed to define another function inside a function
-body.
+It is allowed to define another function inside a function body.
 
 							*local-variables*
 Inside a function local variables can be used.  These will disappear when the

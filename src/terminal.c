@@ -38,12 +38,11 @@
  * in tl_scrollback are no longer used.
  *
  * TODO:
- * - Win32: In the GUI use a terminal emulator for :!cmd.
+ * - For the "drop" command accept another argument for options.
  * - Add a way to set the 16 ANSI colors, to be used for 'termguicolors' and in
  *   the GUI.
- * - Some way for the job running in the terminal to send a :drop command back
- *   to the Vim running the terminal.  Should be usable by a simple shell or
- *   python script.
+ * - Win32: Make terminal used for :!cmd in the GUI work better.  Allow for
+ *   redirection.
  * - implement term_setsize()
  * - Copy text in the vterm to the Vim buffer once in a while, so that
  *   completion works.
@@ -342,6 +341,7 @@ term_start(
     buf_T	*old_curbuf = NULL;
     int		res;
     buf_T	*newbuf;
+    int		vertical = opt->jo_vertical || (cmdmod.split & WSP_VERT);
 
     if (check_restricted() || check_secure())
 	return NULL;
@@ -411,17 +411,19 @@ term_start(
 	split_ea.cmdidx = CMD_new;
 	split_ea.cmd = (char_u *)"new";
 	split_ea.arg = (char_u *)"";
-	if (opt->jo_term_rows > 0 && !(cmdmod.split & WSP_VERT))
+	if (opt->jo_term_rows > 0 && !vertical)
 	{
 	    split_ea.line2 = opt->jo_term_rows;
 	    split_ea.addr_count = 1;
 	}
-	if (opt->jo_term_cols > 0 && (cmdmod.split & WSP_VERT))
+	if (opt->jo_term_cols > 0 && vertical)
 	{
 	    split_ea.line2 = opt->jo_term_cols;
 	    split_ea.addr_count = 1;
 	}
 
+	if (vertical)
+	    cmdmod.split |= WSP_VERT;
 	ex_splitview(&split_ea);
 	if (curwin == old_curwin)
 	{
@@ -437,11 +439,9 @@ term_start(
     {
 	/* Only one size was taken care of with :new, do the other one.  With
 	 * "curwin" both need to be done. */
-	if (opt->jo_term_rows > 0 && (opt->jo_curwin
-						 || (cmdmod.split & WSP_VERT)))
+	if (opt->jo_term_rows > 0 && (opt->jo_curwin || vertical))
 	    win_setheight(opt->jo_term_rows);
-	if (opt->jo_term_cols > 0 && (opt->jo_curwin
-						|| !(cmdmod.split & WSP_VERT)))
+	if (opt->jo_term_cols > 0 && (opt->jo_curwin || !vertical))
 	    win_setwidth(opt->jo_term_cols);
     }
 
@@ -3016,24 +3016,14 @@ cterm_color2rgb(int nr, VTermColor *rgb)
 }
 
 /*
- * Create a new vterm and initialize it.
+ * Initialize term->tl_default_color from the environment.
  */
     static void
-create_vterm(term_T *term, int rows, int cols)
+init_default_colors(term_T *term)
 {
-    VTerm	    *vterm;
-    VTermScreen	    *screen;
-    VTermValue	    value;
     VTermColor	    *fg, *bg;
     int		    fgval, bgval;
     int		    id;
-
-    vterm = vterm_new(rows, cols);
-    term->tl_vterm = vterm;
-    screen = vterm_obtain_screen(vterm);
-    vterm_screen_set_callbacks(screen, &screen_callbacks, term);
-    /* TODO: depends on 'encoding'. */
-    vterm_set_utf8(vterm, 1);
 
     vim_memset(&term->tl_default_color.attrs, 0, sizeof(VTermScreenCellAttrs));
     term->tl_default_color.width = 1;
@@ -3157,8 +3147,166 @@ create_vterm(term_T *term, int rows, int cols)
 	    term_get_bg_color(&bg->red, &bg->green, &bg->blue);
 # endif
     }
+}
 
-    vterm_state_set_default_colors(vterm_obtain_state(vterm), fg, bg);
+/*
+ * Handles a "drop" command from the job in the terminal.
+ * "item" is the file name, "item->li_next" may have options.
+ */
+    static void
+handle_drop_command(listitem_T *item)
+{
+    char_u	*fname = get_tv_string(&item->li_tv);
+    int		bufnr;
+    win_T	*wp;
+    tabpage_T   *tp;
+    exarg_T	ea;
+
+    bufnr = buflist_add(fname, BLN_LISTED | BLN_NOOPT);
+    FOR_ALL_TAB_WINDOWS(tp, wp)
+    {
+	if (wp->w_buffer->b_fnum == bufnr)
+	{
+	    /* buffer is in a window already, go there */
+	    goto_tabpage_win(tp, wp);
+	    return;
+	}
+    }
+
+    /* open in new window, like ":sbuffer N" */
+    vim_memset(&ea, 0, sizeof(ea));
+    ea.cmd = (char_u *)"sbuffer";
+    goto_buffer(&ea, DOBUF_FIRST, FORWARD, bufnr);
+}
+
+/*
+ * Handles a function call from the job running in a terminal.
+ * "item" is the function name, "item->li_next" has the arguments.
+ */
+    static void
+handle_call_command(term_T *term, channel_T *channel, listitem_T *item)
+{
+    char_u	*func;
+    typval_T	argvars[2];
+    typval_T	rettv;
+    int		doesrange;
+
+    if (item->li_next == NULL)
+    {
+	ch_log(channel, "Missing function arguments for call");
+	return;
+    }
+    func = get_tv_string(&item->li_tv);
+
+    if (STRNCMP(func, "Tapi_", 5) != 0)
+    {
+	ch_log(channel, "Invalid function name: %s", func);
+	return;
+    }
+
+    argvars[0].v_type = VAR_NUMBER;
+    argvars[0].vval.v_number = term->tl_buffer->b_fnum;
+    argvars[1] = item->li_next->li_tv;
+    if (call_func(func, STRLEN(func), &rettv,
+		2, argvars, /* argv_func */ NULL,
+		/* firstline */ 1, /* lastline */ 1,
+		&doesrange, /* evaluate */ TRUE,
+		/* partial */ NULL, /* selfdict */ NULL) == OK)
+    {
+	clear_tv(&rettv);
+	ch_log(channel, "Function %s called", func);
+    }
+    else
+	ch_log(channel, "Calling function %s failed", func);
+}
+
+/*
+ * Called by libvterm when it cannot recognize an OSC sequence.
+ * We recognize a terminal API command.
+ */
+    static int
+parse_osc(const char *command, size_t cmdlen, void *user)
+{
+    term_T	*term = (term_T *)user;
+    js_read_T	reader;
+    typval_T	tv;
+    channel_T	*channel = term->tl_job == NULL ? NULL
+						    : term->tl_job->jv_channel;
+
+    /* We recognize only OSC 5 1 ; {command} */
+    if (cmdlen < 3 || STRNCMP(command, "51;", 3) != 0)
+	return 0; /* not handled */
+
+    reader.js_buf = vim_strnsave((char_u *)command + 3, cmdlen - 3);
+    if (reader.js_buf == NULL)
+	return 1;
+    reader.js_fill = NULL;
+    reader.js_used = 0;
+    if (json_decode(&reader, &tv, 0) == OK
+	    && tv.v_type == VAR_LIST
+	    && tv.vval.v_list != NULL)
+    {
+	listitem_T *item = tv.vval.v_list->lv_first;
+
+	if (item == NULL)
+	    ch_log(channel, "Missing command");
+	else
+	{
+	    char_u	*cmd = get_tv_string(&item->li_tv);
+
+	    item = item->li_next;
+	    if (item == NULL)
+		ch_log(channel, "Missing argument for %s", cmd);
+	    else if (STRCMP(cmd, "drop") == 0)
+		handle_drop_command(item);
+	    else if (STRCMP(cmd, "call") == 0)
+		handle_call_command(term, channel, item);
+	    else
+		ch_log(channel, "Invalid command received: %s", cmd);
+	}
+    }
+    else
+	ch_log(channel, "Invalid JSON received");
+
+    vim_free(reader.js_buf);
+    clear_tv(&tv);
+    return 1;
+}
+
+static VTermParserCallbacks parser_fallbacks = {
+  NULL,		/* text */
+  NULL,		/* control */
+  NULL,		/* escape */
+  NULL,		/* csi */
+  parse_osc,	/* osc */
+  NULL,		/* dcs */
+  NULL		/* resize */
+};
+
+/*
+ * Create a new vterm and initialize it.
+ */
+    static void
+create_vterm(term_T *term, int rows, int cols)
+{
+    VTerm	    *vterm;
+    VTermScreen	    *screen;
+    VTermState	    *state;
+    VTermValue	    value;
+
+    vterm = vterm_new(rows, cols);
+    term->tl_vterm = vterm;
+    screen = vterm_obtain_screen(vterm);
+    vterm_screen_set_callbacks(screen, &screen_callbacks, term);
+    /* TODO: depends on 'encoding'. */
+    vterm_set_utf8(vterm, 1);
+
+    init_default_colors(term);
+
+    vterm_state_set_default_colors(
+	    vterm_obtain_state(vterm),
+	    &term->tl_default_color.fg,
+	    &term->tl_default_color.bg);
 
     /* Required to initialize most things. */
     vterm_screen_reset(screen, 1 /* hard */);
@@ -3177,8 +3325,9 @@ create_vterm(term_T *term, int rows, int cols)
 #else
     value.boolean = 0;
 #endif
-    vterm_state_set_termprop(vterm_obtain_state(vterm),
-					       VTERM_PROP_CURSORBLINK, &value);
+    state = vterm_obtain_state(vterm);
+    vterm_state_set_termprop(state, VTERM_PROP_CURSORBLINK, &value);
+    vterm_state_set_unrecognised_fallbacks(state, &parser_fallbacks, term);
 }
 
 /*
@@ -3387,6 +3536,15 @@ f_term_dumpwrite(typval_T *argvars, typval_T *rettv UNUSED)
 
 	    for (i = 0; i < VTERM_MAX_CHARS_PER_CELL; ++i)
 	    {
+		int c = cell.chars[i];
+		int pc = prev_cell.chars[i];
+
+		/* For the first character NUL is the same as space. */
+		if (i == 0)
+		{
+		    c = (c == NUL) ? ' ' : c;
+		    pc = (pc == NUL) ? ' ' : pc;
+		}
 		if (cell.chars[i] != prev_cell.chars[i])
 		    same_chars = FALSE;
 		if (cell.chars[i] == NUL || prev_cell.chars[i] == NUL)
@@ -3420,7 +3578,7 @@ f_term_dumpwrite(typval_T *argvars, typval_T *rettv UNUSED)
 		    for (i = 0; i < VTERM_MAX_CHARS_PER_CELL
 						  && cell.chars[i] != NUL; ++i)
 		    {
-			len = utf_char2bytes(cell.chars[0], charbuf);
+			len = utf_char2bytes(cell.chars[i], charbuf);
 			fwrite(charbuf, len, 1, fd);
 		    }
 		}
@@ -3724,6 +3882,7 @@ term_load_dump(typval_T *argvars, typval_T *rettv, int do_diff)
     char_u	buf2[NUMBUFLEN];
     char_u	*fname1;
     char_u	*fname2 = NULL;
+    char_u	*fname_tofree = NULL;
     FILE	*fd1;
     FILE	*fd2 = NULL;
     char_u	*textline = NULL;
@@ -3755,10 +3914,23 @@ term_load_dump(typval_T *argvars, typval_T *rettv, int do_diff)
     }
 
     init_job_options(&opt);
-    /* TODO: use the {options} argument */
+    if (argvars[do_diff ? 2 : 1].v_type != VAR_UNKNOWN
+	    && get_job_options(&argvars[do_diff ? 2 : 1], &opt, 0,
+		    JO2_TERM_NAME + JO2_TERM_COLS + JO2_TERM_ROWS
+		    + JO2_VERTICAL + JO2_CURWIN + JO2_NORESTORE) == FAIL)
+	goto theend;
 
-    /* TODO: use the file name arguments for the buffer name */
-    opt.jo_term_name = (char_u *)"dump diff";
+    if (opt.jo_term_name == NULL)
+    {
+	size_t len = STRLEN(fname1) + 12;
+
+	fname_tofree = alloc((int)len);
+	if (fname_tofree != NULL)
+	{
+	    vim_snprintf((char *)fname_tofree, len, "dump diff %s", fname1);
+	    opt.jo_term_name = fname_tofree;
+	}
+    }
 
     buf = term_start(&argvars[0], NULL, &opt, TERM_START_NOJOB);
     if (buf != NULL && buf->b_term != NULL)
@@ -3771,6 +3943,8 @@ term_load_dump(typval_T *argvars, typval_T *rettv, int do_diff)
 	int		width2;
 	VTermPos	cursor_pos1;
 	VTermPos	cursor_pos2;
+
+	init_default_colors(term);
 
 	rettv->vval.v_number = buf->b_fnum;
 
@@ -3927,6 +4101,7 @@ term_load_dump(typval_T *argvars, typval_T *rettv, int do_diff)
 
 theend:
     vim_free(textline);
+    vim_free(fname_tofree);
     fclose(fd1);
     if (fd2 != NULL)
 	fclose(fd2);
@@ -4531,8 +4706,6 @@ f_term_start(typval_T *argvars, typval_T *rettv)
 		    + JO2_NORESTORE + JO2_TERM_KILL) == FAIL)
 	return;
 
-    if (opt.jo_vertical)
-	cmdmod.split = WSP_VERT;
     buf = term_start(&argvars[0], NULL, &opt, 0);
 
     if (buf != NULL && buf->b_term != NULL)

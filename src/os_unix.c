@@ -603,7 +603,7 @@ mch_total_mem(int special UNUSED)
 #  ifdef MAC_OS_X_VERSION_10_9
 					    + vm_stat.compressor_page_count
 #  endif
-					    ) * getpagesize();
+					    ) * sysconf(_SC_PAGESIZE);
 	mach_port_deallocate(mach_task_self(), host);
     }
 # endif
@@ -4600,7 +4600,6 @@ mch_call_shell_fork(
     char_u	*tofree1 = NULL;
     char_u	*tofree2 = NULL;
     int		i;
-    char_u	*p;
     int		pty_master_fd = -1;	    /* for pty's */
 # ifdef FEAT_GUI
     int		pty_slave_fd = -1;
@@ -5192,6 +5191,7 @@ mch_call_shell_fork(
 			else if (has_mbyte)
 			{
 			    int		l;
+			    char_u	*p;
 
 			    len += buffer_off;
 			    buffer[len] = NUL;
