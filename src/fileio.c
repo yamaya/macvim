@@ -712,8 +712,11 @@ readfile(
 
 		if (mch_stat((char *)swap_fname, &swap_st) >= 0
 			&& st.st_gid != swap_st.st_gid
+# ifdef HAVE_FCHOWN
 			&& fchown(curbuf->b_ml.ml_mfp->mf_fd, -1, st.st_gid)
-									 == -1)
+# endif
+									  == -1
+		   )
 		    swap_mode &= 0600;
 	    }
 
@@ -1389,7 +1392,7 @@ retry:
 
 			/* If the crypt layer is buffering, not producing
 			 * anything yet, need to read more. */
-			if (size > 0 && decrypted_size == 0)
+			if (decrypted_size == 0)
 			    continue;
 
 			if (linerest == 0)
@@ -9559,6 +9562,12 @@ apply_autocmds_group(
 	 * ColorScheme, QuickFixCmd* or DirChanged */
 	if (event == EVENT_FILETYPE
 		|| event == EVENT_SYNTAX
+		|| event == EVENT_CMDLINECHANGED
+		|| event == EVENT_CMDLINEENTER
+		|| event == EVENT_CMDLINELEAVE
+		|| event == EVENT_CMDWINENTER
+		|| event == EVENT_CMDWINLEAVE
+		|| event == EVENT_CMDUNDEFINED
 		|| event == EVENT_FUNCUNDEFINED
 		|| event == EVENT_REMOTEREPLY
 		|| event == EVENT_SPELLFILEMISSING
@@ -9567,7 +9576,10 @@ apply_autocmds_group(
 		|| event == EVENT_OPTIONSET
 		|| event == EVENT_QUICKFIXCMDPOST
 		|| event == EVENT_DIRCHANGED)
+	{
 	    fname = vim_strsave(fname);
+	    autocmd_fname_full = TRUE; /* don't expand it later */
+	}
 	else
 	    fname = FullName_save(fname, FALSE);
     }

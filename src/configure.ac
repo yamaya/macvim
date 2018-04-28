@@ -11,7 +11,7 @@ AC_DEFINE(UNIX)
 AC_PROG_MAKE_SET
 
 dnl Checks for programs.
-AC_PROG_CC_C89		dnl required by almost everything
+AC_PROG_CC_C99		dnl required by almost everything
 AC_PROG_CPP		dnl required by header file checks
 AC_PROGRAM_EGREP	dnl required by AC_EGREP_CPP
 AC_PROG_FGREP		dnl finds working grep -F
@@ -28,6 +28,39 @@ dnl Check for standard headers.  We don't use this in Vim but other stuff
 dnl in autoconf needs it, where it uses STDC_HEADERS.
 AC_HEADER_STDC
 AC_HEADER_SYS_WAIT
+
+dnl Check that the C99 features that Vim uses are supported:
+if test x"$ac_cv_prog_cc_c99" != xno; then
+  dnl If the compiler doesn't explicitly support C99, then check
+  dnl for the specific features Vim uses
+
+  AC_TYPE_LONG_LONG_INT
+  if test "$ac_cv_type_long_long_int" = no; then
+    AC_MSG_FAILURE([Compiler does not support long long int])
+  fi
+
+  AC_MSG_CHECKING([if the compiler supports trailing commas])
+  trailing_commas=no
+  AC_TRY_COMPILE([], [
+    enum {
+      one,
+    };],
+    [AC_MSG_RESULT(yes); trailing_commas=yes],
+    [AC_MSG_RESULT(no)])
+  if test "$trailing_commas" = no; then
+    AC_MSG_FAILURE([Compiler does not support trailing comma in enum])
+  fi
+
+  AC_MSG_CHECKING([if the compiler supports C++ comments])
+  slash_comments=no
+  AC_TRY_COMPILE([],
+    [// C++ comments?],
+    [AC_MSG_RESULT(yes); slash_comments=yes],
+    [AC_MSG_RESULT(no)])
+  if test "$slash_comments" = no; then
+    AC_MSG_FAILURE([Compiler does not support C++ comments])
+  fi
+fi
 
 dnl Check for the flag that fails if stuff are missing.
 

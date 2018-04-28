@@ -273,7 +273,7 @@ endfunc
 
 func Test_terminal_scrollback()
   let buf = Run_shell_in_terminal({})
-  set terminalscroll=100
+  set termwinscroll=100
   call writefile(range(150), 'Xtext')
   if has('win32')
     call term_sendkeys(buf, "type Xtext\<CR>")
@@ -289,7 +289,7 @@ func Test_terminal_scrollback()
   call Stop_shell_in_terminal(buf)
   call term_wait(buf)
   exe buf . 'bwipe'
-  set terminalscroll&
+  set termwinscroll&
 endfunc
 
 func Test_terminal_size()
@@ -790,6 +790,12 @@ func Test_terminal_composing_unicode()
   let buf = term_start(cmd, {'curwin': bufnr('')})
   let g:job = term_getjob(buf)
   call term_wait(buf, 50)
+
+  if has('win32')
+    call assert_equal('cmd', job_info(g:job).cmd[0])
+  else
+    call assert_equal(&shell, job_info(g:job).cmd[0])
+  endif
 
   " ascii + composing
   let txt = "a\u0308bc"
@@ -1297,6 +1303,30 @@ func Test_terminal_api_call_fails()
   call delete('Xlog')
 endfunc
 
+let s:caught_e937 = 0
+
+func Tapi_Delete(bufnum, arg)
+  try
+    execute 'bdelete!' a:bufnum
+  catch /E937:/
+    let s:caught_e937 = 1
+  endtry
+endfunc
+
+func Test_terminal_api_call_fail_delete()
+  if !CanRunVimInTerminal()
+    return
+  endif
+
+  call WriteApiCall('Tapi_Delete')
+  let buf = RunVimInTerminal('-S Xscript', {})
+  call WaitFor({-> s:caught_e937 == 1})
+
+  call StopVimInTerminal(buf)
+  call delete('Xscript')
+  call ch_logfile('', '')
+endfunc
+
 func Test_terminal_ansicolors_default()
   let colors = [
 	\ '#000000', '#e00000',
@@ -1365,4 +1395,103 @@ func Test_terminal_ansicolors_func()
   call Stop_shell_in_terminal(buf)
   call term_wait(buf)
   exe buf . 'bwipe'
+endfunc
+
+func Test_terminal_termwinsize_option_fixed()
+  if !CanRunVimInTerminal()
+    return
+  endif
+  set termwinsize=6x40
+  let text = []
+  for n in range(10)
+    call add(text, repeat(n, 50))
+  endfor
+  call writefile(text, 'Xwinsize')
+  let buf = RunVimInTerminal('Xwinsize', {})
+  let win = bufwinid(buf)
+  call assert_equal([6, 40], term_getsize(buf))
+  call assert_equal(6, winheight(win))
+  call assert_equal(40, winwidth(win))
+
+  " resizing the window doesn't resize the terminal.
+  resize 10
+  vertical resize 60
+  call assert_equal([6, 40], term_getsize(buf))
+  call assert_equal(10, winheight(win))
+  call assert_equal(60, winwidth(win))
+
+  call StopVimInTerminal(buf)
+  call delete('Xwinsize')
+
+  call assert_fails('set termwinsize=40', 'E474')
+  call assert_fails('set termwinsize=10+40', 'E474')
+  call assert_fails('set termwinsize=abc', 'E474')
+
+  set termwinsize=
+endfunc
+
+func Test_terminal_termwinsize_option_zero()
+  set termwinsize=0x0
+  let buf = Run_shell_in_terminal({})
+  let win = bufwinid(buf)
+  call assert_equal([winheight(win), winwidth(win)], term_getsize(buf))
+  call Stop_shell_in_terminal(buf)
+  call term_wait(buf)
+  exe buf . 'bwipe'
+
+  set termwinsize=7x0
+  let buf = Run_shell_in_terminal({})
+  let win = bufwinid(buf)
+  call assert_equal([7, winwidth(win)], term_getsize(buf))
+  call Stop_shell_in_terminal(buf)
+  call term_wait(buf)
+  exe buf . 'bwipe'
+
+  set termwinsize=0x33
+  let buf = Run_shell_in_terminal({})
+  let win = bufwinid(buf)
+  call assert_equal([winheight(win), 33], term_getsize(buf))
+  call Stop_shell_in_terminal(buf)
+  call term_wait(buf)
+  exe buf . 'bwipe'
+
+  set termwinsize=
+endfunc
+
+func Test_terminal_termwinsize_mininmum()
+  set termwinsize=10*50
+  vsplit
+  let buf = Run_shell_in_terminal({})
+  let win = bufwinid(buf)
+  call assert_inrange(10, 1000, winheight(win))
+  call assert_inrange(50, 1000, winwidth(win))
+  call assert_equal([winheight(win), winwidth(win)], term_getsize(buf))
+
+  resize 15
+  vertical resize 60
+  redraw
+  call assert_equal([15, 60], term_getsize(buf))
+  call assert_equal(15, winheight(win))
+  call assert_equal(60, winwidth(win))
+
+  resize 7
+  vertical resize 30
+  redraw
+  call assert_equal([10, 50], term_getsize(buf))
+  call assert_equal(7, winheight(win))
+  call assert_equal(30, winwidth(win))
+
+  call Stop_shell_in_terminal(buf)
+  call term_wait(buf)
+  exe buf . 'bwipe'
+
+  set termwinsize=0*0
+  let buf = Run_shell_in_terminal({})
+  let win = bufwinid(buf)
+  call assert_equal([winheight(win), winwidth(win)], term_getsize(buf))
+  call Stop_shell_in_terminal(buf)
+  call term_wait(buf)
+  exe buf . 'bwipe'
+
+  set termwinsize=
 endfunc

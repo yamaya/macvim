@@ -508,6 +508,16 @@ func Test_raw_pipe()
   let info = job_info(job)
   call assert_equal("dead", info.status)
   call assert_equal("term", info.stoponexit)
+  call assert_equal(2, len(info.cmd))
+  call assert_equal("test_channel_pipe.py", info.cmd[1])
+
+  let found = 0
+  for j in job_info()
+    if j == job
+      let found += 1
+    endif
+  endfor
+  call assert_equal(1, found)
 endfunc
 
 func Test_nl_pipe()
@@ -1837,4 +1847,15 @@ func Test_zz_ch_log()
   call assert_match("hello there", text[1])
   call assert_match("%s%s", text[2])
   call delete('Xlog')
+endfunc
+
+func Test_keep_pty_open()
+  if !has('unix')
+    return
+  endif
+
+  let job = job_start(s:python . ' -c "import time;time.sleep(0.2)"', {'out_io': 'null', 'err_io': 'null', 'pty': 1})
+  let elapsed = WaitFor({-> job_status(job) ==# 'dead'})
+  call assert_inrange(200, 1000, elapsed)
+  call job_stop(job)
 endfunc
