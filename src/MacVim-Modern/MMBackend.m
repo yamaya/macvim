@@ -626,10 +626,12 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     if (_inputQueue.count || input_available()) {
         inputReceived = YES;
     } else {
+        const BOOL needsWait = milliseconds >= 0;
+
         // Wait for the specified amount of time, unless 'milliseconds' is
         // negative in which case we wait "forever" (1e6 seconds translates to
         // approximately 11 days).
-        CFTimeInterval dt = (milliseconds >= 0 ? .001 * milliseconds : 1e6);
+        CFTimeInterval dt = (needsWait ? .001 * milliseconds : 1e6);
         NSTimer *timer = nil;
 
         // Set interval timer which checks for the events of job and channel
@@ -639,15 +641,24 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
             [NSRunLoop.currentRunLoop addTimer:timer forMode:NSDefaultRunLoopMode];
         }
 
+        CFAbsoluteTime lastTime = needsWait ? CFAbsoluteTimeGetCurrent() : .0;
         while (CFRunLoopRunInMode(kCFRunLoopDefaultMode, dt, true) == kCFRunLoopRunHandledSource) {
-            // In order to ensure that all input on the run-loop has been
-            // processed we set the timeout to 0 and keep processing until the
-            // run-loop times out.
-            dt = 0;
-            inputReceived = YES;
+            // In order to ensure that all input (except for channel) on the
+            // run-loop has been processed we set the timeout to 0 and keep
+            // processing until the run-loop times out.
+            if (_inputQueue.count || input_available()) {
+                dt = 0.0;
+                inputReceived = YES;
+            } else if (needsWait) {
+                const CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+                dt -= now - lastTime;
+                if (dt <= 0.0)
+                    break;
+                lastTime = now;
+            }
         }
 
-        if (input_available())
+        if (_inputQueue.count || input_available())
             inputReceived = YES;
 
         [timer invalidate];
