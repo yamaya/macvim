@@ -404,28 +404,6 @@ gui_mch_delete_lines(int row, int num_lines)
                                    right:gui.scroll_region_right];
 }
 
-
-    void
-gui_mch_draw_string(int row, int col, char_u *s, int len, int cells, int flags)
-{
-#ifdef FEAT_MBYTE
-    char_u *conv_str = NULL;
-    if (output_conv.vc_type != CONV_NONE) {
-        conv_str = string_convert(&output_conv, s, &len);
-        if (conv_str)
-            s = conv_str;
-    }
-#endif
-
-    [MMBackend.shared drawString:s length:len row:row column:col cells:cells flags:flags];
-
-#ifdef FEAT_MBYTE
-    if (conv_str)
-        vim_free(conv_str);
-#endif
-}
-
-
     int
 gui_macvim_draw_string(int row, int col, char_u *s, int len, int flags)
 {
@@ -436,41 +414,49 @@ gui_macvim_draw_string(int row, int col, char_u *s, int len, int flags)
         if (conv_str)
             s = conv_str;
     }
-#endif
+
     int start = 0;
     int endcol = col, startcol = col;
     BOOL widden = NO;
-    const int wflags = DRAW_WIDE | flags;
 
     // Loop over each character and output text when it changes from normal to
     // wide and vice versa.
     for (int i = 0, nbytes = 0; i < len; i += nbytes) {
         const int charcode = utf_ptr2char(s + i);
         const int ncells = utf_char2cells(charcode);
+        const int nchars = utfc_ptr2len(s + i);
         nbytes = utf_ptr2len(s + i);
         if (0 == nbytes)
             len = i;    // len must be wrong (shouldn't happen)
 
-        if (!utf_iscomposing(charcode)) {
-            if ((ncells > 1 && !widden) || (ncells <= 1 && widden)) {
-                // Changed from normal to wide or vice versa.
-                [MMBackend.shared drawString:s + start length:i - start row:row column:startcol cells:endcol - startcol flags:(widden ? wflags : flags)];
+        if (i > start && (ncells < nchars || (ncells > 1 && !widden) || (ncells <= 1 && widden))) {
+            // Changed from normal to wide or vice versa.
+            [MMBackend.shared drawString:s + start length:i - start row:row column:startcol cells:endcol - startcol flags:flags | (widden ? DRAW_WIDE : 0)];
 
-                start = i;
-                startcol = endcol;
-            }
+            start = i;
+            startcol = endcol;
+        }
 
-            widden = ncells > 1;
-            endcol += ncells;
+        widden = ncells > 1;
+        endcol += ncells;
+
+        if (nbytes < nchars) {
+            [MMBackend.shared drawString:s + start length:nchars row:row column:startcol cells:endcol - startcol flags:flags | DRAW_COMP | (widden ? DRAW_WIDE : 0)];
+            start = i + nchars;
+            startcol = endcol;
+            nbytes = nchars;
         }
     }
 
-    // Output remaining characters.
-    [MMBackend.shared drawString:s + start length:len - start row:row column:startcol cells:endcol - startcol flags:(widden ? wflags : flags)];
+    if (len > start) {
+        // Output remaining characters.
+        [MMBackend.shared drawString:s + start length:len - start row:row column:startcol cells:endcol - startcol flags:flags | (widden ? DRAW_WIDE : 0)];
+    }
 
-#ifdef FEAT_MBYTE
     if (conv_str)
         vim_free(conv_str);
+#else
+    [MMBackend.shared drawString:s length:len - start row:row column:startcol cells:len flags];
 #endif
 
     return endcol - col;
