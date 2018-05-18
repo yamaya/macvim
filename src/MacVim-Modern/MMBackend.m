@@ -641,20 +641,13 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
             [NSRunLoop.currentRunLoop addTimer:timer forMode:NSDefaultRunLoopMode];
         }
 
-        CFAbsoluteTime lastTime = needsWait ? CFAbsoluteTimeGetCurrent() : .0;
         while (CFRunLoopRunInMode(kCFRunLoopDefaultMode, dt, true) == kCFRunLoopRunHandledSource) {
-            // In order to ensure that all input (except for channel) on the
-            // run-loop has been processed we set the timeout to 0 and keep
-            // processing until the run-loop times out.
+            // In order to ensure that all input on the run-loop has been
+            // processed we set the timeout to 0 and keep processing until the
+            // run-loop times out.
+            dt = 0.0;
             if (_inputQueue.count || input_available() || got_int) {
-                dt = 0.0;
                 inputReceived = YES;
-            } else if (needsWait) {
-                const CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
-                dt -= now - lastTime;
-                if (dt <= 0.0)
-                    break;
-                lastTime = now;
             }
         }
 
