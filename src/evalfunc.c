@@ -294,6 +294,10 @@ static void f_pow(typval_T *argvars, typval_T *rettv);
 #endif
 static void f_prevnonblank(typval_T *argvars, typval_T *rettv);
 static void f_printf(typval_T *argvars, typval_T *rettv);
+#ifdef FEAT_JOB_CHANNEL
+static void f_prompt_setcallback(typval_T *argvars, typval_T *rettv);
+static void f_prompt_setprompt(typval_T *argvars, typval_T *rettv);
+#endif
 static void f_pumvisible(typval_T *argvars, typval_T *rettv);
 #ifdef FEAT_PYTHON3
 static void f_py3eval(typval_T *argvars, typval_T *rettv);
@@ -306,6 +310,8 @@ static void f_pyxeval(typval_T *argvars, typval_T *rettv);
 #endif
 static void f_range(typval_T *argvars, typval_T *rettv);
 static void f_readfile(typval_T *argvars, typval_T *rettv);
+static void f_reg_executing(typval_T *argvars, typval_T *rettv);
+static void f_reg_recording(typval_T *argvars, typval_T *rettv);
 static void f_reltime(typval_T *argvars, typval_T *rettv);
 #ifdef FEAT_FLOAT
 static void f_reltimefloat(typval_T *argvars, typval_T *rettv);
@@ -742,6 +748,10 @@ static struct fst
 #endif
     {"prevnonblank",	1, 1, f_prevnonblank},
     {"printf",		1, 19, f_printf},
+#ifdef FEAT_JOB_CHANNEL
+    {"prompt_setcallback", 2, 2, f_prompt_setcallback},
+    {"prompt_setprompt", 2, 2, f_prompt_setprompt},
+#endif
     {"pumvisible",	0, 0, f_pumvisible},
 #ifdef FEAT_PYTHON3
     {"py3eval",		1, 1, f_py3eval},
@@ -754,6 +764,8 @@ static struct fst
 #endif
     {"range",		1, 3, f_range},
     {"readfile",	1, 3, f_readfile},
+    {"reg_executing",	0, 0, f_reg_executing},
+    {"reg_recording",	0, 0, f_reg_recording},
     {"reltime",		0, 2, f_reltime},
 #ifdef FEAT_FLOAT
     {"reltimefloat",	1, 1, f_reltimefloat},
@@ -1236,6 +1248,11 @@ f_append(typval_T *argvars, typval_T *rettv)
 	appended_lines_mark(lnum, added);
 	if (curwin->w_cursor.lnum > lnum)
 	    curwin->w_cursor.lnum += added;
+#ifdef FEAT_JOB_CHANNEL
+	if (bt_prompt(curbuf) && (State & INSERT))
+	    // show the line with the prompt
+	    update_topline();
+#endif
     }
     else
 	rettv->vval.v_number = 1;	/* Failed */
@@ -7402,7 +7419,12 @@ get_maparg(typval_T *argvars, typval_T *rettv, int exact)
     {
 	/* Return a string. */
 	if (rhs != NULL)
-	    rettv->vval.v_string = str2special_save(rhs, FALSE);
+	{
+	    if (*rhs == NUL)
+		rettv->vval.v_string = vim_strsave((char_u *)"<Nop>");
+	    else
+		rettv->vval.v_string = str2special_save(rhs, FALSE);
+	}
 
     }
     else if (rettv_dict_alloc(rettv) != FAIL && rhs != NULL)
@@ -8389,6 +8411,57 @@ f_printf(typval_T *argvars, typval_T *rettv)
     did_emsg |= saved_did_emsg;
 }
 
+#ifdef FEAT_JOB_CHANNEL
+/*
+ * "prompt_setcallback({buffer}, {callback})" function
+ */
+    static void
+f_prompt_setcallback(typval_T *argvars, typval_T *rettv UNUSED)
+{
+    buf_T	*buf;
+    char_u	*callback;
+    partial_T	*partial;
+
+    if (check_secure())
+	return;
+    buf = get_buf_tv(&argvars[0], FALSE);
+    if (buf == NULL)
+	return;
+
+    callback = get_callback(&argvars[1], &partial);
+    if (callback == NULL)
+	return;
+
+    free_callback(buf->b_prompt_callback, buf->b_prompt_partial);
+    if (partial == NULL)
+	buf->b_prompt_callback = vim_strsave(callback);
+    else
+	/* pointer into the partial */
+	buf->b_prompt_callback = callback;
+    buf->b_prompt_partial = partial;
+}
+
+/*
+ * "prompt_setprompt({buffer}, {text})" function
+ */
+    static void
+f_prompt_setprompt(typval_T *argvars, typval_T *rettv UNUSED)
+{
+    buf_T	*buf;
+    char_u	*text;
+
+    if (check_secure())
+	return;
+    buf = get_buf_tv(&argvars[0], FALSE);
+    if (buf == NULL)
+	return;
+
+    text = get_tv_string(&argvars[1]);
+    vim_free(buf->b_prompt_text);
+    buf->b_prompt_text = vim_strsave(text);
+}
+#endif
+
 /*
  * "pumvisible()" function
  */
@@ -8709,6 +8782,34 @@ f_readfile(typval_T *argvars, typval_T *rettv)
 
     vim_free(prev);
     fclose(fd);
+}
+
+    static void
+return_register(int regname, typval_T *rettv)
+{
+    char_u buf[2] = {0, 0};
+
+    buf[0] = (char_u)regname;
+    rettv->v_type = VAR_STRING;
+    rettv->vval.v_string = vim_strsave(buf);
+}
+
+/*
+ * "reg_executing()" function
+ */
+    static void
+f_reg_executing(typval_T *argvars UNUSED, typval_T *rettv)
+{
+    return_register(reg_executing, rettv);
+}
+
+/*
+ * "reg_recording()" function
+ */
+    static void
+f_reg_recording(typval_T *argvars UNUSED, typval_T *rettv)
+{
+    return_register(reg_recording, rettv);
 }
 
 #if defined(FEAT_RELTIME)
