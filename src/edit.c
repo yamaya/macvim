@@ -1016,6 +1016,19 @@ edit(
 		goto doESCkey;
 	    }
 #endif
+#ifdef FEAT_JOB_CHANNEL
+	    if (c == Ctrl_C && bt_prompt(curbuf))
+	    {
+		if (invoke_prompt_interrupt())
+		{
+		    if (!bt_prompt(curbuf))
+			// buffer changed to a non-prompt buffer, get out of
+			// Insert mode
+			goto doESCkey;
+		    break;
+		}
+	    }
+#endif
 
 #ifdef UNIX
 do_intr:
@@ -1179,7 +1192,7 @@ doESCkey:
 		// In a prompt window CTRL-W is used for window commands.
 		// Use Shift-CTRL-W to delete a word.
 		stuffcharReadbuff(Ctrl_W);
-		restart_edit = 'i';
+		restart_edit = 'A';
 		nomove = TRUE;
 		count = 0;
 		goto doESCkey;
@@ -1713,7 +1726,12 @@ ins_redraw(
 #endif
 	    )
     {
+	aco_save_T	aco;
+
+	// save and restore curwin and curbuf, in case the autocmd changes them
+	aucmd_prepbuf(&aco, curbuf);
 	apply_autocmds(EVENT_TEXTCHANGEDI, NULL, NULL, FALSE, curbuf);
+	aucmd_restbuf(&aco);
 	curbuf->b_last_changedtick = CHANGEDTICK(curbuf);
     }
 
@@ -1725,7 +1743,12 @@ ins_redraw(
 	    && curbuf->b_last_changedtick_pum != CHANGEDTICK(curbuf)
 	    && pum_visible())
     {
+	aco_save_T	aco;
+
+	// save and restore curwin and curbuf, in case the autocmd changes them
+	aucmd_prepbuf(&aco, curbuf);
 	apply_autocmds(EVENT_TEXTCHANGEDP, NULL, NULL, FALSE, curbuf);
+	aucmd_restbuf(&aco);
 	curbuf->b_last_changedtick_pum = CHANGEDTICK(curbuf);
     }
 #endif
@@ -1903,7 +1926,7 @@ init_prompt(int cmdchar_todo)
 				   || Insstart_orig.col != (int)STRLEN(prompt))
     {
 	Insstart.lnum = curwin->w_cursor.lnum;
-	Insstart.col = STRLEN(prompt);
+	Insstart.col = (int)STRLEN(prompt);
 	Insstart_orig = Insstart;
 	Insstart_textlen = Insstart.col;
 	Insstart_blank_vcol = MAXCOL;
@@ -1913,7 +1936,7 @@ init_prompt(int cmdchar_todo)
     if (cmdchar_todo == 'A')
 	coladvance((colnr_T)MAXCOL);
     if (cmdchar_todo == 'I' || curwin->w_cursor.col <= (int)STRLEN(prompt))
-	curwin->w_cursor.col = STRLEN(prompt);
+	curwin->w_cursor.col = (int)STRLEN(prompt);
     /* Make sure the cursor is in a valid position. */
     check_cursor();
 }
@@ -4215,7 +4238,7 @@ expand_by_function(
 {
     list_T      *matchlist = NULL;
     dict_T	*matchdict = NULL;
-    char_u	*args[2];
+    typval_T	args[3];
     char_u	*funcname;
     pos_T	pos;
     win_T	*curwin_save;
@@ -4227,15 +4250,18 @@ expand_by_function(
 	return;
 
     /* Call 'completefunc' to obtain the list of matches. */
-    args[0] = (char_u *)"0";
-    args[1] = base;
+    args[0].v_type = VAR_NUMBER;
+    args[0].vval.v_number = 0;
+    args[1].v_type = VAR_STRING;
+    args[1].vval.v_string = base != NULL ? base : (char_u *)"";
+    args[2].v_type = VAR_UNKNOWN;
 
     pos = curwin->w_cursor;
     curwin_save = curwin;
     curbuf_save = curbuf;
 
     /* Call a function, which returns a list or dict. */
-    if (call_vim_function(funcname, 2, args, FALSE, FALSE, &rettv) == OK)
+    if (call_vim_function(funcname, 2, args, &rettv, FALSE) == OK)
     {
 	switch (rettv.v_type)
 	{
@@ -5542,7 +5568,7 @@ ins_complete(int c, int enable_pum)
 	     * Call user defined function 'completefunc' with "a:findstart"
 	     * set to 1 to obtain the length of text to use for completion.
 	     */
-	    char_u	*args[2];
+	    typval_T	args[3];
 	    int		col;
 	    char_u	*funcname;
 	    pos_T	pos;
@@ -5562,8 +5588,11 @@ ins_complete(int c, int enable_pum)
 		return FAIL;
 	    }
 
-	    args[0] = (char_u *)"1";
-	    args[1] = NULL;
+	    args[0].v_type = VAR_NUMBER;
+	    args[0].vval.v_number = 1;
+	    args[1].v_type = VAR_STRING;
+	    args[1].vval.v_string = (char_u *)"";
+	    args[2].v_type = VAR_UNKNOWN;
 	    pos = curwin->w_cursor;
 	    curwin_save = curwin;
 	    curbuf_save = curbuf;
