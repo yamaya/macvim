@@ -2324,6 +2324,7 @@ test_arglist \
 	test_usercommands \
 	test_utf8 \
 	test_utf8_comparisons \
+	test_vartabs \
 	test_viminfo \
 	test_vimscript \
 	test_virtualedit \
