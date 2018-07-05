@@ -668,7 +668,7 @@ defaultAdvanceForFont(NSFont *font)
     NSFont *newFont = [sender convertFont:_font];
 
     if (newFont) {
-        unsigned length = [newFont.displayName lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+        unsigned length = [newFont.fontName lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
         if (length != 0) {
             NSMutableData *data = NSMutableData.new;
 
