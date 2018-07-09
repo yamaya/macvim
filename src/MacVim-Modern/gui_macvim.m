@@ -1520,6 +1520,16 @@ gui_mch_set_shellsize(
     [MMBackend.shared setRows:height columns:width];
 }
 
+/*
+ * Re-calculates size of the Vim view to fit within the window without having
+ * to resize the window. Usually happens after UI elements have changed (e.g.
+ * adding / removing a toolbar) when guioptions 'k' is set.
+ */
+    void
+gui_mch_resize_view()
+{
+    [MMBackend.shared resizeView];
+}
 
 /*
  * Set the position of the top left corner of the window to the given

@@ -53,6 +53,7 @@
 - (void)updateTabBar;
 - (void)showTabBar:(BOOL)enable;
 - (void)setRows:(int)rows columns:(int)cols;
+- (void)resizeView;
 - (void)setWindowTitle:(char *)title;
 - (void)setDocumentFilename:(char *)filename;
 - (char *)browseForFileWithAttributes:(NSDictionary *)attr;

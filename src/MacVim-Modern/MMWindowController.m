@@ -125,6 +125,7 @@
     BOOL                _setupDone;
     BOOL                _windowPresented;
     BOOL                _shouldResizeVimView;
+    BOOL                _shouldKeepGUISize;
     BOOL                _shouldRestoreUserTopLeft;
     BOOL                _shouldMaximizeWindow;
     int                 _updateToolbarFlag;
@@ -349,7 +350,7 @@
     [_vimView selectTabWithIndex:index];
 }
 
-- (void)setTextDimensionsWithRows:(int)rows columns:(int)cols isLive:(BOOL)live keepOnScreen:(BOOL)onScreen
+- (void)setTextDimensionsWithRows:(int)rows columns:(int)cols isLive:(BOOL)live keepGUISize:(BOOL)keepGUISize keepOnScreen:(BOOL)onScreen
 {
     ASLogDebug(@"setTextDimensionsWithRows:%d columns:%d isLive:%d keepOnScreen:%d", rows, cols, live, onScreen);
 
@@ -366,7 +367,7 @@
 
     [_vimView setDesiredRows:rows columns:cols];
 
-    if (_setupDone && !live) {
+    if (_setupDone && !live && !_shouldKeepGUISize) {
         _shouldResizeVimView = YES;
         _keepOnScreen = onScreen;
     }
@@ -392,9 +393,17 @@
     }
 }
 
+- (void)resizeView
+{
+    if (_setupDone) {
+        _shouldResizeVimView = YES;
+        _shouldKeepGUISize = YES;
+    }
+}
+
 - (void)zoomWithRows:(int)rows columns:(int)cols state:(int)state
 {
-    [self setTextDimensionsWithRows:rows columns:cols isLive:NO keepOnScreen:YES];
+    [self setTextDimensionsWithRows:rows columns:cols isLive:NO keepGUISize:NO keepOnScreen:YES];
 
     // NOTE: If state==0 then the window should be put in the non-zoomed
     // "user state".  That is, move the window back to the last stored
@@ -456,18 +465,12 @@
 
 - (BOOL)destroyScrollbarWithIdentifier:(int32_t)ident
 {
-    const BOOL hidden = [_vimView destroyScrollbarWithIdentifier:ident];   
-    _shouldResizeVimView = _shouldResizeVimView || hidden;
-    _shouldMaximizeWindow = _shouldMaximizeWindow || hidden;
-    return hidden;
+    return [_vimView destroyScrollbarWithIdentifier:ident];   
 }
 
 - (BOOL)showScrollbarWithIdentifier:(int32_t)ident state:(BOOL)visible
 {
-    const BOOL toggled = [_vimView showScrollbarWithIdentifier:ident state:visible];
-    _shouldResizeVimView = _shouldResizeVimView || toggled;
-    _shouldMaximizeWindow = _shouldMaximizeWindow || toggled;
-    return toggled;
+    return [_vimView showScrollbarWithIdentifier:ident state:visible];
 }
 
 - (void)setScrollbarPosition:(int)pos length:(int)len identifier:(int32_t)ident
@@ -548,7 +551,17 @@
                                   _fullScreenWindow ? _fullScreenWindow.frame.size :
                                   _fullScreenEnabled ? _desiredWindowSize :
                                   [self constrainContentSizeToScreenSize:_vimView.desiredSize]];
-            _vimView.frameSize = contentSize;
+
+            // Setting 'guioptions+=k' will make shouldKeepGUISize true, which
+            // means avoid resizing the window. Instead, resize the view instead
+            // to keep the GUI window's size consistent.
+            const bool avoidWindowResize = _shouldKeepGUISize && !_fullScreenEnabled;
+            if (!avoidWindowResize) {
+                _vimView.frameSize = contentSize;
+            }
+            else {
+                [_vimView setFrameSizeKeepGUISize:originalSize];
+            }
 
             if (_fullScreenWindow) {
                 // NOTE! Don't mark the full-screen content view as needing an
@@ -561,11 +574,14 @@
                     [_fullScreenWindow centerView];
                 }
             } else {
-                [self resizeWindowToFitContentSize:contentSize keepOnScreen:_keepOnScreen];
+                if (!avoidWindowResize) {
+                    [self resizeWindowToFitContentSize:contentSize keepOnScreen:_keepOnScreen];
+                }
             }
         }
 
         _keepOnScreen = NO;
+        _shouldKeepGUISize = NO;
     }
 }
 
@@ -603,7 +619,6 @@
 {
     if (_vimView.textView) {
         _vimView.textView.linespace = (float)linespace;
-        _shouldMaximizeWindow = _shouldResizeVimView = YES;
     }
 }
 
@@ -611,7 +626,6 @@
 {
     if (_vimView.textView) {
         _vimView.textView.columnspace = (float)columnspace;
-        _shouldMaximizeWindow = _shouldResizeVimView = YES;
     }
 }
 
@@ -1381,7 +1395,6 @@
         // The tabline separator was toggled so the content view must change
         // size.
         [self updateResizeConstraints];
-        _shouldResizeVimView = YES;
     }
 }
 
