@@ -14,7 +14,13 @@
 
 /**
  */
-@interface MMVimController : NSObject<NSToolbarDelegate, NSOpenSavePanelDelegate>
+@interface MMVimController : NSObject<
+      NSToolbarDelegate
+    , NSOpenSavePanelDelegate
+#if MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_X_VERSION_10_12_2
+    , NSTouchBarDelegate
+#endif
+    >
 
 @property (nonatomic, readonly) MMWindowController *windowController;
 @property (nonatomic, readonly) id backendProxy;
@@ -43,4 +49,7 @@
 - (NSString *)evaluateVimExpression:(NSString *)expression;
 - (id)evaluateVimExpressionCocoa:(NSString *)expression errorString:(NSString **)outErrorString;
 - (void)processInputQueue:(NSArray *)queue;
+#if MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_X_VERSION_10_12_2
+- (NSTouchBar *)makeTouchBar;
+#endif
 @end

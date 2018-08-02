@@ -836,6 +836,14 @@
     [_vimController sendMessage:ExecuteMenuMsgID data:attrs.dictionaryAsData];
 }
 
+#if MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_X_VERSION_10_12_2
+- (IBAction)vimTouchbarItemAction:(id)sender
+{
+    NSDictionary *attrs = @{@"descriptor": @[@"TouchBar", [sender label]]};
+    [_vimController sendMessage:ExecuteMenuMsgID data:attrs.dictionaryAsData];
+}
+#endif
+
 - (IBAction)fontSizeUp:(id)sender
 {
     [NSFontManager.sharedFontManager modifyFont:@(NSSizeUpFontAction)];
@@ -1226,6 +1234,13 @@
     if (!_afterWindowPresentedQueue) _afterWindowPresentedQueue = NSMutableArray.new;
     [_afterWindowPresentedQueue addObject:[block copy]];
 }
+
+#if MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_X_VERSION_10_12_2
+- (NSTouchBar *)makeTouchBar
+{
+    return [_vimController makeTouchBar];
+}
+#endif
 
 @end // MMWindowController
 
