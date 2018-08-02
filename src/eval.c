@@ -729,6 +729,7 @@ eval_expr_typval(typval_T *expr, typval_T *argv, int argc, typval_T *rettv)
 	    return FAIL;
 	if (*s != NUL)  /* check for trailing chars after expr */
 	{
+	    clear_tv(rettv);
 	    EMSG2(_(e_invexpr2), s);
 	    return FAIL;
 	}
@@ -1020,29 +1021,15 @@ call_vim_function(
     char_u      *func,
     int		argc,
     typval_T	*argv,
-    typval_T	*rettv,
-    int		safe)		/* use the sandbox */
+    typval_T	*rettv)
 {
     int		doesrange;
-    void	*save_funccalp = NULL;
     int		ret;
-
-    if (safe)
-    {
-	save_funccalp = save_funccal();
-	++sandbox;
-    }
 
     rettv->v_type = VAR_UNKNOWN;		/* clear_tv() uses this */
     ret = call_func(func, (int)STRLEN(func), rettv, argc, argv, NULL,
 		    curwin->w_cursor.lnum, curwin->w_cursor.lnum,
 		    &doesrange, TRUE, NULL, NULL);
-    if (safe)
-    {
-	--sandbox;
-	restore_funccal(save_funccalp);
-    }
-
     if (ret == FAIL)
 	clear_tv(rettv);
 
@@ -1059,13 +1046,12 @@ call_vim_function(
 call_func_retnr(
     char_u      *func,
     int		argc,
-    typval_T	*argv,
-    int		safe)		/* use the sandbox */
+    typval_T	*argv)
 {
     typval_T	rettv;
     varnumber_T	retval;
 
-    if (call_vim_function(func, argc, argv, &rettv, safe) == FAIL)
+    if (call_vim_function(func, argc, argv, &rettv) == FAIL)
 	return -1;
 
     retval = get_tv_number_chk(&rettv, NULL);
@@ -1087,13 +1073,12 @@ call_func_retnr(
 call_func_retstr(
     char_u      *func,
     int		argc,
-    typval_T	*argv,
-    int		safe)		/* use the sandbox */
+    typval_T	*argv)
 {
     typval_T	rettv;
     char_u	*retval;
 
-    if (call_vim_function(func, argc, argv, &rettv, safe) == FAIL)
+    if (call_vim_function(func, argc, argv, &rettv) == FAIL)
 	return NULL;
 
     retval = vim_strsave(get_tv_string(&rettv));
@@ -1112,12 +1097,11 @@ call_func_retstr(
 call_func_retlist(
     char_u      *func,
     int		argc,
-    typval_T	*argv,
-    int		safe)		/* use the sandbox */
+    typval_T	*argv)
 {
     typval_T	rettv;
 
-    if (call_vim_function(func, argc, argv, &rettv, safe) == FAIL)
+    if (call_vim_function(func, argc, argv, &rettv) == FAIL)
 	return NULL;
 
     if (rettv.v_type != VAR_LIST)
@@ -9386,8 +9370,7 @@ typval_compare(
 }
 
     char_u *
-typval_tostring(arg)
-    typval_T	*arg;
+typval_tostring(typval_T *arg)
 {
     char_u	*tofree;
     char_u	numbuf[NUMBUFLEN];
@@ -9690,11 +9673,12 @@ shortpath_for_partial(
  */
     int
 modify_fname(
-    char_u	*src,		/* string with modifiers */
-    int		*usedlen,	/* characters after src that are used */
-    char_u	**fnamep,	/* file name so far */
-    char_u	**bufp,		/* buffer for allocated file name or NULL */
-    int		*fnamelen)	/* length of fnamep */
+    char_u	*src,		// string with modifiers
+    int		tilde_file,	// "~" is a file name, not $HOME
+    int		*usedlen,	// characters after src that are used
+    char_u	**fnamep,	// file name so far
+    char_u	**bufp,		// buffer for allocated file name or NULL
+    int		*fnamelen)	// length of fnamep
 {
     int		valid = 0;
     char_u	*tail;
@@ -9724,8 +9708,8 @@ repeat:
 		    || (*fnamep)[1] == '\\'
 # endif
 		    || (*fnamep)[1] == NUL)
-
 #endif
+		&& !(tilde_file && (*fnamep)[1] == NUL)
 	   )
 	{
 	    *fnamep = expand_env_save(*fnamep);

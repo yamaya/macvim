@@ -101,6 +101,11 @@ static char *(features[]) =
 	"-arabic",
 #endif
 	"+autocmd",
+#ifdef FEAT_AUTOCHDIR
+       "+autochdir",
+#else
+       "-autochdir",
+#endif
 #ifdef FEAT_AUTOSERVERNAME
 	"+autoservername",
 #else
@@ -503,7 +508,11 @@ static char *(features[]) =
 	"-ole",
 # endif
 #endif
+#ifdef FEAT_EVAL
 	"+packages",
+#else
+	"-packages",
+#endif
 #ifdef FEAT_PATH_EXTRA
 	"+path_extra",
 #else
@@ -720,11 +729,7 @@ static char *(features[]) =
 #else
 	"-viminfo",
 #endif
-#ifdef FEAT_VREPLACE
 	"+vreplace",
-#else
-	"-vreplace",
-#endif
 #ifdef WIN3264
 # ifdef FEAT_VTP
 	"+vtp",
@@ -804,6 +809,116 @@ static char *(features[]) =
 
 static int included_patches[] =
 {   /* Add new patch number below this line */
+/**/
+    233,
+/**/
+    232,
+/**/
+    231,
+/**/
+    230,
+/**/
+    229,
+/**/
+    228,
+/**/
+    227,
+/**/
+    226,
+/**/
+    225,
+/**/
+    224,
+/**/
+    223,
+/**/
+    222,
+/**/
+    221,
+/**/
+    220,
+/**/
+    219,
+/**/
+    218,
+/**/
+    217,
+/**/
+    216,
+/**/
+    215,
+/**/
+    214,
+/**/
+    213,
+/**/
+    212,
+/**/
+    211,
+/**/
+    210,
+/**/
+    209,
+/**/
+    208,
+/**/
+    207,
+/**/
+    206,
+/**/
+    205,
+/**/
+    204,
+/**/
+    203,
+/**/
+    202,
+/**/
+    201,
+/**/
+    200,
+/**/
+    199,
+/**/
+    198,
+/**/
+    197,
+/**/
+    196,
+/**/
+    195,
+/**/
+    194,
+/**/
+    193,
+/**/
+    192,
+/**/
+    191,
+/**/
+    190,
+/**/
+    189,
+/**/
+    188,
+/**/
+    187,
+/**/
+    186,
+/**/
+    185,
+/**/
+    184,
+/**/
+    183,
+/**/
+    182,
+/**/
+    181,
+/**/
+    180,
+/**/
+    179,
 /**/
     178,
 /**/

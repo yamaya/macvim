@@ -207,13 +207,6 @@
 #endif
 
 /*
- * +vreplace		"gR" and "gr" commands.
- */
-#ifdef FEAT_NORMAL
-# define FEAT_VREPLACE
-#endif
-
-/*
  * +cmdline_info	'showcmd' and 'ruler' options.
  */
 #ifdef FEAT_NORMAL
@@ -730,6 +723,10 @@
 
 #if defined(FEAT_TOOLBAR) && !defined(FEAT_MENU)
 # define FEAT_MENU
+#endif
+										
+#if defined(FEAT_TOOLBAR) && defined(FEAT_GUI_MACVIM) 
+# define FEAT_TOUCHBAR
 #endif
 
 /*

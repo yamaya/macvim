@@ -464,6 +464,18 @@ func Test_mode()
   call assert_equal('n', mode(0))
   call assert_equal('n', mode(1))
 
+  " i_CTRL-O
+  exe "normal i\<C-O>:call Save_mode()\<Cr>\<Esc>"
+  call assert_equal("n-niI", g:current_modes)
+
+  " R_CTRL-O
+  exe "normal R\<C-O>:call Save_mode()\<Cr>\<Esc>"
+  call assert_equal("n-niR", g:current_modes)
+
+  " gR_CTRL-O
+  exe "normal gR\<C-O>:call Save_mode()\<Cr>\<Esc>"
+  call assert_equal("n-niV", g:current_modes)
+
   " How to test operator-pending mode?
 
   call feedkeys("v", 'xt')
@@ -810,6 +822,17 @@ func Test_col()
   bw!
 endfunc
 
+func Test_inputlist()
+  call feedkeys(":let c = inputlist(['Select color:', '1. red', '2. green', '3. blue'])\<cr>1\<cr>", 'tx')
+  call assert_equal(1, c)
+  call feedkeys(":let c = inputlist(['Select color:', '1. red', '2. green', '3. blue'])\<cr>2\<cr>", 'tx')
+  call assert_equal(2, c)
+  call feedkeys(":let c = inputlist(['Select color:', '1. red', '2. green', '3. blue'])\<cr>3\<cr>", 'tx')
+  call assert_equal(3, c)
+
+  call assert_fails('call inputlist("")', 'E686:')
+endfunc
+
 func Test_balloon_show()
   if has('balloon_eval')
     " This won't do anything but must not crash either.
@@ -983,4 +1006,20 @@ func Test_libcall_libcallnr()
 
   call assert_fails("call libcall('Xdoesnotexist_', 'getenv', 'HOME')", 'E364:')
   call assert_fails("call libcallnr('Xdoesnotexist_', 'strlen', 'abcd')", 'E364:')
+endfunc
+
+sandbox function Fsandbox()
+  normal ix
+endfunc
+
+func Test_func_sandbox()
+  sandbox let F = {-> 'hello'}
+  call assert_equal('hello', F())
+
+  sandbox let F = {-> execute("normal ix\<Esc>")}
+  call assert_fails('call F()', 'E48:')
+  unlet F
+
+  call assert_fails('call Fsandbox()', 'E48:')
+  delfunc Fsandbox
 endfunc

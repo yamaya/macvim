@@ -56,6 +56,13 @@ if exists("v:lang") || &langmenu != ""
       let s:lang = substitute(s:lang, '\.[^.]*', "", "")
       exe "runtime! lang/menu_" . s:lang . "[^a-z]*vim"
 
+      if !exists("did_menu_trans") && s:lang =~ '_'
+	" If the language includes a region try matching without that region.
+	" (e.g. find menu_de.vim if s:lang == de_DE).
+	let langonly = substitute(s:lang, '_.*', "", "")
+	exe "runtime! lang/menu_" . langonly . "[^a-z]*vim"
+      endif
+
       if !exists("did_menu_trans") && strlen($LANG) > 1 && s:lang !~ '^en_us'
 	" On windows locale names are complicated, try using $LANG, it might
 	" have been set by set_init_1().  But don't do this for "en" or "en_us".
@@ -1278,6 +1285,29 @@ if has("gui_macvim")
 
   macm Help.MacVim\ Help			key=<D-?>
   macm Help.MacVim\ Website			action=openWebsite:
+endif
+
+if has("touchbar")
+  " Set up default Touch Bar buttons.
+  " 1. Smart fullscreen icon that toggles between going full screen or not.
+  an icon=NSTouchBarEnterFullScreenTemplate 1.10 TouchBar.EnterFullScreen :set fullscreen<CR>
+
+  let s:touchbar_fullscreen=0
+  func! s:SetupFullScreenTouchBar()
+    if &fullscreen && s:touchbar_fullscreen == 0
+      aun TouchBar.EnterFullScreen
+      an icon=NSTouchBarExitFullScreenTemplate 1.10 TouchBar.ExitFullScreen :set nofullscreen<CR>
+      let s:touchbar_fullscreen = 1
+    elseif !&fullscreen && s:touchbar_fullscreen == 1
+      aun TouchBar.ExitFullScreen
+      an icon=NSTouchBarEnterFullScreenTemplate 1.10 TouchBar.EnterFullScreen :set fullscreen<CR>
+      let s:touchbar_fullscreen = 0
+    endif
+  endfunc
+  aug FullScreenTouchBar
+    au!
+    au VimResized * call <SID>SetupFullScreenTouchBar()
+  aug END
 endif
 
 " vim: set sw=2 :

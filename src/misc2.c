@@ -2520,6 +2520,7 @@ static struct key_name_entry
     {K_SWIPERIGHT,	(char_u *)"SwipeRight"},
     {K_SWIPEUP,		(char_u *)"SwipeUp"},
     {K_SWIPEDOWN,	(char_u *)"SwipeDown"},
+    {K_FORCECLICK,	(char_u *)"ForceClick"},
 #endif
     {0,			NULL}
     /* NOTE: When adding a long name update MAX_KEY_NAME_LEN. */
@@ -3772,10 +3773,8 @@ get_shape_idx(int mouse)
 #endif
     if (!mouse && State == SHOWMATCH)
 	return SHAPE_IDX_SM;
-#ifdef FEAT_VREPLACE
     if (State & VREPLACE_FLAG)
 	return SHAPE_IDX_R;
-#endif
     if (State & REPLACE_FLAG)
 	return SHAPE_IDX_R;
     if (State & INSERT)

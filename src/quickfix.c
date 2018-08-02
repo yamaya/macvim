@@ -2487,7 +2487,7 @@ qf_find_win_with_normal_buf(void)
     win_T	*wp;
 
     FOR_ALL_WINDOWS(wp)
-	if (wp->w_buffer->b_p_bt[0] == NUL)
+	if (bt_normal(wp->w_buffer))
 	    return wp;
 
     return NULL;
@@ -2563,7 +2563,7 @@ qf_goto_win_with_ll_file(win_T *use_win, int qf_fnum, qf_info_T *ll_ref)
 	    win = curwin;
 	    do
 	    {
-		if (win->w_buffer->b_p_bt[0] == NUL)
+		if (bt_normal(win->w_buffer))
 		    break;
 		if (win->w_prev == NULL)
 		    win = lastwin;	/* wrap around the top */
@@ -2620,8 +2620,7 @@ qf_goto_win_with_qfl_file(int qf_fnum)
 	}
 
 	/* Remember a usable window. */
-	if (altwin == NULL && !win->w_p_pvw
-		&& win->w_buffer->b_p_bt[0] == NUL)
+	if (altwin == NULL && !win->w_p_pvw && bt_normal(win->w_buffer))
 	    altwin = win;
     }
 
@@ -3487,6 +3486,42 @@ qf_types(int c, int nr)
 
     sprintf((char *)buf, "%s %3d", (char *)p, nr);
     return buf;
+}
+
+/*
+ * When "split" is FALSE: Open the entry/result under the cursor.
+ * When "split" is TRUE: Open the entry/result under the cursor in a new window.
+ */
+    void
+qf_view_result(int split)
+{
+    qf_info_T   *qi = &ql_info;
+
+    if (!bt_quickfix(curbuf))
+	return;
+
+    if (IS_LL_WINDOW(curwin))
+	qi = GET_LOC_LIST(curwin);
+
+    if (qi == NULL || qi->qf_lists[qi->qf_curlist].qf_count == 0)
+    {
+	EMSG(_(e_quickfix));
+	return;
+    }
+
+    if (split)
+    {
+	char_u      cmd[32];
+
+	vim_snprintf((char *)cmd, sizeof(cmd), "split +%ld%s",
+		(long)curwin->w_cursor.lnum,
+		IS_LL_WINDOW(curwin) ? "ll" : "cc");
+	if (do_cmdline_cmd(cmd) == OK)
+	    do_cmdline_cmd((char_u *) "clearjumps");
+	return;
+    }
+
+    do_cmdline_cmd((char_u *)(IS_LL_WINDOW(curwin) ? ".ll" : ".cc"));
 }
 
 /*

@@ -556,6 +556,11 @@ defaultAdvanceForFont(NSFont *font)
     [helper swipeWithEvent:event];
 }
 
+- (void)pressureChangeWithEvent:(NSEvent *)event
+{
+    [helper pressureChangeWithEvent:event];
+}
+
 - (NSMenu*)menuForEvent:(NSEvent *)event
 {
     // HACK! Return nil to disable default popup menus (Vim provides its own).
@@ -1271,8 +1276,10 @@ recurseDraw(const unichar *chars, CGGlyph *glyphs, CGPoint *positions,
 {
     if (CTFontGetGlyphsForCharacters(fontRef, chars, glyphs, length)) {
         // All chars were mapped to glyphs, so draw all at once and return.
-        length = composeGlyphsForChars(chars, glyphs, positions, length,
-                                       fontRef, isComposing, useLigatures);
+        length = isComposing || useLigatures
+                ? composeGlyphsForChars(chars, glyphs, positions, length,
+                                        fontRef, isComposing, useLigatures)
+                : gatherGlyphs(glyphs, length);
         CTFontDrawGlyphs(fontRef, glyphs, positions, length, context);
         return;
     }
