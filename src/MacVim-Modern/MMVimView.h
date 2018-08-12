@@ -42,6 +42,5 @@
 - (void)setDefaultColorsBackground:(NSColor *)back foreground:(NSColor *)fore;
 - (void)viewWillStartLiveResize;
 - (void)viewDidEndLiveResize;
-- (void)setFrameSizeKeepGUISize:(NSSize)size;
 
 @end

@@ -37,7 +37,7 @@
 - (MMScroller *)scrollbarForIdentifier:(int32_t)ident index:(unsigned *)idx;
 - (NSSize)vimViewSizeForTextViewSize:(NSSize)textViewSize;
 - (NSRect)textViewRectForVimViewSize:(NSSize)contentSize;
-- (void)frameSizeMayHaveChanged:(BOOL)keepGUISize;
+- (void)frameSizeMayHaveChanged;
 @end
 
 /**
@@ -495,25 +495,14 @@
     // row will result in the vim view holding more rows than the can fit
     // inside the window.)
     [super setFrameSize:size];
-    [self frameSizeMayHaveChanged:NO];
-}
-
-- (void)setFrameSizeKeepGUISize:(NSSize)size
-{
-    // NOTE: Instead of only acting when a frame was resized, we do some
-    // updating each time a frame may be resized.  (At the moment, if we only
-    // respond to actual frame changes then typing ":set lines=1000" twice in a
-    // row will result in the vim view holding more rows than the can fit
-    // inside the window.)
-    [super setFrameSize:size];
-    [self frameSizeMayHaveChanged:YES];
+    [self frameSizeMayHaveChanged];
 }
 
 - (void)setFrame:(NSRect)frame
 {
     // See comment in setFrameSize: above.
     [super setFrame:frame];
-    [self frameSizeMayHaveChanged:NO];
+    [self frameSizeMayHaveChanged];
 }
 
 - (BOOL)bottomScrollbarVisible
@@ -733,7 +722,7 @@
     return rect;
 }
 
-- (void)frameSizeMayHaveChanged:(BOOL)keepGUISize
+- (void)frameSizeMayHaveChanged
 {
     // NOTE: Whenever a call is made that may have changed the frame size we
     // take the opportunity to make sure all subviews are in place and that the
@@ -764,9 +753,7 @@
 
     if (constrained[0] != _textView.maxSize.row || constrained[1] != _textView.maxSize.col) {
         NSData *data = [NSData dataWithBytes:constrained length:sizeof(constrained)];
-        const int msgid = self.inLiveResize ?
-            LiveResizeMsgID :
-            (keepGUISize ? SetTextDimensionsNoResizeWindowMsgID : SetTextDimensionsMsgID);
+        const int msgid = self.inLiveResize ? LiveResizeMsgID : SetTextDimensionsMsgID;
 
         ASLogDebug(@"Notify Vim that text dimensions changed from %dx%d to %dx%d (%s)", maxSize.col, maxSize.row, constrained[1], constrained[0], MessageStrings[msgid]);
 

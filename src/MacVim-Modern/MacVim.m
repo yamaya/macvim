@@ -30,10 +30,8 @@ const char * const MessageStrings[] =
     "SetTextRowsMsgID",
     "SetTextColumnsMsgID",
     "SetTextDimensionsMsgID",
-    "SetTextDimensionsNoResizeWindowMsgID",
     "LiveResizeMsgID",
     "SetTextDimensionsReplyMsgID",
-    "ResizeViewMsgID"
     "SetWindowTitleMsgID",
     "ScrollWheelMsgID",
     "MouseDownMsgID",
