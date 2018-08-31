@@ -345,9 +345,13 @@ EXTERN int	t_colors INIT(= 0);	    /* int value of T_CCO */
  * a match within one line), search_match_endcol the column number of the
  * character just after the match in the last line.
  */
-EXTERN int	highlight_match INIT(= FALSE);	/* show search match pos */
-EXTERN linenr_T	search_match_lines;		/* lines of of matched string */
-EXTERN colnr_T	search_match_endcol;		/* col nr of match end */
+EXTERN int	highlight_match INIT(= FALSE);	// show search match pos
+EXTERN linenr_T	search_match_lines;		// lines of of matched string
+EXTERN colnr_T	search_match_endcol;		// col nr of match end
+#ifdef FEAT_SEARCH_EXTRA
+EXTERN linenr_T	search_first_line INIT(= 0);	  // for :{FIRST},{last}s/pat
+EXTERN linenr_T	search_last_line INIT(= MAXLNUM); // for :{first},{LAST}s/pat
+#endif
 
 EXTERN int	no_smartcase INIT(= FALSE);	/* don't use 'smartcase' once */
 
@@ -514,7 +518,7 @@ EXTERN char	*foreground_argument INIT(= NULL);
  *
  * volatile because it is used in signal handler sig_sysmouse().
  */
-EXTERN volatile int hold_gui_events INIT(= 0);
+EXTERN volatile sig_atomic_t hold_gui_events INIT(= 0);
 
 /*
  * When resizing the shell is postponed, remember the new size, and call
@@ -651,7 +655,7 @@ EXTERN int	entered_free_all_mem INIT(= FALSE);
 				/* TRUE when in or after free_all_mem() */
 #endif
 /* volatile because it is used in signal handler deathtrap(). */
-EXTERN volatile int full_screen INIT(= FALSE);
+EXTERN volatile sig_atomic_t full_screen INIT(= FALSE);
 				/* TRUE when doing full-screen output
 				 * otherwise only writing some messages */
 
@@ -674,8 +678,7 @@ EXTERN int	allbuf_lock INIT(= 0);
 				 * changed, no buffer can be deleted and
 				 * current directory can't be changed.
 				 * Used for SwapExists et al. */
-#ifdef FEAT_EVAL
-# define HAVE_SANDBOX
+#ifdef HAVE_SANDBOX
 EXTERN int	sandbox INIT(= 0);
 				/* Non-zero when evaluating an expression in a
 				 * "sandbox".  Several things are not allowed
@@ -797,11 +800,11 @@ EXTERN JMP_BUF x_jump_env;
 EXTERN JMP_BUF lc_jump_env;	/* argument to SETJMP() */
 # ifdef SIGHASARG
 /* volatile because it is used in signal handlers. */
-EXTERN volatile int lc_signal;	/* caught signal number, 0 when no was signal
+EXTERN volatile sig_atomic_t lc_signal;	/* caught signal number, 0 when no was signal
 				   caught; used for mch_libcall() */
 # endif
 /* volatile because it is used in signal handler deathtrap(). */
-EXTERN volatile int lc_active INIT(= FALSE); /* TRUE when lc_jump_env is valid. */
+EXTERN volatile sig_atomic_t lc_active INIT(= FALSE); /* TRUE when lc_jump_env is valid. */
 #endif
 
 #if defined(FEAT_MBYTE) || defined(FEAT_POSTSCRIPT)
@@ -1036,7 +1039,7 @@ EXTERN FILE	*scriptout  INIT(= NULL);   /* stream to write script to */
 EXTERN int	read_cmd_fd INIT(= 0);	    /* fd to read commands from */
 
 /* volatile because it is used in signal handler catch_sigint(). */
-EXTERN volatile int got_int INIT(= FALSE);    /* set to TRUE when interrupt
+EXTERN volatile sig_atomic_t got_int INIT(= FALSE); /* set to TRUE when interrupt
 						signal occurred */
 #ifdef USE_TERM_CONSOLE
 EXTERN int	term_console INIT(= FALSE); /* set to TRUE when console used */

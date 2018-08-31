@@ -2695,7 +2695,7 @@ mch_exit(int r)
     if (g_fWindInitCalled)
     {
 #ifdef FEAT_TITLE
-	mch_restore_title(3);
+	mch_restore_title(SAVE_RESTORE_BOTH);
 	/*
 	 * Restore both the small and big icons of the console window to
 	 * what they were at startup.  Don't do this when the window is
@@ -3108,6 +3108,9 @@ mch_dirname(
     char_u	*buf,
     int		len)
 {
+    char_u  abuf[_MAX_PATH + 1];
+    DWORD   lfnlen;
+
     /*
      * Originally this was:
      *    return (getcwd(buf, len) != NULL ? OK : FAIL);
@@ -3121,7 +3124,21 @@ mch_dirname(
 
 	if (GetCurrentDirectoryW(_MAX_PATH, wbuf) != 0)
 	{
-	    char_u  *p = utf16_to_enc(wbuf, NULL);
+	    WCHAR   wcbuf[_MAX_PATH + 1];
+	    char_u  *p = NULL;
+
+	    if (GetLongPathNameW(wbuf, wcbuf, _MAX_PATH) != 0)
+	    {
+		p = utf16_to_enc(wcbuf, NULL);
+		if (STRLEN(p) >= (size_t)len)
+		{
+		    // long path name is too long, fall back to short one
+		    vim_free(p);
+		    p = NULL;
+		}
+	    }
+	    if (p == NULL)
+		p = utf16_to_enc(wbuf, NULL);
 
 	    if (p != NULL)
 	    {
@@ -3133,7 +3150,16 @@ mch_dirname(
 	return FAIL;
     }
 #endif
-    return (GetCurrentDirectory(len, (LPSTR)buf) != 0 ? OK : FAIL);
+    if (GetCurrentDirectory(len, (LPSTR)buf) == 0)
+	return FAIL;
+    lfnlen = GetLongPathNameA((LPCSTR)buf, (LPSTR)abuf, _MAX_PATH);
+    if (lfnlen == 0 || lfnlen >= (DWORD)len)
+	// Failed to get long path name or it's too long: fall back to the
+	// short path name.
+	return OK;
+
+    STRCPY(buf, abuf);
+    return OK;
 }
 
 /*
@@ -3967,6 +3993,48 @@ mch_get_shellsize(void)
 }
 
 /*
+ * Resize console buffer to 'COORD'
+ */
+    static void
+ResizeConBuf(
+    HANDLE  hConsole,
+    COORD   coordScreen)
+{
+    if (!SetConsoleScreenBufferSize(hConsole, coordScreen))
+    {
+#ifdef MCH_WRITE_DUMP
+	if (fdDump)
+	{
+	    fprintf(fdDump, "SetConsoleScreenBufferSize failed: %lx\n",
+		    GetLastError());
+	    fflush(fdDump);
+	}
+#endif
+    }
+}
+
+/*
+ * Resize console window size to 'srWindowRect'
+ */
+    static void
+ResizeWindow(
+    HANDLE     hConsole,
+    SMALL_RECT srWindowRect)
+{
+    if (!SetConsoleWindowInfo(hConsole, TRUE, &srWindowRect))
+    {
+#ifdef MCH_WRITE_DUMP
+	if (fdDump)
+	{
+	    fprintf(fdDump, "SetConsoleWindowInfo failed: %lx\n",
+		    GetLastError());
+	    fflush(fdDump);
+	}
+#endif
+    }
+}
+
+/*
  * Set a console window to `xSize' * `ySize'
  */
     static void
@@ -3978,6 +4046,7 @@ ResizeConBufAndWindow(
     CONSOLE_SCREEN_BUFFER_INFO csbi;	/* hold current console buffer info */
     SMALL_RECT	    srWindowRect;	/* hold the new console size */
     COORD	    coordScreen;
+    static int	    resized = FALSE;
 
 #ifdef MCH_WRITE_DUMP
     if (fdDump)
@@ -4019,32 +4088,21 @@ ResizeConBufAndWindow(
 	}
     }
 
-    if (!SetConsoleWindowInfo(g_hConOut, TRUE, &srWindowRect))
-    {
-#ifdef MCH_WRITE_DUMP
-	if (fdDump)
-	{
-	    fprintf(fdDump, "SetConsoleWindowInfo failed: %lx\n",
-		    GetLastError());
-	    fflush(fdDump);
-	}
-#endif
-    }
-
-    /* define the new console buffer size */
+    // define the new console buffer size
     coordScreen.X = xSize;
     coordScreen.Y = ySize;
 
-    if (!SetConsoleScreenBufferSize(hConsole, coordScreen))
+    // In the new console call API, only the first time in reverse order
+    if (!vtp_working || resized)
     {
-#ifdef MCH_WRITE_DUMP
-	if (fdDump)
-	{
-	    fprintf(fdDump, "SetConsoleScreenBufferSize failed: %lx\n",
-		    GetLastError());
-	    fflush(fdDump);
-	}
-#endif
+	ResizeWindow(hConsole, srWindowRect);
+	ResizeConBuf(hConsole, coordScreen);
+    }
+    else
+    {
+	ResizeConBuf(hConsole, coordScreen);
+	ResizeWindow(hConsole, srWindowRect);
+	resized = TRUE;
     }
 }
 

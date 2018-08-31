@@ -398,6 +398,7 @@ static void f_strdisplaywidth(typval_T *argvars, typval_T *rettv);
 static void f_strwidth(typval_T *argvars, typval_T *rettv);
 static void f_submatch(typval_T *argvars, typval_T *rettv);
 static void f_substitute(typval_T *argvars, typval_T *rettv);
+static void f_swapinfo(typval_T *argvars, typval_T *rettv);
 static void f_synID(typval_T *argvars, typval_T *rettv);
 static void f_synIDattr(typval_T *argvars, typval_T *rettv);
 static void f_synIDtrans(typval_T *argvars, typval_T *rettv);
@@ -463,6 +464,7 @@ static void f_win_screenpos(typval_T *argvars, typval_T *rettv);
 static void f_winbufnr(typval_T *argvars, typval_T *rettv);
 static void f_wincol(typval_T *argvars, typval_T *rettv);
 static void f_winheight(typval_T *argvars, typval_T *rettv);
+static void f_winlayout(typval_T *argvars, typval_T *rettv);
 static void f_winline(typval_T *argvars, typval_T *rettv);
 static void f_winnr(typval_T *argvars, typval_T *rettv);
 static void f_winrestcmd(typval_T *argvars, typval_T *rettv);
@@ -858,6 +860,7 @@ static struct fst
     {"strwidth",	1, 1, f_strwidth},
     {"submatch",	1, 2, f_submatch},
     {"substitute",	4, 4, f_substitute},
+    {"swapinfo",	1, 1, f_swapinfo},
     {"synID",		3, 3, f_synID},
     {"synIDattr",	2, 3, f_synIDattr},
     {"synIDtrans",	1, 1, f_synIDtrans},
@@ -952,6 +955,7 @@ static struct fst
     {"winbufnr",	1, 1, f_winbufnr},
     {"wincol",		0, 0, f_wincol},
     {"winheight",	1, 1, f_winheight},
+    {"winlayout",	0, 1, f_winlayout},
     {"winline",		0, 0, f_winline},
     {"winnr",		0, 1, f_winnr},
     {"winrestcmd",	0, 0, f_winrestcmd},
@@ -5096,63 +5100,22 @@ f_getftype(typval_T *argvars, typval_T *rettv)
     rettv->v_type = VAR_STRING;
     if (mch_lstat((char *)fname, &st) >= 0)
     {
-#ifdef S_ISREG
 	if (S_ISREG(st.st_mode))
 	    t = "file";
 	else if (S_ISDIR(st.st_mode))
 	    t = "dir";
-# ifdef S_ISLNK
 	else if (S_ISLNK(st.st_mode))
 	    t = "link";
-# endif
-# ifdef S_ISBLK
 	else if (S_ISBLK(st.st_mode))
 	    t = "bdev";
-# endif
-# ifdef S_ISCHR
 	else if (S_ISCHR(st.st_mode))
 	    t = "cdev";
-# endif
-# ifdef S_ISFIFO
 	else if (S_ISFIFO(st.st_mode))
 	    t = "fifo";
-# endif
-# ifdef S_ISSOCK
 	else if (S_ISSOCK(st.st_mode))
-	    t = "fifo";
-# endif
+	    t = "socket";
 	else
 	    t = "other";
-#else
-# ifdef S_IFMT
-	switch (st.st_mode & S_IFMT)
-	{
-	    case S_IFREG: t = "file"; break;
-	    case S_IFDIR: t = "dir"; break;
-#  ifdef S_IFLNK
-	    case S_IFLNK: t = "link"; break;
-#  endif
-#  ifdef S_IFBLK
-	    case S_IFBLK: t = "bdev"; break;
-#  endif
-#  ifdef S_IFCHR
-	    case S_IFCHR: t = "cdev"; break;
-#  endif
-#  ifdef S_IFIFO
-	    case S_IFIFO: t = "fifo"; break;
-#  endif
-#  ifdef S_IFSOCK
-	    case S_IFSOCK: t = "socket"; break;
-#  endif
-	    default: t = "other";
-	}
-# else
-	if (mch_isdir(fname))
-	    t = "dir";
-	else
-	    t = "file";
-# endif
-#endif
 	type = vim_strsave((char_u *)t);
     }
     rettv->vval.v_string = type;
@@ -12384,6 +12347,16 @@ f_substitute(typval_T *argvars, typval_T *rettv)
 }
 
 /*
+ * "swapinfo(swap_filename)" function
+ */
+    static void
+f_swapinfo(typval_T *argvars, typval_T *rettv)
+{
+    if (rettv_dict_alloc(rettv) == OK)
+	get_b0_dict(get_tv_string(argvars), rettv->vval.v_dict);
+}
+
+/*
  * "synID(lnum, col, trans)" function
  */
     static void
@@ -13812,6 +13785,29 @@ f_winheight(typval_T *argvars, typval_T *rettv)
 	rettv->vval.v_number = -1;
     else
 	rettv->vval.v_number = wp->w_height;
+}
+
+/*
+ * "winlayout()" function
+ */
+    static void
+f_winlayout(typval_T *argvars, typval_T *rettv)
+{
+    tabpage_T	*tp;
+
+    if (rettv_list_alloc(rettv) != OK)
+	return;
+
+    if (argvars[0].v_type == VAR_UNKNOWN)
+	tp = curtab;
+    else
+    {
+	tp = find_tabpage((int)get_tv_number(&argvars[0]));
+	if (tp == NULL)
+	    return;
+    }
+
+    get_framelayout(tp->tp_topframe, rettv->vval.v_list, TRUE);
 }
 
 /*

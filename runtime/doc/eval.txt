@@ -954,6 +954,13 @@ These three can be repeated and mixed.  Examples:
 
 expr8							*expr8*
 -----
+This expression is either |expr9| or a sequence of the alternatives below,
+in any order.  E.g., these are all possible:
+	expr9[expr1].name
+	expr9.name[expr1]
+	expr9(expr1, ...)[expr1].name
+
+
 expr8[expr1]		item of String or |List|	*expr-[]* *E111*
 							*E909* *subscript*
 If expr8 is a Number or String this results in a String that contains the
@@ -2111,7 +2118,7 @@ cursor({list})			Number	move cursor to position in {list}
 debugbreak({pid})		Number  interrupt process being debugged
 deepcopy({expr} [, {noref}])	any	make a full copy of {expr}
 delete({fname} [, {flags}])	Number	delete the file or directory {fname}
-deletebufline({expr}, {first}[, {last}])
+deletebufline({expr}, {first} [, {last}])
 				Number	delete lines from buffer {expr}
 did_filetype()			Number	|TRUE| if FileType autocmd event used
 diff_filler({lnum})		Number	diff filler lines about {lnum}
@@ -2409,6 +2416,7 @@ submatch({nr} [, {list}])	String or List
 					specific match in ":s" or substitute()
 substitute({expr}, {pat}, {sub}, {flags})
 				String	all {pat} in {expr} replaced with {sub}
+swapinfo({fname})		Dict	information about swap file {fname}
 synID({lnum}, {col}, {trans})	Number	syntax ID at {lnum} and {col}
 synIDattr({synID}, {what} [, {mode}])
 				String	attribute {what} of syntax ID {synID}
@@ -2477,7 +2485,7 @@ tolower({expr})			String	the String {expr} switched to lowercase
 toupper({expr})			String	the String {expr} switched to uppercase
 tr({src}, {fromstr}, {tostr})	String	translate chars of {src} in {fromstr}
 					to chars in {tostr}
-trim({text}[, {mask}])		String	trim characters in {mask} from {text}
+trim({text} [, {mask}])		String	trim characters in {mask} from {text}
 trunc({expr})			Float	truncate Float {expr}
 type({name})			Number	type of variable {name}
 undofile({name})		String	undo file name for {name}
@@ -2497,6 +2505,7 @@ win_screenpos({nr})		List	get screen position of window {nr}
 winbufnr({nr})			Number	buffer number of window {nr}
 wincol()			Number	window column of the cursor
 winheight({nr})			Number	height of window {nr}
+winlayout([{tabnr}])		List	layout of windows in tab {tabnr}
 winline()			Number	window line of the cursor
 winnr([{expr}])			Number	number of current window
 winrestcmd()			String	returns command to restore window sizes
@@ -3529,7 +3538,7 @@ delete({fname} [, {flags}])					*delete()*
 		To delete a line from the buffer use |:delete| or
 		|deletebufline()|.
 
-deletebufline({expr}, {first}[, {last}])		*deletebufline()*
+deletebufline({expr}, {first} [, {last}])		*deletebufline()*
 		Delete lines {first} to {last} (inclusive) from buffer {expr}.
 		If {last} is omitted then delete line {first} only.
 		On success 0 is returned, on failure 1 is returned.
@@ -4307,7 +4316,7 @@ getbufinfo([{dict}])
 			endfor
 <
 		To get buffer-local options use: >
-			getbufvar({bufnr}, '&')
+			getbufvar({bufnr}, '&option_name')
 
 <
 							*getbufline()*
@@ -8000,6 +8009,25 @@ substitute({expr}, {pat}, {sub}, {flags})		*substitute()*
 		|submatch()| returns.  Example: >
 		   :echo substitute(s, '%\(\x\x\)', {m -> '0x' . m[1]}, 'g')
 
+swapinfo({fname})					swapinfo()
+		The result is a dictionary, which holds information about the
+		swapfile {fname}. The available fields are:
+			version VIM version
+			user	user name
+			host	host name
+			fname	original file name
+			pid	PID of the VIM process that created the swap
+				file
+			mtime	last modification time in seconds
+			inode	Optional: INODE number of the file
+			dirty	1 if file was modified, 0 if not
+		Note that "user" and "host" are truncated to at most 39 bytes.
+		In case of failure an "error" item is added with the reason:
+			Cannot open file: file not found or in accessible
+			Cannot read file: cannot read first block
+			Not a swap file: does not contain correct block ID
+			Magic number mismatch: Info in first block is invalid
+
 synID({lnum}, {col}, {trans})				*synID()*
 		The result is a Number, which is the syntax ID at the position
 		{lnum} and {col} in the current window.
@@ -8591,9 +8619,8 @@ term_start({cmd}, {options})				*term_start()*
 		|job-options|.  However, not all options can be used.  These
 		are supported:
 		   all timeout options
-		   "stoponexit"
-		   "callback", "out_cb", "err_cb"
-		   "exit_cb", "close_cb"
+		   "stoponexit", "cwd", "env"
+		   "callback", "out_cb", "err_cb", "exit_cb", "close_cb"
 		   "in_io", "in_top", "in_bot", "in_name", "in_buf"
 		   "out_io", "out_name", "out_buf", "out_modifiable", "out_msg"
 		   "err_io", "err_name", "err_buf", "err_modifiable", "err_msg"
@@ -8837,7 +8864,7 @@ tr({src}, {fromstr}, {tostr})				*tr()*
 			echo tr("<blob>", "<>", "{}")
 <		returns "{blob}"
 
-trim({text}[, {mask}])						*trim()*
+trim({text} [, {mask}])						*trim()*
 		Return {text} as a String where any character in {mask} is
 		removed from the beginning and  end of {text}.
 		If {mask} is not given, {mask} is all characters up to 0x20,
@@ -9088,6 +9115,35 @@ winheight({nr})						*winheight()*
 		This excludes any window toolbar line.
 		Examples: >
   :echo "The current window has " . winheight(0) . " lines."
+<
+winlayout([{tabnr}])					*winlayout()*
+		The result is a nested List containing the layout of windows
+		in a tabpage.
+
+		Without {tabnr} use the current tabpage, otherwise the tabpage
+		with number {tabnr}. If the tabpage {tabnr} is not found,
+		returns an empty list.
+
+		For a leaf window, it returns:
+			['leaf', {winid}]
+		For horizontally split windows, which form a column, it
+		returns:
+			['col', [{nested list of windows}]]
+		For vertically split windows, which form a row, it returns:
+			['row', [{nested list of windows}]]
+
+		Example: >
+			" Only one window in the tab page
+			:echo winlayout()
+			['leaf', 1000]
+			" Two horizontally split windows
+			:echo winlayout()
+			['col', [['leaf', 1000], ['leaf', 1001]]]
+			" Three horizontally split windows, with two
+			" vertically split windows in the middle window
+			:echo winlayout(2)
+			['col', [['leaf', 1002], ['row', ['leaf', 1003],
+					     ['leaf', 1001]]], ['leaf', 1000]]
 <
 							*winline()*
 winline()	The result is a Number, which is the screen line of the cursor

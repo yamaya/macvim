@@ -208,6 +208,21 @@ func Test_simplify()
   call assert_fails('call simplify(1.2)', 'E806:')
 endfunc
 
+func Test_pathshorten()
+  call assert_equal('', pathshorten(''))
+  call assert_equal('foo', pathshorten('foo'))
+  call assert_equal('/foo', pathshorten('/foo'))
+  call assert_equal('f/', pathshorten('foo/'))
+  call assert_equal('f/bar', pathshorten('foo/bar'))
+  call assert_equal('f/b/foobar', pathshorten('foo/bar/foobar'))
+  call assert_equal('/f/b/foobar', pathshorten('/foo/bar/foobar'))
+  call assert_equal('.f/bar', pathshorten('.foo/bar'))
+  call assert_equal('~f/bar', pathshorten('~foo/bar'))
+  call assert_equal('~.f/bar', pathshorten('~.foo/bar'))
+  call assert_equal('.~f/bar', pathshorten('.~foo/bar'))
+  call assert_equal('~/f/bar', pathshorten('~/foo/bar'))
+endfunc
+
 func Test_strpart()
   call assert_equal('de', strpart('abcdefg', 3, 2))
   call assert_equal('ab', strpart('abcdefg', -2, 4))
@@ -667,6 +682,7 @@ endfunc
 
 func Test_byte2line_line2byte()
   new
+  set endofline
   call setline(1, ['a', 'bc', 'd'])
 
   set fileformat=unix
@@ -687,7 +703,16 @@ func Test_byte2line_line2byte()
   call assert_equal([-1, -1, 1, 4, 8, 11, -1],
   \                 map(range(-1, 5), 'line2byte(v:val)'))
 
-  set fileformat&
+  bw!
+  set noendofline nofixendofline
+  normal a-
+  for ff in ["unix", "mac", "dos"]
+    let &fileformat = ff
+    call assert_equal(1, line2byte(1))
+    call assert_equal(2, line2byte(2))  " line2byte(line("$") + 1) is the buffer size plus one (as per :help line2byte).
+  endfor
+
+  set endofline& fixendofline& fileformat&
   bw!
 endfunc
 

@@ -3754,17 +3754,17 @@ prompt_for_number(int *mouse_used)
     else
 	MSG_PUTS(_("Type number and <Enter> (empty cancels): "));
 
-    /* Set the state such that text can be selected/copied/pasted and we still
-     * get mouse events. */
+    // Set the state such that text can be selected/copied/pasted and we still
+    // get mouse events. redraw_after_callback() will not redraw if cmdline_row
+    // is zero.
     save_cmdline_row = cmdline_row;
     cmdline_row = 0;
     save_State = State;
-    State = ASKMORE;	/* prevents a screen update when using a timer */
+    State = CMDLINE;
 #ifdef FEAT_MOUSE
-    /* May show different mouse shape. */
+    // May show different mouse shape.
     setmouse();
 #endif
-
 
     i = get_number(TRUE, mouse_used);
     if (KeyTyped)
@@ -3780,7 +3780,7 @@ prompt_for_number(int *mouse_used)
 	cmdline_row = save_cmdline_row;
     State = save_State;
 #ifdef FEAT_MOUSE
-    /* May need to restore mouse shape. */
+    // May need to restore mouse shape.
     setmouse();
 #endif
 
@@ -3809,24 +3809,12 @@ msgmore(long n)
 
     if (pn > p_report)
     {
-	if (pn == 1)
-	{
-	    if (n > 0)
-		vim_strncpy(msg_buf, (char_u *)_("1 more line"),
-							     MSG_BUF_LEN - 1);
-	    else
-		vim_strncpy(msg_buf, (char_u *)_("1 line less"),
-							     MSG_BUF_LEN - 1);
-	}
+	if (n > 0)
+	    vim_snprintf((char *)msg_buf, MSG_BUF_LEN,
+		    NGETTEXT("%ld more line", "%ld more lines", pn), pn);
 	else
-	{
-	    if (n > 0)
-		vim_snprintf((char *)msg_buf, MSG_BUF_LEN,
-						     _("%ld more lines"), pn);
-	    else
-		vim_snprintf((char *)msg_buf, MSG_BUF_LEN,
-						    _("%ld fewer lines"), pn);
-	}
+	    vim_snprintf((char *)msg_buf, MSG_BUF_LEN,
+		    NGETTEXT("%ld line less", "%ld fewer lines", pn), pn);
 	if (got_int)
 	    vim_strcat(msg_buf, (char_u *)_(" (Interrupted)"), MSG_BUF_LEN);
 	if (msg(msg_buf))

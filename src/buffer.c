@@ -204,13 +204,8 @@ open_buffer(
 #endif
 #ifdef UNIX
 	perm = mch_getperm(curbuf->b_ffname);
-	if (perm >= 0 && (0
-# ifdef S_ISFIFO
-		      || S_ISFIFO(perm)
-# endif
-# ifdef S_ISSOCK
+	if (perm >= 0 && (S_ISFIFO(perm)
 		      || S_ISSOCK(perm)
-# endif
 # ifdef OPEN_CHR_FILES
 		      || (S_ISCHR(perm) && is_dev_fd_file(curbuf->b_ffname))
 # endif
@@ -1044,7 +1039,14 @@ handle_swap_exists(bufref_T *old_curbuf)
 	    buf = old_curbuf->br_buf;
 	if (buf != NULL)
 	{
+	    int old_msg_silent = msg_silent;
+
+	    if (shortmess(SHM_FILEINFO))
+		msg_silent = 1;  // prevent fileinfo message
 	    enter_buffer(buf);
+	    // restore msg_silent, so that the command line will be shown
+	    msg_silent = old_msg_silent;
+
 # ifdef FEAT_SYN_HL
 	    if (old_tw != curbuf->b_p_tw)
 		check_colorcolumn(curwin);
@@ -1183,26 +1185,14 @@ do_bufdel(
 	else if (deleted >= p_report)
 	{
 	    if (command == DOBUF_UNLOAD)
-	    {
-		if (deleted == 1)
-		    MSG(_("1 buffer unloaded"));
-		else
-		    smsg((char_u *)_("%d buffers unloaded"), deleted);
-	    }
+		smsg((char_u *)NGETTEXT("%d buffer unloaded",
+			    "%d buffers unloaded", deleted), deleted);
 	    else if (command == DOBUF_DEL)
-	    {
-		if (deleted == 1)
-		    MSG(_("1 buffer deleted"));
-		else
-		    smsg((char_u *)_("%d buffers deleted"), deleted);
-	    }
+		smsg((char_u *)NGETTEXT("%d buffer deleted",
+			    "%d buffers deleted", deleted), deleted);
 	    else
-	    {
-		if (deleted == 1)
-		    MSG(_("1 buffer wiped out"));
-		else
-		    smsg((char_u *)_("%d buffers wiped out"), deleted);
-	    }
+		smsg((char_u *)NGETTEXT("%d buffer wiped out",
+			    "%d buffers wiped out", deleted), deleted);
 	}
     }
 
@@ -3494,19 +3484,14 @@ fileinfo(
 	n = (int)(((long)curwin->w_cursor.lnum * 100L) /
 					    (long)curbuf->b_ml.ml_line_count);
     if (curbuf->b_ml.ml_flags & ML_EMPTY)
-    {
 	vim_snprintf_add((char *)buffer, IOSIZE, "%s", _(no_lines_msg));
-    }
 #ifdef FEAT_CMDL_INFO
     else if (p_ru)
-    {
 	/* Current line and column are already on the screen -- webb */
-	if (curbuf->b_ml.ml_line_count == 1)
-	    vim_snprintf_add((char *)buffer, IOSIZE, _("1 line --%d%%--"), n);
-	else
-	    vim_snprintf_add((char *)buffer, IOSIZE, _("%ld lines --%d%%--"),
-					 (long)curbuf->b_ml.ml_line_count, n);
-    }
+	vim_snprintf_add((char *)buffer, IOSIZE,
+		NGETTEXT("%ld line --%d%%--", "%ld lines --%d%%--",
+						   curbuf->b_ml.ml_line_count),
+		(long)curbuf->b_ml.ml_line_count, n);
 #endif
     else
     {
@@ -3808,7 +3793,8 @@ value_changed(char_u *str, char_u **last)
 	if (str == NULL)
 	{
 	    *last = NULL;
-	    mch_restore_title(last == &lasttitle ? 1 : 2);
+	    mch_restore_title(
+		  last == &lasttitle ? SAVE_RESTORE_TITLE : SAVE_RESTORE_ICON);
 	}
 	else
 	{

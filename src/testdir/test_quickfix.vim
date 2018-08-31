@@ -3091,6 +3091,20 @@ func Test_qf_tick()
   call Xqftick_tests('l')
 endfunc
 
+" Test helpgrep with lang specifier
+func Xtest_helpgrep_with_lang_specifier(cchar)
+  call s:setup_commands(a:cchar)
+  Xhelpgrep Vim@en
+  call assert_equal('help', &filetype)
+  call assert_notequal(0, g:Xgetlist({'nr' : '$'}).nr)
+  new | only
+endfunc
+
+func Test_helpgrep_with_lang_specifier()
+  call Xtest_helpgrep_with_lang_specifier('c')
+  call Xtest_helpgrep_with_lang_specifier('l')
+endfunc
+
 " The following test used to crash Vim.
 " Open the location list window and close the regular window associated with
 " the location list. When the garbage collection runs now, it incorrectly
@@ -3478,6 +3492,30 @@ func Xautocmd_changelist(cchar)
   call assert_equal(5, line('.'))
   autocmd! QuickFixCmdPost
 
+  " Test for autocommands clearing the quickfix list before jumping to the
+  " first error. This should not result in an error
+  autocmd QuickFixCmdPost * call g:Xsetlist([], 'r')
+  let v:errmsg = ''
+  " Test for cfile/lfile
+  Xfile Xerr
+  call assert_true(v:errmsg !~# 'E42:')
+  " Test for cbuffer/lbuffer
+  edit Xerr
+  Xbuffer
+  call assert_true(v:errmsg !~# 'E42:')
+  " Test for cexpr/lexpr
+  Xexpr 'Xtestfile2:4:Line4'
+  call assert_true(v:errmsg !~# 'E42:')
+  " Test for grep/lgrep
+  " The grepprg may not be set on non-Unix systems
+  if has('unix')
+    silent Xgrep Line5 Xtestfile2
+    call assert_true(v:errmsg !~# 'E42:')
+  endif
+  " Test for vimgrep/lvimgrep
+  call assert_fails('silent Xvimgrep Line5 Xtestfile2', 'E480:')
+  autocmd! QuickFixCmdPost
+
   call delete('Xerr')
   call delete('Xtestfile1')
   call delete('Xtestfile2')
@@ -3521,4 +3559,13 @@ endfunc
 func Test_view_result_split()
   call Xview_result_split_tests('c')
   call Xview_result_split_tests('l')
+endfunc
+
+" Test that :cc sets curswant
+func Test_curswant()
+  helpgrep quickfix
+  normal! llll
+  1cc
+  call assert_equal(getcurpos()[4], virtcol('.'))
+  cclose | helpclose
 endfunc
