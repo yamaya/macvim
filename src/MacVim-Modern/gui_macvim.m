@@ -359,7 +359,14 @@ gui_mch_wait_for_chars(int wtime)
     [MMBackend.shared flushQueue:YES];
 
 #ifdef MESSAGE_QUEUE
+# ifdef FEAT_TIMERS
+    did_add_timer = FALSE;
+# endif
     parse_queued_messages();
+# ifdef FEAT_TIMERS
+    if (did_add_timer)
+        wtime = 0;
+# endif
 #endif
 
     return [MMBackend.shared waitForInput:wtime];
@@ -1525,6 +1532,17 @@ gui_mch_set_shellsize(
 {
     ASLogDebug(@"width=%d height=%d min_width=%d min_height=%d base_width=%d base_height=%d direction=%d", width, height, min_width, min_height, base_width, base_height, direction);
     [MMBackend.shared setRows:height columns:width];
+}
+
+/*
+ * Re-calculates size of the Vim view to fit within the window without having
+ * to resize the window. Usually happens after UI elements have changed (e.g.
+ * adding / removing a toolbar) when guioptions 'k' is set.
+ */
+    void
+gui_mch_resize_view()
+{
+    [MMBackend.shared resizeView];
 }
 
 /*
