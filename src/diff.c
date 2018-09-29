@@ -21,17 +21,22 @@
 
 #if defined(FEAT_DIFF) || defined(PROTO)
 
-static int	diff_busy = FALSE;	/* ex_diffgetput() is busy */
+static int diff_busy = FALSE;	    // using diff structs, don't change them
+static int diff_need_update = FALSE; // ex_diffupdate needs to be called
 
 /* flags obtained from the 'diffopt' option */
-#define DIFF_FILLER	1	// display filler lines
-#define DIFF_ICASE	2	// ignore case
-#define DIFF_IWHITE	4	// ignore change in white space
-#define DIFF_HORIZONTAL	8	// horizontal splits
-#define DIFF_VERTICAL	16	// vertical splits
-#define DIFF_HIDDEN_OFF	32	// diffoff when hidden
-#define DIFF_INTERNAL	64	// use internal xdiff algorithm
-static int	diff_flags = DIFF_FILLER;
+#define DIFF_FILLER	0x001	// display filler lines
+#define DIFF_IBLANK	0x002	// ignore empty lines
+#define DIFF_ICASE	0x004	// ignore case
+#define DIFF_IWHITE	0x008	// ignore change in white space
+#define DIFF_IWHITEALL	0x010	// ignore all white space changes
+#define DIFF_IWHITEEOL	0x020	// ignore change in white space at EOL
+#define DIFF_HORIZONTAL	0x040	// horizontal splits
+#define DIFF_VERTICAL	0x080	// vertical splits
+#define DIFF_HIDDEN_OFF	0x100	// diffoff when hidden
+#define DIFF_INTERNAL	0x200	// use internal xdiff algorithm
+#define ALL_WHITE_DIFF (DIFF_IWHITE | DIFF_IWHITEALL | DIFF_IWHITEEOL)
+static int	diff_flags = DIFF_INTERNAL | DIFF_FILLER;
 
 static long diff_algorithm = 0;
 
@@ -287,6 +292,16 @@ diff_mark_adjust_tp(
     linenr_T	last;
     linenr_T	lnum_deleted = line1;	/* lnum of remaining deletion */
     int		check_unchanged;
+
+    if (diff_internal())
+    {
+	// Will update diffs before redrawing.  Set _invalid to update the
+	// diffs themselves, set _update to also update folds properly just
+	// before redrawing.
+	tp->tp_diff_invalid = TRUE;
+	tp->tp_diff_update = TRUE;
+	return;
+    }
 
     if (line2 == MAXLNUM)
     {
@@ -636,7 +651,7 @@ diff_check_sanity(tabpage_T *tp, diff_T *dp)
  */
     static void
 diff_redraw(
-    int		dofold)	    /* also recompute the folds */
+    int		dofold)	    // also recompute the folds
 {
     win_T	*wp;
     int		n;
@@ -698,7 +713,7 @@ diff_write_buffer(buf_T *buf, diffin_T *din)
 
     // xdiff requires one big block of memory with all the text.
     for (lnum = 1; lnum <= buf->b_ml.ml_line_count; ++lnum)
-	len += STRLEN(ml_get_buf(buf, lnum, FALSE)) + 1;
+	len += (long)STRLEN(ml_get_buf(buf, lnum, FALSE)) + 1;
     ptr = lalloc(len, TRUE);
     if (ptr == NULL)
     {
@@ -859,7 +874,7 @@ theend:
  * Note that if the internal diff failed for one of the buffers, the external
  * diff will be used anyway.
  */
-    static int
+    int
 diff_internal(void)
 {
     return (diff_flags & DIFF_INTERNAL) != 0 && *p_dex == NUL;
@@ -883,9 +898,9 @@ diff_internal_failed(void)
 
 /*
  * Completely update the diffs for the buffers involved.
- * This uses the ordinary "diff" command.
- * The buffers are written to a file, also for unmodified buffers (the file
- * could have been produced by autocommands, e.g. the netrw plugin).
+ * When using the external "diff" command the buffers are written to a file,
+ * also for unmodified buffers (the file could have been produced by
+ * autocommands, e.g. the netrw plugin).
  */
     void
 ex_diffupdate(exarg_T *eap)	// "eap" can be NULL
@@ -893,6 +908,13 @@ ex_diffupdate(exarg_T *eap)	// "eap" can be NULL
     int		idx_orig;
     int		idx_new;
     diffio_T	diffio;
+    int		had_diffs = curtab->tp_first_diff != NULL;
+
+    if (diff_busy)
+    {
+	diff_need_update = TRUE;
+	return;
+    }
 
     // Delete all diffblocks.
     diff_clear(curtab);
@@ -903,14 +925,14 @@ ex_diffupdate(exarg_T *eap)	// "eap" can be NULL
 	if (curtab->tp_diffbuf[idx_orig] != NULL)
 	    break;
     if (idx_orig == DB_COUNT)
-	return;
+	goto theend;
 
     // Only need to do something when there is another buffer.
     for (idx_new = idx_orig + 1; idx_new < DB_COUNT; ++idx_new)
 	if (curtab->tp_diffbuf[idx_new] != NULL)
 	    break;
     if (idx_new == DB_COUNT)
-	return;
+	goto theend;
 
     // Only use the internal method if it did not fail for one of the buffers.
     vim_memset(&diffio, 0, sizeof(diffio));
@@ -927,7 +949,14 @@ ex_diffupdate(exarg_T *eap)	// "eap" can be NULL
     // force updating cursor position on screen
     curwin->w_valid_cursor.lnum = 0;
 
-    diff_redraw(TRUE);
+theend:
+    // A redraw is needed if there were diffs and they were cleared, or there
+    // are diffs now, which means they got updated.
+    if (had_diffs || curtab->tp_first_diff != NULL)
+    {
+	diff_redraw(TRUE);
+	apply_autocmds(EVENT_DIFFUPDATED, NULL, NULL, FALSE, curbuf);
+    }
 }
 
 /*
@@ -1050,6 +1079,12 @@ diff_file_internal(diffio_T *diffio)
 
     if (diff_flags & DIFF_IWHITE)
 	param.flags |= XDF_IGNORE_WHITESPACE_CHANGE;
+    if (diff_flags & DIFF_IWHITEALL)
+	param.flags |= XDF_IGNORE_WHITESPACE;
+    if (diff_flags & DIFF_IWHITEEOL)
+	param.flags |= XDF_IGNORE_WHITESPACE_AT_EOL;
+    if (diff_flags & DIFF_IBLANK)
+	param.flags |= XDF_IGNORE_BLANK_LINES;
 
     emit_cfg.ctxlen = 0; // don't need any diff_context here
     emit_cb.priv = &diffio->dio_diff;
@@ -1106,7 +1141,7 @@ diff_file(diffio_T *dio)
 	// Build the diff command and execute it.  Always use -a, binary
 	// differences are of no use.  Ignore errors, diff returns
 	// non-zero when differences have been found.
-	vim_snprintf((char *)cmd, len, "diff %s%s%s%s%s %s",
+	vim_snprintf((char *)cmd, len, "diff %s%s%s%s%s%s%s%s %s",
 		diff_a_works == FALSE ? "" : "-a ",
 #if defined(MSWIN)
 		diff_bin_works == TRUE ? "--binary " : "",
@@ -1114,6 +1149,9 @@ diff_file(diffio_T *dio)
 		"",
 #endif
 		(diff_flags & DIFF_IWHITE) ? "-b " : "",
+		(diff_flags & DIFF_IWHITEALL) ? "-w " : "",
+		(diff_flags & DIFF_IWHITEEOL) ? "-Z " : "",
+		(diff_flags & DIFF_IBLANK) ? "-B " : "",
 		(diff_flags & DIFF_ICASE) ? "-i " : "",
 		tmp_orig, tmp_new);
 	append_redir(cmd, (int)len, p_srr, tmp_diff);
@@ -1203,10 +1241,10 @@ ex_diffpatch(exarg_T *eap)
     {
 # ifdef TEMPDIRNAMES
 	if (vim_tempdir != NULL)
-	    ignored = mch_chdir((char *)vim_tempdir);
+	    vim_ignored = mch_chdir((char *)vim_tempdir);
 	else
 # endif
-	    ignored = mch_chdir("/tmp");
+	    vim_ignored = mch_chdir("/tmp");
 	shorten_fnames(TRUE);
     }
 #endif
@@ -1600,6 +1638,10 @@ diff_read(
 		    && (tag_fgets(linebuf, LBUFLEN, fd) == 0)
 		    && (STRNCMP(line, "@@ ", 3) == 0))
 		diffstyle = DIFF_UNIFIED;
+	    else
+		// Format not recognized yet, skip over this line.  Cygwin diff
+		// may put a warning at the start of the file.
+		continue;
 	}
 
 	if (diffstyle == DIFF_ED)
@@ -1942,17 +1984,25 @@ diff_cmp(char_u *s1, char_u *s2)
     char_u	*p1, *p2;
     int		l;
 
-    if ((diff_flags & (DIFF_ICASE | DIFF_IWHITE)) == 0)
+    if ((diff_flags & DIFF_IBLANK)
+	    && (*skipwhite(s1) == NUL || *skipwhite(s2) == NUL))
+	return 0;
+
+    if ((diff_flags & (DIFF_ICASE | ALL_WHITE_DIFF)) == 0)
 	return STRCMP(s1, s2);
-    if ((diff_flags & DIFF_ICASE) && !(diff_flags & DIFF_IWHITE))
+    if ((diff_flags & DIFF_ICASE) && !(diff_flags & ALL_WHITE_DIFF))
 	return MB_STRICMP(s1, s2);
 
-    /* Ignore white space changes and possibly ignore case. */
     p1 = s1;
     p2 = s2;
+
+    // Ignore white space changes and possibly ignore case.
     while (*p1 != NUL && *p2 != NUL)
     {
-	if (VIM_ISWHITE(*p1) && VIM_ISWHITE(*p2))
+	if (((diff_flags & DIFF_IWHITE)
+		    && VIM_ISWHITE(*p1) && VIM_ISWHITE(*p2))
+		|| ((diff_flags & DIFF_IWHITEALL)
+		    && (VIM_ISWHITE(*p1) || VIM_ISWHITE(*p2))))
 	{
 	    p1 = skipwhite(p1);
 	    p2 = skipwhite(p2);
@@ -1966,7 +2016,7 @@ diff_cmp(char_u *s1, char_u *s2)
 	}
     }
 
-    /* Ignore trailing white space. */
+    // Ignore trailing white space.
     p1 = skipwhite(p1);
     p2 = skipwhite(p2);
     if (*p1 != NUL || *p2 != NUL)
@@ -2138,10 +2188,25 @@ diffopt_changed(void)
 	    p += 8;
 	    diff_context_new = getdigits(&p);
 	}
+	else if (STRNCMP(p, "iblank", 6) == 0)
+	{
+	    p += 6;
+	    diff_flags_new |= DIFF_IBLANK;
+	}
 	else if (STRNCMP(p, "icase", 5) == 0)
 	{
 	    p += 5;
 	    diff_flags_new |= DIFF_ICASE;
+	}
+	else if (STRNCMP(p, "iwhiteall", 9) == 0)
+	{
+	    p += 9;
+	    diff_flags_new |= DIFF_IWHITEALL;
+	}
+	else if (STRNCMP(p, "iwhiteeol", 9) == 0)
+	{
+	    p += 9;
+	    diff_flags_new |= DIFF_IWHITEEOL;
 	}
 	else if (STRNCMP(p, "iwhite", 6) == 0)
 	{
@@ -2213,7 +2278,8 @@ diffopt_changed(void)
     if ((diff_flags_new & DIFF_HORIZONTAL) && (diff_flags_new & DIFF_VERTICAL))
 	return FAIL;
 
-    /* If "icase" or "iwhite" was added or removed, need to update the diff. */
+    // If flags were added or removed, or the algorithm was changed, need to
+    // update the diff.
     if (diff_flags != diff_flags_new || diff_algorithm != diff_algorithm_new)
 	FOR_ALL_TABPAGES(tp)
 	    tp->tp_diff_invalid = TRUE;
@@ -2311,9 +2377,12 @@ diff_find_change(
 	    si_org = si_new = 0;
 	    while (line_org[si_org] != NUL)
 	    {
-		if ((diff_flags & DIFF_IWHITE)
-			&& VIM_ISWHITE(line_org[si_org])
-			&& VIM_ISWHITE(line_new[si_new]))
+		if (((diff_flags & DIFF_IWHITE)
+			    && VIM_ISWHITE(line_org[si_org])
+					      && VIM_ISWHITE(line_new[si_new]))
+			|| ((diff_flags & DIFF_IWHITEALL)
+			    && (VIM_ISWHITE(line_org[si_org])
+					    || VIM_ISWHITE(line_new[si_new]))))
 		{
 		    si_org = (int)(skipwhite(line_org + si_org) - line_org);
 		    si_new = (int)(skipwhite(line_new + si_new) - line_new);
@@ -2347,9 +2416,12 @@ diff_find_change(
 		while (ei_org >= *startp && ei_new >= si_new
 						&& ei_org >= 0 && ei_new >= 0)
 		{
-		    if ((diff_flags & DIFF_IWHITE)
-			    && VIM_ISWHITE(line_org[ei_org])
-			    && VIM_ISWHITE(line_new[ei_new]))
+		    if (((diff_flags & DIFF_IWHITE)
+				&& VIM_ISWHITE(line_org[ei_org])
+					      && VIM_ISWHITE(line_new[ei_new]))
+			    || ((diff_flags & DIFF_IWHITEALL)
+				&& (VIM_ISWHITE(line_org[ei_org])
+					    || VIM_ISWHITE(line_new[ei_new]))))
 		    {
 			while (ei_org >= *startp
 					     && VIM_ISWHITE(line_org[ei_org]))
@@ -2602,7 +2674,7 @@ ex_diffgetput(exarg_T *eap)
 	if (diff_buf_idx(curbuf) != idx_to)
 	{
 	    EMSG(_("E787: Buffer changed unexpectedly"));
-	    return;
+	    goto theend;
 	}
     }
 
@@ -2773,15 +2845,25 @@ ex_diffgetput(exarg_T *eap)
 	aucmd_restbuf(&aco);
     }
 
+theend:
     diff_busy = FALSE;
+    if (diff_need_update)
+    {
+	diff_need_update = FALSE;
+	ex_diffupdate(NULL);
+    }
+    else
+    {
+	// Check that the cursor is on a valid character and update it's
+	// position.  When there were filler lines the topline has become
+	// invalid.
+	check_cursor();
+	changed_line_abv_curs();
 
-    /* Check that the cursor is on a valid character and update it's position.
-     * When there were filler lines the topline has become invalid. */
-    check_cursor();
-    changed_line_abv_curs();
-
-    /* Also need to redraw the other buffers. */
-    diff_redraw(FALSE);
+	// Also need to redraw the other buffers.
+	diff_redraw(FALSE);
+	apply_autocmds(EVENT_DIFFUPDATED, NULL, NULL, FALSE, curbuf);
+    }
 }
 
 #ifdef FEAT_FOLDING

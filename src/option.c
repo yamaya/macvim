@@ -4463,7 +4463,9 @@ trigger_optionsset_string(
 	char_u *oldval,
 	char_u *newval)
 {
-    if (oldval != NULL && newval != NULL)
+    // Don't do this recursively.
+    if (oldval != NULL && newval != NULL
+				    && *get_vim_var_str(VV_OPTION_TYPE) == NUL)
     {
 	char_u buf_type[7];
 
@@ -7906,8 +7908,6 @@ did_set_string_option(
 #if defined(FEAT_VTP) && defined(FEAT_TERMGUICOLORS)
     if (did_swaptcap)
     {
-	if (t_colors < 256)
-	    p_tgc = 0;
 	set_termname((char_u *)"win32");
 	init_highlight(TRUE, FALSE);
     }
@@ -8427,6 +8427,11 @@ set_bool_option(
     else if ((int *)varp == &p_lnr)
 	/* 'langnoremap' -> !'langremap' */
 	p_lrm = !p_lnr;
+#endif
+
+#ifdef FEAT_SYN_HL
+    else if ((int *)varp == &curwin->w_p_cul && !value && old_value)
+	reset_cursorline();
 #endif
 
 #ifdef FEAT_PERSISTENT_UNDO
@@ -9029,9 +9034,11 @@ set_bool_option(
     options[opt_idx].flags |= P_WAS_SET;
 
 #if defined(FEAT_EVAL)
-    if (!starting)
+    // Don't do this while starting up or recursively.
+    if (!starting && *get_vim_var_str(VV_OPTION_TYPE) == NUL)
     {
 	char_u buf_old[2], buf_new[2], buf_type[7];
+
 	vim_snprintf((char *)buf_old, 2, "%d", old_value ? TRUE: FALSE);
 	vim_snprintf((char *)buf_new, 2, "%d", value ? TRUE: FALSE);
 	vim_snprintf((char *)buf_type, 7, "%s", (opt_flags & OPT_LOCAL) ? "local" : "global");
@@ -9625,7 +9632,8 @@ set_num_option(
     options[opt_idx].flags |= P_WAS_SET;
 
 #if defined(FEAT_EVAL)
-    if (!starting && errmsg == NULL)
+    // Don't do this while starting up, failure or recursively.
+    if (!starting && errmsg == NULL && *get_vim_var_str(VV_OPTION_TYPE) == NUL)
     {
 	char_u buf_old[11], buf_new[11], buf_type[7];
 	vim_snprintf((char *)buf_old, 10, "%ld", old_value);
@@ -12696,13 +12704,17 @@ option_was_set(char_u *name)
 /*
  * Reset the flag indicating option "name" was set.
  */
-    void
+    int
 reset_option_was_set(char_u *name)
 {
     int idx = findoption(name);
 
     if (idx >= 0)
+    {
 	options[idx].flags &= ~P_WAS_SET;
+	return OK;
+    }
+    return FAIL;
 }
 
 /*

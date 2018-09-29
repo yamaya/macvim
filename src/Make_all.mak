@@ -14,6 +14,7 @@ NEW_TESTS = \
 	test_autoload \
 	test_backspace_opt \
 	test_backup \
+	test_behave \
 	test_blockedit \
 	test_breakindent \
 	test_bufline \
@@ -167,6 +168,7 @@ NEW_TESTS = \
 	test_stat \
 	test_statusline \
 	test_substitute \
+	test_suspend \
 	test_swap \
 	test_syn_attr \
 	test_syntax \

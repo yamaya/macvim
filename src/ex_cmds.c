@@ -649,7 +649,10 @@ ex_sort(exarg_T *eap)
     /* Adjust marks for deleted (or added) lines and prepare for displaying. */
     deleted = (long)(count - (lnum - eap->line2));
     if (deleted > 0)
+    {
 	mark_adjust(eap->line2 - deleted, eap->line2, (long)MAXLNUM, -deleted);
+	msgmore(-deleted);
+    }
     else if (deleted < 0)
 	mark_adjust(eap->line2, MAXLNUM, -deleted, 0L);
 
@@ -2117,7 +2120,7 @@ write_viminfo(char_u *file, int forceit)
 		if (st_old.st_uid != tmp_st.st_uid)
 		    /* Changing the owner might fail, in which case the
 		     * file will now owned by the current user, oh well. */
-		    ignored = fchown(fileno(fp_out), st_old.st_uid, -1);
+		    vim_ignored = fchown(fileno(fp_out), st_old.st_uid, -1);
 		if (st_old.st_gid != tmp_st.st_gid
 			&& fchown(fileno(fp_out), -1, st_old.st_gid) == -1)
 		    /* can't set the group to what it should be, remove

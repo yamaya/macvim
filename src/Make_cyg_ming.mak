@@ -35,6 +35,9 @@ FEATURES=HUGE
 # set to yes for a debug build
 DEBUG=no
 
+# set to yes to create a mapfile
+# MAP=yes
+
 # set to SIZE for size, SPEED for speed, MAXSPEED for maximum optimization
 OPTIMIZE=MAXSPEED
 
@@ -244,6 +247,8 @@ endif
 
 #	Lua interface:
 #	  LUA=[Path to Lua directory] (Set inside Make_cyg.mak or Make_ming.mak)
+#	  LUA_LIBDIR=[Path to Lua library directory] (default: $LUA/lib)
+#	  LUA_INCDIR=[Path to Lua include directory] (default: $LUA/include)
 #	  DYNAMIC_LUA=yes (to load the Lua DLL dynamically)
 #	  LUA_VER=[Lua version, eg 51, 52] (default is 53)
 ifdef LUA
@@ -256,7 +261,8 @@ LUA_VER=53
 endif
 
 ifeq (no,$(DYNAMIC_LUA))
-LUA_LIB = -L$(LUA)/lib -llua
+LUA_LIBDIR = $(LUA)/lib
+LUA_LIB = -L$(LUA_LIBDIR) -llua
 endif
 
 endif
@@ -472,9 +478,10 @@ ifeq (19, $(word 1,$(sort 19 $(RUBY_VER))))
 RUBY_19_OR_LATER = 1
 endif
 
-RUBYINC = -I $(RUBY)/lib/ruby/$(RUBY_API_VER_LONG)/$(RUBY_PLATFORM)
 ifdef RUBY_19_OR_LATER
-RUBYINC += -I $(RUBY)/include/ruby-$(RUBY_API_VER_LONG) -I $(RUBY)/include/ruby-$(RUBY_API_VER_LONG)/$(RUBY_PLATFORM)
+RUBYINC = -I $(RUBY)/include/ruby-$(RUBY_API_VER_LONG) -I $(RUBY)/include/ruby-$(RUBY_API_VER_LONG)/$(RUBY_PLATFORM)
+else
+RUBYINC = -I $(RUBY)/lib/ruby/$(RUBY_API_VER_LONG)/$(RUBY_PLATFORM)
 endif
 ifeq (no, $(DYNAMIC_RUBY))
 RUBYLIB = -L$(RUBY)/lib -l$(RUBY_INSTALL_NAME)
@@ -524,7 +531,8 @@ endif
 endif
 
 ifdef LUA
-CFLAGS += -I$(LUA)/include -I$(LUA) -DFEAT_LUA
+LUA_INCDIR = $(LUA)/include
+CFLAGS += -I$(LUA_INCDIR) -I$(LUA) -DFEAT_LUA
 ifeq (yes, $(DYNAMIC_LUA))
 CFLAGS += -DDYNAMIC_LUA -DDYNAMIC_LUA_DLL=\"lua$(LUA_VER).dll\"
 endif
@@ -818,15 +826,15 @@ endif
 
 ifeq ($(TERMINAL),yes)
 OBJ += $(OUTDIR)/terminal.o \
-	$(OUTDIR)/term_encoding.o \
-	$(OUTDIR)/term_keyboard.o \
-	$(OUTDIR)/term_mouse.o \
-	$(OUTDIR)/term_parser.o \
-	$(OUTDIR)/term_pen.o \
-	$(OUTDIR)/term_screen.o \
-	$(OUTDIR)/term_state.o \
-	$(OUTDIR)/term_unicode.o \
-	$(OUTDIR)/term_vterm.o
+	$(OUTDIR)/encoding.o \
+	$(OUTDIR)/keyboard.o \
+	$(OUTDIR)/mouse.o \
+	$(OUTDIR)/parser.o \
+	$(OUTDIR)/pen.o \
+	$(OUTDIR)/termscreen.o \
+	$(OUTDIR)/state.o \
+	$(OUTDIR)/unicode.o \
+	$(OUTDIR)/vterm.o
 endif
 
 # Include xdiff
@@ -929,6 +937,10 @@ endif
 
 ifeq (yes, $(STATIC_WINPTHREAD))
 LIB += -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic
+endif
+
+ifeq (yes, $(MAP))
+LFLAGS += -Wl,-Map=$(TARGET).map
 endif
 
 all: $(TARGET) vimrun.exe xxd/xxd.exe install.exe uninstal.exe GvimExt/gvimext.dll
@@ -1064,31 +1076,31 @@ CCCTERM = $(CC) -c $(CFLAGS) -Ilibvterm/include -DINLINE="" \
 	  -DIS_COMBINING_FUNCTION=utf_iscomposing_uint \
 	  -DWCWIDTH_FUNCTION=utf_uint2cells
 
-$(OUTDIR)/term_encoding.o: libvterm/src/encoding.c $(TERM_DEPS)
+$(OUTDIR)/encoding.o: libvterm/src/encoding.c $(TERM_DEPS)
 	$(CCCTERM) libvterm/src/encoding.c -o $@
 
-$(OUTDIR)/term_keyboard.o: libvterm/src/keyboard.c $(TERM_DEPS)
+$(OUTDIR)/keyboard.o: libvterm/src/keyboard.c $(TERM_DEPS)
 	$(CCCTERM) libvterm/src/keyboard.c -o $@
 
-$(OUTDIR)/term_mouse.o: libvterm/src/mouse.c $(TERM_DEPS)
+$(OUTDIR)/mouse.o: libvterm/src/mouse.c $(TERM_DEPS)
 	$(CCCTERM) libvterm/src/mouse.c -o $@
 
-$(OUTDIR)/term_parser.o: libvterm/src/parser.c $(TERM_DEPS)
+$(OUTDIR)/parser.o: libvterm/src/parser.c $(TERM_DEPS)
 	$(CCCTERM) libvterm/src/parser.c -o $@
 
-$(OUTDIR)/term_pen.o: libvterm/src/pen.c $(TERM_DEPS)
+$(OUTDIR)/pen.o: libvterm/src/pen.c $(TERM_DEPS)
 	$(CCCTERM) libvterm/src/pen.c -o $@
 
-$(OUTDIR)/term_screen.o: libvterm/src/screen.c $(TERM_DEPS)
-	$(CCCTERM) libvterm/src/screen.c -o $@
+$(OUTDIR)/termscreen.o: libvterm/src/termscreen.c $(TERM_DEPS)
+	$(CCCTERM) libvterm/src/termscreen.c -o $@
 
-$(OUTDIR)/term_state.o: libvterm/src/state.c $(TERM_DEPS)
+$(OUTDIR)/state.o: libvterm/src/state.c $(TERM_DEPS)
 	$(CCCTERM) libvterm/src/state.c -o $@
 
-$(OUTDIR)/term_unicode.o: libvterm/src/unicode.c $(TERM_DEPS)
+$(OUTDIR)/unicode.o: libvterm/src/unicode.c $(TERM_DEPS)
 	$(CCCTERM) libvterm/src/unicode.c -o $@
 
-$(OUTDIR)/term_vterm.o: libvterm/src/vterm.c $(TERM_DEPS)
+$(OUTDIR)/vterm.o: libvterm/src/vterm.c $(TERM_DEPS)
 	$(CCCTERM) libvterm/src/vterm.c -o $@
 
 $(OUTDIR)/xdiffi.o: xdiff/xdiffi.c $(XDIFF_DEPS)
