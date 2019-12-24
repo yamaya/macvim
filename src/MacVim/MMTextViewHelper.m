@@ -174,6 +174,9 @@ KeyboardInputSourcesEqual(TISInputSourceRef a, TISInputSourceRef b)
         // with Ctrl-6 or Ctrl-^ when IM is active.
         [self doKeyDown:@"\x1e"];
         string = nil;
+    } else if (@available(macOS 10.10, *) && ((flags & NSShiftKeyMask) && [string isEqualToString:@" "])) {
+        // HACK! for Yosemite - Fix for Shift+Space inputing
+        // do nothing
     } else {
         // HACK! When using JapaneseIM with "Windows-like shortcuts" turned on,
         // interpretKeyEvents: does not call doCommandBySelector: with Ctrl-O
