@@ -1365,12 +1365,6 @@ im_set_active(int active)
         return;
     }
 #endif
-    // Tell frontend to enable/disable IM (called e.g. when the mode changes).
-    if (!p_imdisable) {
-        int msgid = active ? ActivateKeyScriptMsgID : DeactivateKeyScriptMsgID;
-        [[MMBackend sharedInstance] setImState:active];
-        [[MMBackend sharedInstance] queueMessage:msgid properties:nil];
-    }
 }
 
 
