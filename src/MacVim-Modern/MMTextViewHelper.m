@@ -134,6 +134,11 @@ KeyboardInputSourcesEqual(TISInputSourceRef a, TISInputSourceRef b)
     const BOOL mmta = [states[@"p_mmta"] boolValue];
     NSString *string = event.characters;
     NSString *unmod  = event.charactersIgnoringModifiers;
+    const BOOL modCommand = (flags & NSEventModifierFlagCommand) ? YES : NO;
+    const BOOL modControl = (flags & NSEventModifierFlagControl) ? YES : NO;
+    const BOOL modOption = (flags & NSEventModifierFlagOption) ? YES : NO;
+    const BOOL modShift = (flags & NSEventModifierFlagShift) ? YES : NO;
+
 
     // Alt key presses should not be interpreted if the 'macmeta' option is
     // set.  We still have to call interpretKeyEvents: for keys
@@ -141,13 +146,10 @@ KeyboardInputSourcesEqual(TISInputSourceRef a, TISInputSourceRef b)
     // ASCII chars in the range after space (0x20) and before backspace (0x7f).
     // Note that this implies that 'mmta' (if enabled) breaks input methods
     // when the Alt key is held.
-    if ((flags & NSEventModifierFlagOption)
-            && mmta && unmod.length == 1
-            && [unmod characterAtIndex:0] > 0x20) {
+    if (modOption && mmta && unmod.length == 1 && [unmod characterAtIndex:0] > 0x20) {
         ASLogDebug(@"MACMETA key, don't interpret it");
         string = unmod;
-    } else if (_inputSourceActivated && (flags & NSEventModifierFlagControl)
-            && !(flags & (NSEventModifierFlagOption | NSEventModifierFlagCommand))
+    } else if (_inputSourceActivated && (modControl && !modCommand && !modOption)
             && unmod.length == 1
             && ([unmod characterAtIndex:0] == '6' ||
                 [unmod characterAtIndex:0] == '^')) {
@@ -161,21 +163,30 @@ KeyboardInputSourcesEqual(TISInputSourceRef a, TISInputSourceRef b)
         // do nothing
 #endif
     } else {
-        // HACK!  interpretKeyEvents: may call insertText: or
-        // doCommandBySelector:, or it may swallow the key (most likely the
-        // current input method used it).  In the first two cases we have to
-        // manually set the below flag to NO if the key wasn't handled.
-        _interpretKeyEventsSwallowedKey = YES;
-        [_textView interpretKeyEvents:@[event]];
-        if (_interpretKeyEventsSwallowedKey) string = nil;
-        else if (flags & NSEventModifierFlagCommand) {
+        // When using JapaneseIM with "Windows-like shortcuts" turned on,
+        // interpretKeyEvents: does not call doCommandBySelector: with Ctrl-O
+        // and Ctrl-U (why?), so we cannot handle them at all.
+        // As a workaround, we do not call interpretKeyEvents: when no marked
+        // text and with only control-modifier.
+        if (self.hasMarkedText || (!modControl || modCommand || modOption)) {
+            // HACK!  interpretKeyEvents: may call insertText: or
+            // doCommandBySelector:, or it may swallow the key (most likely the
+            // current input method used it).  In the first two cases we have to
+            // manually set the below flag to NO if the key wasn't handled.
+            _interpretKeyEventsSwallowedKey = YES;
+            [_textView interpretKeyEvents:@[event]];
+            if (_interpretKeyEventsSwallowedKey)
+                string = nil;
+        }
+        if (string && modCommand) {
             // HACK! When Command is held we have to more or less guess whether
             // we should use characters or charactersIgnoringModifiers.  The
             // following heuristic seems to work but it may have to change.
             // Note that the Shift and Alt flags may also need to be cleared
             // (see doKeyDown:keyCode:modifiers: in MMBackend).
-            if (((flags & NSEventModifierFlagShift) && !(flags & NSEventModifierFlagOption)) ||
-                (flags & NSEventModifierFlagControl)) string = unmod;
+            if ((modShift && !modOption) || modControl) {
+                string = unmod;
+            }
         }
     }
 

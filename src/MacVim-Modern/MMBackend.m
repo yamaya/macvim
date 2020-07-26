@@ -755,6 +755,11 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
     [self queueMessage:SetTextDimensionsMsgID data:data];
 }
 
+- (void)resizeView
+{
+    [self queueMessage:ResizeViewMsgID data:nil];
+}
+
 - (void)setWindowTitle:(char *)title
 {
     NSMutableData *data = NSMutableData.new;
@@ -961,15 +966,18 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
 - (void)setBlinkWait:(int)wait on:(int)on off:(int)off
 {
+#if 0
     // Vim specifies times in milliseconds, whereas Cocoa wants them in
     // seconds.
     _blinkWaitInterval = .001 * wait;
     _blinkOnInterval = .001 * on;
     _blinkOffInterval = .001 * off;
+#endif
 }
 
 - (void)startBlink
 {
+#if 0
     if (_blinkTimer) {
         [_blinkTimer invalidate];
         _blinkTimer = nil;
@@ -981,16 +989,19 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
         gui_update_cursor(TRUE, FALSE);
         [self flushQueue:YES];
     }
+#endif
 }
 
 - (void)stopBlink:(BOOL)updateCursor
 {
+#if 0
     if (MMBlinkStateOff == _blinkState && updateCursor) {
         gui_update_cursor(TRUE, FALSE);
         [self flushQueue:YES];
     }
 
     _blinkState = MMBlinkStateNone;
+#endif
 }
 
 - (void)adjustLinespace:(int)linespace
@@ -1823,6 +1834,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
         tabpage_move(idx);
     } else if (SetTextDimensionsMsgID == msgid || LiveResizeMsgID == msgid
+            || SetTextDimensionsNoResizeWindowMsgID == msgid
             || SetTextRowsMsgID == msgid || SetTextColumnsMsgID == msgid) {
         if (!data) return;
         const void *bytes = data.bytes;
@@ -1854,6 +1866,8 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
         [self queueMessage:msgid data:d];
 
         gui_resize_shell(cols, rows);
+    } else if (ResizeViewMsgID == msgid) {
+        [self queueMessage:msgid data:data];
     } else if (ExecuteMenuMsgID == msgid) {
         NSDictionary *attrs = [NSDictionary dictionaryWithData:data];
         if (attrs) {
@@ -2122,6 +2136,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
 
 - (void)blinkTimerFired:(NSTimer *)timer
 {
+#if 0
     NSTimeInterval interval = 0;
 
     _blinkTimer = nil;
@@ -2140,6 +2155,7 @@ extern GuiFont gui_mch_retain_font(GuiFont font);
         _blinkTimer = [NSTimer scheduledTimerWithTimeInterval:interval target:self selector:@selector(blinkTimerFired:) userInfo:nil repeats:NO];
         [self flushQueue:YES];
     }
+#endif
 }
 
 - (void)focusChange:(BOOL)on

@@ -484,16 +484,22 @@ static BOOL isUnsafeMessage(int msgid);
     } else if (HideTabBarMsgID == msgid) {
         [_windowController showTabBar:NO];
         [self sendMessage:BackingPropertiesChangedMsgID data:nil];
-    } else if (SetTextDimensionsMsgID == msgid || LiveResizeMsgID == msgid || SetTextDimensionsReplyMsgID == msgid) {
+    } else if (SetTextDimensionsMsgID == msgid || LiveResizeMsgID == msgid ||
+            SetTextDimensionsNoResizeWindowMsgID == msgid ||
+            SetTextDimensionsReplyMsgID == msgid) {
         const void *bytes = data.bytes;
-        int rows = *((int *)bytes);  bytes += sizeof(int);
-        int cols = *((int *)bytes);
+        const int rows = *((int *)bytes);  bytes += sizeof(int);
+        const int cols = *((int *)bytes);
         // NOTE: When a resize message originated in the frontend, Vim
         // acknowledges it with a reply message.  When this happens the window
         // should not move (the frontend would already have moved the window).
-        const BOOL onScreen = SetTextDimensionsReplyMsgID!=msgid;
-
-        [_windowController setTextDimensionsWithRows:rows columns:cols isLive:LiveResizeMsgID == msgid keepOnScreen:onScreen];
+        [_windowController setTextDimensionsWithRows:rows
+                                             columns:cols
+                                              isLive:LiveResizeMsgID == msgid
+                                         keepGUISize:SetTextDimensionsNoResizeWindowMsgID == msgid
+                                        keepOnScreen:SetTextDimensionsReplyMsgID != msgid];
+    } else if (ResizeViewMsgID == msgid) {
+        [_windowController resizeView];
     } else if (SetWindowTitleMsgID == msgid) {
         const void *bytes = data.bytes;
         int len = *((int *)bytes);  bytes += sizeof(int);

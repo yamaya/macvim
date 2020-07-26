@@ -419,6 +419,7 @@
 				29B97323FDCFA39411CA2CEA /* Frameworks */,
 				52818AF81C1C073400F59085 /* QuickLook Plugin */,
 				19C28FACFE9D520D11CA2CBB /* Products */,
+				54FA63FD2163B16B009ECA35 /* Recovered References */,
 			);
 			name = MacVim;
 			sourceTree = "<group>";
@@ -473,6 +474,14 @@
 				52818AFF1C1C075300F59085 /* QLStephen.qlgenerator */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		54FA63FD2163B16B009ECA35 /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				528DA6691426D4EB003380F1 /* macvim-askpass */,
+			);
+			name = "Recovered References";
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */

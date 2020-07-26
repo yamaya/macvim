@@ -32,7 +32,8 @@
 - (void)moveWindowAcrossScreens:(NSPoint)origin;
 - (void)updateTabsWithData:(NSData *)data;
 - (void)selectTabWithIndex:(int)index;
-- (void)setTextDimensionsWithRows:(int)rows columns:(int)cols isLive:(BOOL)live keepOnScreen:(BOOL)onScreen;
+- (void)setTextDimensionsWithRows:(int)rows columns:(int)cols isLive:(BOOL)live keepGUISize:(BOOL)keepGUISize keepOnScreen:(BOOL)onScreen;
+- (void)resizeView;
 - (void)zoomWithRows:(int)rows columns:(int)cols state:(int)state;
 - (void)setTitle:(NSString *)title;
 - (void)setDocumentFilename:(NSString *)filename;
